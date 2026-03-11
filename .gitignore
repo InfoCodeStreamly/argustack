@@ -18,5 +18,9 @@ tests/logs/
 argustack.mcpb
 .mcpb-build/
 
+# Build cache
+.eslintcache
+tsconfig.tsbuildinfo
+
 # OS
 .DS_Store

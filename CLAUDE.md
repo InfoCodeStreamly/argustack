@@ -25,39 +25,46 @@ Dependency Rule: `cli/ → use-cases/ → core/ports` ← `adapters/`
 
 ```
 src/
-├── core/                          ← ЯДРО: типы + интерфейсы (0 зависимостей)
+├── core/                          ← CORE: types + interfaces (zero dependencies)
 │   ├── types/
 │   │   ├── issue.ts                  Issue, Comment, Changelog, Worklog, Link, IssueBatch
 │   │   ├── project.ts                Project
+│   │   ├── config.ts                 WorkspaceConfig, SourceConfig
 │   │   └── index.ts                  re-exports
 │   └── ports/
-│       ├── source-provider.ts        ISourceProvider — откуда тянем данные
-│       ├── storage.ts                IStorage — куда кладём данные
+│       ├── source-provider.ts        ISourceProvider — where data comes from
+│       ├── storage.ts                IStorage — where data is stored
 │       └── index.ts                  re-exports
 │
-├── use-cases/                     ← ЛОГИКА: оркестрация (зависит только от core/)
+├── use-cases/                     ← LOGIC: orchestration (depends only on core/)
 │   └── pull.ts                       PullUseCase: source.pullIssues() → storage.saveBatch()
 │
-├── adapters/                      ← РЕАЛИЗАЦИИ: implements core/ports
+├── adapters/                      ← IMPLEMENTATIONS: implements core/ports
 │   ├── jira/                         JiraProvider implements ISourceProvider
 │   │   ├── client.ts                    Version3Client wrapper
 │   │   ├── mapper.ts                    Raw Jira JSON → core types
 │   │   ├── provider.ts                  Paginated pull, fields=*all, expand=changelog
 │   │   └── index.ts                     re-exports
-│   ├── postgres/                     PostgresStorage implements IStorage
-│   │   ├── connection.ts                pg Pool
-│   │   ├── schema.ts                    CREATE TABLE + indexes (idempotent)
-│   │   ├── storage.ts                   UPSERT logic, transactions
-│   │   └── index.ts                     re-exports
-│   └── git/                          (future) GitProvider
+│   └── postgres/                     PostgresStorage implements IStorage
+│       ├── connection.ts                pg Pool
+│       ├── schema.ts                    CREATE TABLE + indexes (idempotent)
+│       ├── storage.ts                   UPSERT logic, transactions
+│       └── index.ts                     re-exports
 │
-├── workspace/                     ← INFRASTRUCTURE: workspace management
+├── workspace/                     ← INFRA: workspace management
+│   ├── config.ts                     loadConfig(), parseConfig()
 │   └── resolver.ts                   find .argustack/ walking up from cwd
+│
+├── mcp/                           ← MCP SERVER: Claude Desktop integration
+│   └── server.ts                     McpServer with tools (query, pull, stats)
 │
 └── cli/                           ← ENTRY POINT: commands, UX, wiring
     ├── index.ts                      Commander.js setup, registers all commands
     ├── init.ts                       argustack init (interactive workspace setup)
-    └── jira.ts                       argustack jira pull (wires adapters → use case)
+    ├── sync.ts                       argustack sync (wires adapters → use case)
+    ├── sources.ts                    argustack sources (list configured sources)
+    ├── status.ts                     argustack status (workspace status)
+    └── mcp-install.ts                argustack mcp install (Claude Desktop config)
 ```
 
 ### Key Architecture Decisions
@@ -71,7 +78,7 @@ src/
 ### Data Flow
 
 ```
-CLI (jira.ts)
+CLI (sync.ts)
   → creates JiraProvider (adapter)
   → creates PostgresStorage (adapter)
   → creates PullUseCase(source, storage)
@@ -143,9 +150,12 @@ npm start -- jira pull           # run compiled version
 
 ```bash
 argustack init                   # create workspace (interactive)
-argustack jira pull              # pull all issues from Jira
-argustack jira pull -p PROJ      # pull specific project
-argustack jira pull --since 2025-01-01  # incremental pull
+argustack sync                   # pull all issues from configured sources
+argustack sync -p PROJ           # pull specific project
+argustack sync --since 2025-01-01  # incremental pull
+argustack sources                # list configured sources
+argustack status                 # workspace status
+argustack mcp install            # install MCP server into Claude Desktop
 ```
 
 ## Code Conventions
