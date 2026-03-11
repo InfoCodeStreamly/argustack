@@ -1,0 +1,33 @@
+{
+  "name": "argustack",
+  "version": "0.1.0",
+  "description": "Project analysis platform — Jira + Git + DB",
+  "type": "module",
+  "bin": {
+    "argustack": "dist/cli/index.js"
+  },
+  "scripts": {
+    "build": "tsc",
+    "dev": "tsx src/cli/index.ts",
+    "start": "node dist/cli/index.js"
+  },
+  "keywords": ["jira", "git", "analysis", "cli", "devtools"],
+  "license": "MIT",
+  "engines": {
+    "node": ">=18"
+  },
+  "dependencies": {
+    "jira.js": "^4.0.1",
+    "commander": "^12.1.0",
+    "pg": "^8.13.1",
+    "dotenv": "^16.4.7",
+    "ora": "^8.1.1",
+    "chalk": "^5.4.1"
+  },
+  "devDependencies": {
+    "typescript": "^5.7.2",
+    "@types/pg": "^8.11.10",
+    "@types/node": "^22.10.2",
+    "tsx": "^4.19.2"
+  }
+}
