@@ -9,25 +9,54 @@
   "scripts": {
     "build": "tsc",
     "dev": "tsx src/cli/index.ts",
-    "start": "node dist/cli/index.js"
+    "start": "node dist/cli/index.js",
+    "lint": "eslint src/ tests/",
+    "lint:fix": "eslint src/ tests/ --fix",
+    "typecheck": "tsc --noEmit",
+    "test": "vitest run",
+    "test:watch": "vitest",
+    "test:coverage": "vitest run --coverage",
+    "test:unit": "vitest run --project unit",
+    "test:integration": "vitest run --project integration",
+    "test:mcp": "vitest run --project mcp",
+    "check": "npm run typecheck && npm run lint",
+    "ci": "npm run check && npm test",
+    "build:mcpb": "npm run build && bash scripts/build-mcpb.sh",
+    "prepare": "husky"
   },
-  "keywords": ["jira", "git", "analysis", "cli", "devtools"],
+  "keywords": [
+    "jira",
+    "git",
+    "analysis",
+    "cli",
+    "devtools"
+  ],
   "license": "MIT",
   "engines": {
-    "node": ">=18"
+    "node": ">=20"
   },
   "dependencies": {
-    "jira.js": "^4.0.1",
-    "commander": "^12.1.0",
-    "pg": "^8.13.1",
-    "dotenv": "^16.4.7",
-    "ora": "^8.1.1",
-    "chalk": "^5.4.1"
+    "@inquirer/prompts": "^8.3.0",
+    "@modelcontextprotocol/sdk": "^1.27.1",
+    "chalk": "^5.4.1",
+    "commander": "^14.0.3",
+    "dotenv": "^17.3.1",
+    "jira.js": "^5.3.1",
+    "ora": "^9.3.0",
+    "pg": "^8.13.1"
   },
   "devDependencies": {
-    "typescript": "^5.7.2",
+    "@eslint/js": "^10.0.1",
+    "@types/eslint__js": "^8.42.3",
+    "@types/node": "^24.12.0",
     "@types/pg": "^8.11.10",
-    "@types/node": "^22.10.2",
-    "tsx": "^4.19.2"
+    "@vitest/coverage-v8": "^4.0.18",
+    "eslint": "^10.0.3",
+    "husky": "^9.1.7",
+    "lint-staged": "^16.3.3",
+    "tsx": "^4.19.2",
+    "typescript": "^5.7.2",
+    "typescript-eslint": "^8.57.0",
+    "vitest": "^4.0.18"
   }
 }

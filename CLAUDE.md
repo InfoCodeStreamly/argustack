@@ -14,37 +14,70 @@ Currently building **Component 1: Jira Pull** — downloads everything from any 
 - **TypeScript / Node.js** — CLI + core logic
 - **Commander.js** — CLI framework with subcommands
 - **jira.js** (`Version3Client`) — typed Jira REST API client
+- **@inquirer/prompts** — interactive CLI prompts (init)
 - **PostgreSQL 16 + pgvector** — local DB (Docker), vector search
 - **dotenv** — configuration via `.env`
 - **ora / chalk** — CLI UX (spinners, colors)
 
-## Project Structure
+## Architecture — Clean Architecture (adapted for CLI)
+
+Dependency Rule: `cli/ → use-cases/ → core/ports` ← `adapters/`
 
 ```
-argustack/
-├── src/
-│   ├── cli/
-│   │   ├── index.ts             # CLI entry point (commander.js)
-│   │   ├── init.ts              # argustack init (creates workspace)
-│   │   └── jira.ts              # argustack jira pull
-│   ├── jira/
-│   │   ├── client.ts            # jira.js Version3Client wrapper
-│   │   └── pull.ts              # paginated pull → raw JSON
-│   ├── db/
-│   │   ├── connection.ts        # pg client
-│   │   ├── schema.ts            # CREATE TABLE + migrations
-│   │   └── import.ts            # JSON → PostgreSQL bulk insert
-│   ├── workspace/
-│   │   └── resolver.ts          # find .argustack/ up from cwd
-│   ├── git/                     # (component 2 — future)
-│   └── analyze/                 # (component 3 — future)
-├── templates/
-│   ├── init.sql                 # PostgreSQL schema template
-│   ├── docker-compose.yml       # Docker template
-│   └── env.example              # .env template
-├── package.json
-├── tsconfig.json
-└── IDEAS.md                     # full planning document (Ukrainian)
+src/
+├── core/                          ← ЯДРО: типы + интерфейсы (0 зависимостей)
+│   ├── types/
+│   │   ├── issue.ts                  Issue, Comment, Changelog, Worklog, Link, IssueBatch
+│   │   ├── project.ts                Project
+│   │   └── index.ts                  re-exports
+│   └── ports/
+│       ├── source-provider.ts        ISourceProvider — откуда тянем данные
+│       ├── storage.ts                IStorage — куда кладём данные
+│       └── index.ts                  re-exports
+│
+├── use-cases/                     ← ЛОГИКА: оркестрация (зависит только от core/)
+│   └── pull.ts                       PullUseCase: source.pullIssues() → storage.saveBatch()
+│
+├── adapters/                      ← РЕАЛИЗАЦИИ: implements core/ports
+│   ├── jira/                         JiraProvider implements ISourceProvider
+│   │   ├── client.ts                    Version3Client wrapper
+│   │   ├── mapper.ts                    Raw Jira JSON → core types
+│   │   ├── provider.ts                  Paginated pull, fields=*all, expand=changelog
+│   │   └── index.ts                     re-exports
+│   ├── postgres/                     PostgresStorage implements IStorage
+│   │   ├── connection.ts                pg Pool
+│   │   ├── schema.ts                    CREATE TABLE + indexes (idempotent)
+│   │   ├── storage.ts                   UPSERT logic, transactions
+│   │   └── index.ts                     re-exports
+│   └── git/                          (future) GitProvider
+│
+├── workspace/                     ← INFRASTRUCTURE: workspace management
+│   └── resolver.ts                   find .argustack/ walking up from cwd
+│
+└── cli/                           ← ENTRY POINT: commands, UX, wiring
+    ├── index.ts                      Commander.js setup, registers all commands
+    ├── init.ts                       argustack init (interactive workspace setup)
+    └── jira.ts                       argustack jira pull (wires adapters → use case)
+```
+
+### Key Architecture Decisions
+
+- **core/** has ZERO dependencies on external packages — only pure TypeScript types and interfaces
+- **use-cases/** depends only on core/ interfaces — doesn't know about Jira, PostgreSQL, or CLI
+- **adapters/** implement core/ interfaces — each adapter is replaceable independently
+- **cli/** is the composition root — creates adapters, injects them into use cases
+- **AsyncGenerator** for `pullIssues()` — memory-efficient streaming of large datasets (100k+ issues)
+
+### Data Flow
+
+```
+CLI (jira.ts)
+  → creates JiraProvider (adapter)
+  → creates PostgresStorage (adapter)
+  → creates PullUseCase(source, storage)
+  → PullUseCase.execute()
+       → source.pullIssues()     ← AsyncGenerator yields IssueBatch pages
+       → storage.saveBatch()     ← UPSERT into PostgreSQL
 ```
 
 ## Workspace Concept
@@ -68,7 +101,8 @@ Argustack uses a workspace pattern like git. Each workspace is a directory with 
 - **PostgreSQL 16 + pgvector** running in Docker
 - Default port: `5434` (not 5432, to avoid conflicts)
 - pgweb UI on port `8086` for browsing tables and running SQL
-- Schema in `templates/init.sql`
+- Schema managed by `adapters/postgres/schema.ts` (idempotent, CREATE IF NOT EXISTS)
+- Template in `templates/init.sql` for initial workspace setup
 
 ### Tables
 | Table | Purpose |
@@ -108,10 +142,10 @@ npm start -- jira pull           # run compiled version
 ## Commands
 
 ```bash
-argustack init                   # create workspace
+argustack init                   # create workspace (interactive)
 argustack jira pull              # pull all issues from Jira
 argustack jira pull -p PROJ      # pull specific project
-argustack status                 # workspace status
+argustack jira pull --since 2025-01-01  # incremental pull
 ```
 
 ## Code Conventions
@@ -121,3 +155,4 @@ argustack status                 # workspace status
 - File extensions in imports: `import { foo } from './bar.js'`
 - Async/await throughout
 - No hardcoded field names or project-specific logic
+- Dependency Inversion: depend on interfaces (core/ports), not implementations

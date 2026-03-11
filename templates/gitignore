@@ -1,5 +1,6 @@
 # Argustack workspace
 .env
+.mcp.json
 data/
 node_modules/
 .DS_Store

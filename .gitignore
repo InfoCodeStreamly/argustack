@@ -11,5 +11,12 @@ dist/
 # Docs (local notes)
 Docs/
 
+# Test logs (generated reports)
+tests/logs/
+
+# MCPB build artifacts
+argustack.mcpb
+.mcpb-build/
+
 # OS
 .DS_Store
