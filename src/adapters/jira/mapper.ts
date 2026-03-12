@@ -9,6 +9,14 @@ import type {
 
 type JiraIssue = Version3Models.Issue;
 
+/**
+ * jira.js types mark many fields as non-null, but the real Jira API
+ * returns null for unset fields. This type reflects actual API behavior.
+ */
+type NullableFields = {
+  [K in keyof Version3Models.Fields]: Version3Models.Fields[K] | null;
+};
+
 // ADF node structure (Atlassian Document Format)
 interface AdfNode {
   readonly type: string;
@@ -21,7 +29,7 @@ interface AdfNode {
  * Field names are stored as-is from Jira — no renaming.
  */
 export function mapJiraIssue(raw: JiraIssue): Issue {
-  const fields = raw.fields;
+  const fields: NullableFields = raw.fields;
 
   // Separate standard fields from custom fields
   const standardFieldKeys = new Set([
@@ -42,22 +50,22 @@ export function mapJiraIssue(raw: JiraIssue): Issue {
     key: raw.key,
     id: raw.id,
     projectKey: raw.key.split('-')[0] ?? '',
-    summary: fields.summary,
+    summary: fields.summary ?? '',
     description: extractText(fields.description),
     issueType: (fields.issuetype ?? fields.issueType)?.name ?? null,
-    status: fields.status.name ?? null,
-    statusCategory: fields.status.statusCategory?.name ?? null,
-    priority: fields.priority.name ?? null,
+    status: fields.status?.name ?? null,
+    statusCategory: fields.status?.statusCategory?.name ?? null,
+    priority: fields.priority?.name ?? null,
     resolution: fields.resolution?.name ?? null,
-    assignee: fields.assignee.displayName ?? null,
-    reporter: fields.reporter.displayName ?? null,
+    assignee: fields.assignee?.displayName ?? null,
+    reporter: fields.reporter?.displayName ?? null,
     created: fields.created,
     updated: fields.updated,
     resolved: fields.resolutiondate ?? null,
     dueDate: fields.duedate ?? null,
-    labels: fields.labels,
-    components: fields.components.map((c) => c.name).filter((n): n is string => n !== undefined),
-    fixVersions: fields.fixVersions.map((v) => v.name),
+    labels: fields.labels ?? [],
+    components: (fields.components ?? []).map((c) => c.name).filter((n): n is string => n !== undefined),
+    fixVersions: (fields.fixVersions ?? []).map((v) => v.name),
     parentKey: fields.parent?.key ?? null,
     sprint: extractSprint(fields),
     storyPoints: extractStoryPoints(fields),
@@ -67,7 +75,8 @@ export function mapJiraIssue(raw: JiraIssue): Issue {
 }
 
 export function mapJiraComments(issueKey: string, raw: JiraIssue): IssueComment[] {
-  const comments = raw.fields.comment.comments;
+  const fields: NullableFields = raw.fields;
+  const comments = fields.comment?.comments ?? [];
   return comments.map((c) => ({
     issueKey,
     commentId: c.id ?? '',
@@ -99,7 +108,8 @@ export function mapJiraChangelogs(issueKey: string, raw: JiraIssue): IssueChange
 }
 
 export function mapJiraWorklogs(issueKey: string, raw: JiraIssue): IssueWorklog[] {
-  const worklogs = raw.fields.worklog.worklogs;
+  const fields: NullableFields = raw.fields;
+  const worklogs = fields.worklog?.worklogs ?? [];
   return worklogs.map((w) => ({
     issueKey,
     author: w.author?.displayName ?? null,
@@ -111,7 +121,8 @@ export function mapJiraWorklogs(issueKey: string, raw: JiraIssue): IssueWorklog[
 }
 
 export function mapJiraLinks(issueKey: string, raw: JiraIssue): IssueLink[] {
-  const links = raw.fields.issuelinks;
+  const fields: NullableFields = raw.fields;
+  const links = fields.issuelinks ?? [];
   const result: IssueLink[] = [];
 
   for (const link of links) {
@@ -177,7 +188,7 @@ function extractAdfText(node: AdfNode): string {
 /**
  * Extract sprint name from various Jira sprint field formats.
  */
-function extractSprint(fields: Version3Models.Fields): string | null {
+function extractSprint(fields: NullableFields): string | null {
   const sprint: unknown = fields['sprint'];
   if (!sprint) {
     return null;
@@ -194,7 +205,7 @@ function extractSprint(fields: Version3Models.Fields): string | null {
 /**
  * Extract story points from standard or custom field.
  */
-function extractStoryPoints(fields: Version3Models.Fields): number | null {
+function extractStoryPoints(fields: NullableFields): number | null {
   const storyPoints: unknown = fields['story_points'] ?? fields['customfield_10016'];
   if (typeof storyPoints === 'number') {
     return storyPoints;

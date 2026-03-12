@@ -6,7 +6,6 @@ import { requireWorkspace } from '../workspace/resolver.js';
 import { readConfig, getEnabledSources } from '../workspace/config.js';
 import { JiraProvider } from '../adapters/jira/index.js';
 import { PostgresStorage } from '../adapters/postgres/index.js';
-import type { PullOptions } from '../use-cases/pull.js';
 import { PullUseCase } from '../use-cases/pull.js';
 import type { SourceType } from '../core/types/index.js';
 import { ALL_SOURCES, SOURCE_META } from '../core/types/index.js';
@@ -45,6 +44,11 @@ async function syncJira(
     process.exit(1);
   }
 
+  const configuredProjects = (process.env['JIRA_PROJECTS'] ?? '')
+    .split(',')
+    .map((p) => p.trim())
+    .filter(Boolean);
+
   const source = new JiraProvider({
     host: jiraUrl,
     email: jiraEmail,
@@ -52,37 +56,64 @@ async function syncJira(
   });
 
   const storage = createStorage(workspaceRoot);
-  const pullUseCase = new PullUseCase(source, storage);
   const spinner = ora('Syncing Jira...').start();
 
   try {
-    const pullOptions: PullOptions = {
-      onProgress: (msg) => {
-        spinner.text = msg;
-      },
-    };
-    if (options.project) {
-      pullOptions.projectKey = options.project;
-    }
-    if (options.since) {
-      pullOptions.since = options.since;
-    }
+    const projectKeys = options.project
+      ? [options.project]
+      : configuredProjects.length > 0
+        ? configuredProjects
+        : null;
 
-    const results = await pullUseCase.execute(pullOptions);
+    if (projectKeys) {
+      const allResults = [];
+      for (const projectKey of projectKeys) {
+        const pullUseCase = new PullUseCase(source, storage);
+        const results = await pullUseCase.execute({
+          projectKey,
+          ...(options.since ? { since: options.since } : {}),
+          onProgress: (msg) => { spinner.text = msg; },
+        });
+        allResults.push(...results);
+      }
 
-    spinner.succeed('Jira sync complete!');
-    console.log('');
-    for (const r of results) {
-      console.log(
-        chalk.green(
-          `  ${r.projectKey}: ${String(r.issuesCount)} issues, ${String(r.commentsCount)} comments, ${String(r.changelogsCount)} changelogs`,
-        ),
-      );
+      spinner.succeed('Jira sync complete!');
+      console.log('');
+      for (const r of allResults) {
+        console.log(
+          chalk.green(
+            `  ${r.projectKey}: ${String(r.issuesCount)} issues, ${String(r.commentsCount)} comments, ${String(r.changelogsCount)} changelogs`,
+          ),
+        );
+      }
+    } else {
+      const pullUseCase = new PullUseCase(source, storage);
+      const results = await pullUseCase.execute({
+        ...(options.since ? { since: options.since } : {}),
+        onProgress: (msg) => { spinner.text = msg; },
+      });
+
+      spinner.succeed('Jira sync complete!');
+      console.log('');
+      for (const r of results) {
+        console.log(
+          chalk.green(
+            `  ${r.projectKey}: ${String(r.issuesCount)} issues, ${String(r.commentsCount)} comments, ${String(r.changelogsCount)} changelogs`,
+          ),
+        );
+      }
     }
     console.log('');
   } finally {
     await storage.close();
   }
+}
+
+/**
+ * Called from `argustack init` to run first sync immediately after workspace creation.
+ */
+export async function syncJiraFromInit(workspaceRoot: string): Promise<void> {
+  await syncJira(workspaceRoot, {});
 }
 
 /**

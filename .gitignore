@@ -1,26 +1,22 @@
-# Environment
+# Argustack workspace (created by `argustack init`)
 .env
-
-# Data (raw JSON backups)
+.mcp.json
+.argustack/
+docker-compose.yml
+db/
 data/
 
-# Node
+# Build & deps
 node_modules/
 dist/
-
-# Docs (local notes)
-Docs/
-
-# Test logs (generated reports)
-tests/logs/
-
-# MCPB build artifacts
-argustack.mcpb
-.mcpb-build/
-
-# Build cache
-.eslintcache
 tsconfig.tsbuildinfo
+*.mcpb
 
 # OS
 .DS_Store
+
+# Internal docs & notes
+Docs/
+
+# Test logs
+tests/logs/
