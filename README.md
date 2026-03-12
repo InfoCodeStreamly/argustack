@@ -2,7 +2,13 @@
 
 **RAG engine for project intelligence — ask AI about your Jira, Git, and databases**
 
-Argustack builds a local knowledge base from your project's sources of truth, so AI can answer real questions about your work:
+[RAG](https://en.wikipedia.org/wiki/Retrieval-augmented_generation) (Retrieval-Augmented Generation) — an architecture where AI answers questions based on **your** data, not its training set:
+
+1. **Retrieval** — pull and index your project data locally (PostgreSQL + pgvector)
+2. **Augmentation** — inject relevant context into the AI prompt
+3. **Generation** — LLM generates answers grounded in your actual Jira tickets, code, and databases
+
+Argustack builds this knowledge base from your project's sources of truth:
 
 ```
 ┌──────────┐  ┌──────────┐  ┌──────────┐
