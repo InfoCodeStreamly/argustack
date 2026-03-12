@@ -11,21 +11,22 @@
 Argustack builds this knowledge base from your project's sources of truth:
 
 ```
-┌──────────┐  ┌──────────┐  ┌──────────┐
-│   JIRA   │  │   GIT    │  │    DB    │
-│ planned  │  │  built   │  │  exists  │
-└────┬─────┘  └────┬─────┘  └────┬─────┘
-     └─────────────┼─────────────┘
-               Retrieval
-           ┌───────▼───────┐
-           │  PostgreSQL   │
-           │  + pgvector   │
-           └───────┬───────┘
-            Augmentation
-           ┌───────▼───────┐
-           │  MCP Server   │──── Claude / LLM
-           └───────────────┘
-             Generation
+     YOUR JIRA INSTANCE                         YOUR MACHINE
+  ┌──────────────────────┐        ┌─────────────────────────────────────┐
+  │  Jira Cloud / Server │        │                                     │
+  │  (issues, comments,  │  pull  │  PostgreSQL (Docker, localhost)     │
+  │   changelogs, etc.)  │ ──────►│  ├── issues          (all fields)  │
+  └──────────────────────┘        │  ├── issue_comments  (discussions) │
+                                  │  ├── issue_changelogs (history)    │
+  ┌──────────────────────┐        │  ├── issue_worklogs  (time logs)  │
+  │  Git repo (planned)  │        │  └── issue_links     (relations)  │
+  └──────────────────────┘        │                                     │
+                                  │  MCP Server (localhost, stdio)      │
+  ┌──────────────────────┐        │  └── queries DB ──► Claude / LLM   │
+  │  Database (planned)  │        │                                     │
+  └──────────────────────┘        │  .env (credentials — never leaves) │
+                                  │  └── JIRA_URL, JIRA_TOKEN, DB creds│
+                                  └─────────────────────────────────────┘
 ```
 
 > *Is this bug still relevant or already fixed in code?*
@@ -35,11 +36,11 @@ Argustack builds this knowledge base from your project's sources of truth:
 
 ## How it works
 
-**Retrieval** — pulls all data from Jira (Git and DB coming soon) into local PostgreSQL with pgvector. Every field, every comment, every changelog entry. Raw JSON preserved as-is.
+**Retrieval** — pulls all data from Jira into local PostgreSQL with pgvector. Every field, every comment, every changelog entry. Raw JSON preserved as-is. Nothing is filtered or lost.
 
-**Augmentation** — MCP server gives Claude Desktop / Claude Code direct access to your local database. Full-text search, filters, SQL, statistics.
+**Augmentation** — MCP server gives Claude Desktop / Claude Code direct access to your local database. Full-text search, filters, raw SQL, aggregate statistics — all without leaving your machine.
 
-**Generation** — ask questions in natural language. Claude queries your data and answers with context.
+**Generation** — ask questions in natural language. Claude queries your local data and answers with full project context.
 
 ## Quick Start
 
@@ -81,7 +82,7 @@ Testing connection... Connected! Found 3 projects: MKT, BRAND, WEB
   BRAND: 89 issues, 12 comments, 203 changelogs
 ```
 
-Browse your data at [localhost:8086](http://localhost:8086) (pgweb UI).
+Browse your data at [localhost:8086](http://localhost:8086) — pgweb UI for running SQL queries and exploring tables in your browser.
 
 ### Connect to Claude
 
@@ -105,7 +106,7 @@ argustack mcp install                # connect to Claude Desktop
 
 ## What gets stored
 
-All data goes into local PostgreSQL (nothing leaves your machine):
+All data goes into local PostgreSQL in Docker on your machine (nothing leaves `localhost`):
 
 | Table | Content |
 |-------|---------|
@@ -115,7 +116,7 @@ All data goes into local PostgreSQL (nothing leaves your machine):
 | `issue_worklogs` | Time tracking entries |
 | `issue_links` | Issue-to-issue relationships |
 
-Every custom field is preserved exactly as Jira returns it. 500 custom fields? All 500 stored, no filtering.
+Every custom field is preserved exactly as Jira returns it. 500 custom fields? All stored. Zero filtering, zero data loss.
 
 ## MCP Tools
 
@@ -147,12 +148,41 @@ Each data source = separate workspace (like git repos):
 │   └── docker-compose.yml
 ```
 
-## Security
+## Security & Credentials
 
-- **All data stays local** — PostgreSQL runs in Docker on your machine
-- **No cloud, no telemetry** — zero network calls except to your Jira instance
-- **Credentials in `.env`** — never committed to git (`.gitignore` enforced)
-- **Each workspace is isolated** — separate database, separate credentials
+**Argustack is a CLI tool. It has no backend, no cloud, no accounts.** Everything runs on your machine.
+
+When you run `argustack init`, it creates a `.env` file in your workspace with your credentials:
+
+```bash
+# .env — YOUR file, on YOUR machine, never uploaded anywhere
+JIRA_URL=https://your-team.atlassian.net   # your Jira instance URL
+JIRA_EMAIL=you@company.com                 # your Jira account email
+JIRA_API_TOKEN=ATATT3x...                  # your Jira API token (https://id.atlassian.com/manage-profile/security/api-tokens)
+JIRA_PROJECTS=PROJ,OTHER                   # which projects to pull
+DB_HOST=localhost                           # local PostgreSQL (Docker)
+DB_PORT=5434                                # local port, not default 5432
+DB_USER=argustack                           # local DB user (Docker)
+DB_PASSWORD=argustack_local                 # local DB password (Docker)
+DB_NAME=argustack                           # local DB name
+```
+
+**Where credentials go:**
+
+| What | Where | Who can see |
+|------|-------|-------------|
+| Jira token | `.env` on your disk | Only you |
+| Jira data | PostgreSQL in Docker on `localhost:5434` | Only you |
+| Database password | `.env` on your disk (default: `argustack_local`) | Only you |
+| Source code (this repo) | GitHub | Everyone — **no secrets here** |
+
+**What Argustack does NOT do:**
+- ❌ Does not send your data to any external server
+- ❌ Does not have analytics, telemetry, or tracking
+- ❌ Does not store credentials anywhere except your local `.env`
+- ❌ Does not require registration or accounts
+
+**`.env` is in `.gitignore`** — if you accidentally run `git add .`, your credentials won't be committed.
 
 ## Tech Stack
 
