@@ -1,5 +1,6 @@
 import { input, confirm, password, checkbox } from '@inquirer/prompts';
 import { mkdirSync, writeFileSync, copyFileSync, existsSync } from 'node:fs';
+import { execSync } from 'node:child_process';
 import { join, resolve } from 'node:path';
 import { fileURLToPath } from 'node:url';
 import chalk from 'chalk';
@@ -60,6 +61,21 @@ export interface InitFlags {
   interactive?: boolean;    // --no-interactive sets this to false
 }
 
+/**
+ * Strip path, query, fragment from a Jira URL.
+ * User may paste full board URL like:
+ *   https://team.atlassian.net/jira/software/c/projects/PAP/boards/43?search=462
+ * We only need: https://team.atlassian.net
+ */
+function extractJiraBaseUrl(raw: string): string {
+  try {
+    const url = new URL(raw.trim());
+    return `${url.protocol}//${url.host}`;
+  } catch {
+    return raw.trim().replace(/\/+$/, '');
+  }
+}
+
 // ─── Jira connection test (shared between interactive and non-interactive) ───
 
 async function testJiraConnection(
@@ -81,7 +97,7 @@ async function setupJiraInteractive(): Promise<JiraSetupResult | null> {
   console.log(chalk.bold('  Jira setup'));
   console.log(chalk.dim('  Connect to your Jira instance.\n'));
 
-  const jiraUrl = await input({
+  const jiraUrlRaw = await input({
     message: 'Jira URL:',
     default: 'https://your-team.atlassian.net',
     validate: (val): string | true => {
@@ -91,6 +107,8 @@ async function setupJiraInteractive(): Promise<JiraSetupResult | null> {
       return true;
     },
   });
+
+  const jiraUrl = extractJiraBaseUrl(jiraUrlRaw);
 
   const jiraEmail = await input({
     message: 'Email:',
@@ -102,40 +120,63 @@ async function setupJiraInteractive(): Promise<JiraSetupResult | null> {
     },
   });
 
-  const jiraToken = await password({
-    message: 'API Token:',
-    validate: (val): string | true => {
-      if (!val.trim()) {
-        return 'Token is required';
-      }
-      return true;
-    },
-  });
-
-  const spinner = ora('Testing Jira connection...').start();
+  let jiraToken: string;
   let availableProjects: string[];
 
-  try {
-    availableProjects = await testJiraConnection(jiraUrl, jiraEmail, jiraToken);
-    spinner.succeed(
-      `Connected! Found ${availableProjects.length} projects: ${availableProjects.join(', ')}`
-    );
-  } catch (err: unknown) {
-    spinner.fail('Connection failed');
-    console.log(chalk.red(`  Error: ${err instanceof Error ? err.message : String(err)}`));
-    console.log(chalk.dim('  Check URL, email, token. Generate token:'));
-    console.log(chalk.dim('  https://id.atlassian.com/manage-profile/security/api-tokens'));
+  for (;;) {
+    jiraToken = await password({
+      message: 'API Token:',
+      mask: '*',
+      validate: (val): string | true => {
+        if (!val.trim()) {
+          return 'Token is required';
+        }
+        return true;
+      },
+    });
 
-    const skip = await confirm({ message: 'Skip Jira for now?', default: false });
-    if (skip) {
-      return null;
+    const spinner = ora('Testing Jira connection...').start();
+
+    try {
+      availableProjects = await testJiraConnection(jiraUrl, jiraEmail, jiraToken);
+    } catch (err: unknown) {
+      spinner.fail('Connection failed');
+      console.log(chalk.red(`  Error: ${err instanceof Error ? err.message : String(err)}`));
+      console.log(chalk.dim('  Check URL, email, token. Generate token:'));
+      console.log(chalk.dim('  https://id.atlassian.com/manage-profile/security/api-tokens'));
+
+      const retry = await confirm({ message: 'Try again?', default: true });
+      if (retry) {
+        continue;
+      }
+      const skip = await confirm({ message: 'Skip Jira for now?', default: false });
+      if (skip) {
+        return null;
+      }
+      return setupJiraInteractive();
     }
-    return setupJiraInteractive();
+
+    if (availableProjects.length === 0) {
+      spinner.warn('Connected, but found 0 projects. Token may have limited permissions.');
+      console.log(chalk.yellow('  Your token works but has no project access.'));
+      console.log(chalk.dim('  This usually means the token was pasted incorrectly or has restricted scopes.'));
+
+      const retry = await confirm({ message: 'Re-enter token?', default: true });
+      if (retry) {
+        continue;
+      }
+    } else {
+      spinner.succeed(
+        `Connected! Found ${availableProjects.length} projects: ${availableProjects.join(', ')}`
+      );
+    }
+
+    break;
   }
 
   const projectsInput = await input({
     message: 'Projects to pull (comma-separated, or "all"):',
-    default: 'all',
+    default: availableProjects.length > 0 ? 'all' : '',
   });
 
   const jiraProjects =
@@ -203,7 +244,7 @@ async function setupJiraFromFlags(flags: InitFlags): Promise<JiraSetupResult | n
 
   try {
     const availableProjects = await testJiraConnection(
-      flags.jiraUrl, flags.jiraEmail, flags.jiraToken,
+      extractJiraBaseUrl(flags.jiraUrl), flags.jiraEmail, flags.jiraToken,
     );
     spinner.succeed(
       `Connected! Found ${availableProjects.length} projects: ${availableProjects.join(', ')}`
@@ -317,6 +358,11 @@ function generateDockerCompose(dbPort: number, pgwebPort: number): string {
     volumes:
       - argustack-data:/var/lib/postgresql/data
       - ./db/init.sql:/docker-entrypoint-initdb.d/init.sql
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U argustack"]
+      interval: 2s
+      timeout: 5s
+      retries: 15
 
   pgweb:
     image: sosedoff/pgweb
@@ -324,9 +370,11 @@ function generateDockerCompose(dbPort: number, pgwebPort: number): string {
     ports:
       - "${pgwebPort}:8081"
     environment:
-      DATABASE_URL: postgres://argustack:argustack_local@db:5432/argustack?sslmode=disable
+      PGWEB_DATABASE_URL: postgres://argustack:argustack_local@db:5432/argustack?sslmode=disable
     depends_on:
-      - db
+      db:
+        condition: service_healthy
+    restart: on-failure
 
 volumes:
   argustack-data:
@@ -606,6 +654,62 @@ async function runInitInteractive(flags: InitFlags): Promise<void> {
   }
 
   printSummary(workspaceDir, jiraResult, gitResult, dbResult, pgwebPort);
+
+  // 6. Offer to start DB + sync automatically
+  const autoStart = await confirm({
+    message: 'Start database and sync now?',
+    default: true,
+  });
+
+  if (autoStart) {
+    await startAndSync(workspaceDir, jiraResult !== null);
+  }
+}
+
+async function startAndSync(workspaceDir: string, hasJira: boolean): Promise<void> {
+  const spinnerDb = ora('Starting Docker containers...').start();
+  try {
+    execSync('docker compose up -d', { cwd: workspaceDir, stdio: 'pipe' });
+    spinnerDb.succeed('Database running!');
+  } catch (err: unknown) {
+    spinnerDb.fail('Failed to start Docker');
+    console.log(chalk.red(`  Error: ${err instanceof Error ? err.message : String(err)}`));
+    console.log(chalk.dim('  Make sure Docker Desktop is running, then:'));
+    console.log(chalk.cyan(`  cd ${workspaceDir} && docker compose up -d`));
+    return;
+  }
+
+  // Wait for PostgreSQL to be ready
+  const spinnerWait = ora('Waiting for PostgreSQL...').start();
+  const maxWait = 30;
+  for (let i = 0; i < maxWait; i++) {
+    try {
+      execSync(
+        'docker compose exec -T db pg_isready -U argustack',
+        { cwd: workspaceDir, stdio: 'pipe' },
+      );
+      spinnerWait.succeed('PostgreSQL ready!');
+      break;
+    } catch {
+      if (i === maxWait - 1) {
+        spinnerWait.fail('PostgreSQL not ready after 30s');
+        console.log(chalk.dim('  Try manually: docker compose logs db'));
+        return;
+      }
+      await new Promise((r) => setTimeout(r, 1000));
+    }
+  }
+
+  if (hasJira) {
+    console.log('');
+    try {
+      const { syncJiraFromInit } = await import('./sync.js');
+      await syncJiraFromInit(workspaceDir);
+    } catch (err: unknown) {
+      console.log(chalk.red(`  Sync failed: ${err instanceof Error ? err.message : String(err)}`));
+      console.log(chalk.dim(`  Try manually: cd ${workspaceDir} && argustack sync`));
+    }
+  }
 }
 
 // ─── Main entry point ────────────────────────────────────────────────────────

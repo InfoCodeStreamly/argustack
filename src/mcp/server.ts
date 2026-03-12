@@ -191,7 +191,7 @@ const mcpFilename = fileURLToPath(import.meta.url);
 const mcpPackageRoot = resolve(dirname(mcpFilename), '..', '..');
 
 function loadIconDataUri(): string | null {
-  const iconPath = resolve(mcpPackageRoot, 'assets', 'icon.png');
+  const iconPath = resolve(mcpPackageRoot, 'assets', 'icon-64.png');
   if (!existsSync(iconPath)) {
     return null;
   }
@@ -205,13 +205,14 @@ const iconDataUri = loadIconDataUri();
 
 /** MCP server instance — exported for testing via InMemoryTransport */
 export const server = new McpServer({
-  name: 'argustack',
+  name: 'Argustack',
+  title: 'Argustack',
   version: '0.1.0',
   ...(iconDataUri ? {
     icons: [{
       src: iconDataUri,
       mimeType: 'image/png',
-      sizes: ['512x512'],
+      sizes: ['any'],
     }],
   } : {}),
 });

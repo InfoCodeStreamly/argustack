@@ -63,7 +63,7 @@ tests/
 npm run test            # All projects
 npm run test:unit       # unit only
 npm run test:integration # integration only
-npm run test:mcp        # mcp only
+npm run test:mcp        # MCP only
 npm run test:watch      # watch mode
 npm run test:coverage   # with coverage
 ```

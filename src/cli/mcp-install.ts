@@ -95,7 +95,7 @@ function detectClaudeClients(): ClaudeClient[] {
   if (codeInstalled && existsSync(codeConfigPath)) {
     const config = readJsonFile(codeConfigPath);
     const servers = config['mcpServers'] as Record<string, unknown> | undefined;
-    codeConfigured = servers !== undefined && 'argustack' in servers;
+    codeConfigured = servers !== undefined && 'Argustack' in servers;
   }
   clients.push({
     name: 'Claude Code',
@@ -112,7 +112,7 @@ function detectClaudeClients(): ClaudeClient[] {
   if (desktopInstalled && existsSync(desktopConfigPath)) {
     const config = readJsonFile(desktopConfigPath);
     const servers = config['mcpServers'] as Record<string, unknown> | undefined;
-    desktopConfigured = servers !== undefined && 'argustack' in servers;
+    desktopConfigured = servers !== undefined && 'Argustack' in servers;
   }
   clients.push({
     name: 'Claude Desktop',
@@ -138,7 +138,7 @@ function installIntoConfig(
   }
 
   const servers = config['mcpServers'] as Record<string, unknown>;
-  servers['argustack'] = entry;
+  servers['Argustack'] = entry;
 
   writeJsonFile(configPath, config);
 }
@@ -151,11 +151,11 @@ function uninstallFromConfig(configPath: string): boolean {
   const config = readJsonFile(configPath);
   const servers = config['mcpServers'] as Record<string, unknown> | undefined;
 
-  if (!servers || !('argustack' in servers)) {
+  if (!servers || !('Argustack' in servers)) {
     return false;
   }
 
-  delete servers['argustack'];
+  delete servers['Argustack'];
   writeJsonFile(configPath, config);
   return true;
 }

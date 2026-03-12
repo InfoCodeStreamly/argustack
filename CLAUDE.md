@@ -141,9 +141,9 @@ DB credentials are defaults matching `docker-compose.yml` — no need to change.
 
 ```bash
 npm install                      # install dependencies
-npm run dev -- jira pull         # run via tsx (dev mode)
+npm run dev -- sync              # run via tsx (dev mode)
 npm run build                    # compile TypeScript
-npm start -- jira pull           # run compiled version
+npm start -- sync                # run compiled version
 ```
 
 ## Commands
@@ -158,6 +158,32 @@ argustack status                 # workspace status
 argustack mcp install            # install MCP server into Claude Desktop
 ```
 
+## Testing
+
+```bash
+npm test                         # all tests (unit + integration + MCP)
+npm run test:unit                # unit only
+npm run test:integration         # integration only
+npm run test:mcp                 # MCP server only
+npm run test:watch               # watch mode
+npm run test:coverage            # with coverage
+npm run ci                       # typecheck + lint + all tests
+npm run check                    # typecheck + lint (no tests)
+```
+
+## Git Branches
+
+- `main` — production. **NEVER commit directly**
+- `staging` — development. All code goes here first
+- `feature/*` — merge into `staging` before main
+- Production deploy — **always via PR** (`staging → main`)
+
+## Quality Gates
+
+- **Husky pre-commit hooks** — branch-aware (strict on `main`, flexible on `staging`/`feature/*`)
+- **lint-staged** — ESLint on staged `.ts` files
+- **Pre-commit runs**: lint-staged → TypeScript check → unit tests
+
 ## Code Conventions
 
 - ESM modules (`"type": "module"` in package.json)
@@ -166,3 +192,11 @@ argustack mcp install            # install MCP server into Claude Desktop
 - Async/await throughout
 - No hardcoded field names or project-specific logic
 - Dependency Inversion: depend on interfaces (core/ports), not implementations
+
+## References
+
+| File | Purpose |
+|------|---------|
+| `.claude/rules/policies.md` | Git flow, commits, TSDoc, code comments |
+| `.claude/rules/tests.md` | SSOT fixtures, Vitest, test strategy by layer |
+| `.claude/rules/workflows.md` | Explore → Plan → Code → Commit |
