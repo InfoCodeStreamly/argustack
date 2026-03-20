@@ -11,6 +11,7 @@ node_modules/
 dist/
 tsconfig.tsbuildinfo
 *.mcpb
+.eslintcache
 
 # OS
 .DS_Store

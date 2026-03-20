@@ -1,7 +1,7 @@
 {
   "manifest_version": "0.3",
   "name": "Argustack",
-  "description": "Project analysis platform — query Jira issues, pull data, run analytics from local PostgreSQL",
+  "description": "RAG engine for project intelligence — query Jira issues, Git commits, and databases from local PostgreSQL",
   "server": {
     "type": "node",
     "entry_point": "dist/mcp/server.js"
@@ -42,6 +42,18 @@
     {
       "name": "issue_stats",
       "description": "Get aggregate statistics about issues in the database"
+    },
+    {
+      "name": "query_commits",
+      "description": "Search commits by text, author, date, file path, or raw SQL"
+    },
+    {
+      "name": "issue_commits",
+      "description": "Find all commits mentioning a Jira issue key with file details"
+    },
+    {
+      "name": "commit_stats",
+      "description": "Aggregate Git stats — top authors, most changed files, linked issues"
     }
   ],
   "compatibility": {
