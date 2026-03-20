@@ -10,6 +10,14 @@ export type {
 export type { Project } from './project.js';
 
 export type {
+  Commit,
+  CommitFile,
+  CommitIssueRef,
+  CommitBatch,
+  GitRef,
+} from './git.js';
+
+export type {
   SourceType,
   SourceConfig,
   WorkspaceConfig,

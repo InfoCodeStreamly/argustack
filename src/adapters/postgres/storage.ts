@@ -1,6 +1,7 @@
 import type pg from 'pg';
 import type { IStorage, QueryResult } from '../../core/ports/storage.js';
 import type { IssueBatch } from '../../core/types/index.js';
+import type { CommitBatch } from '../../core/types/git.js';
 import { createPool, type DbConfig } from './connection.js';
 import { ensureSchema } from './schema.js';
 
@@ -135,6 +136,74 @@ export class PostgresStorage implements IStorage {
     } finally {
       client.release();
     }
+  }
+
+  async saveCommitBatch(batch: CommitBatch): Promise<void> {
+    const client = await this.pool.connect();
+    try {
+      await client.query('BEGIN');
+
+      for (const commit of batch.commits) {
+        await client.query(
+          `INSERT INTO commits (hash, message, author, email, committed_at, parents, repo_path, pulled_at, search_vector)
+           VALUES ($1, $2::text, $3::text, $4::text, $5, $6::text[], $7::text, NOW(),
+             to_tsvector('english', coalesce($2::text, '') || ' ' || coalesce($3::text, ''))
+           )
+           ON CONFLICT (hash) DO UPDATE SET
+             message = EXCLUDED.message,
+             author = EXCLUDED.author,
+             email = EXCLUDED.email,
+             committed_at = EXCLUDED.committed_at,
+             parents = EXCLUDED.parents,
+             repo_path = EXCLUDED.repo_path,
+             pulled_at = NOW(),
+             search_vector = to_tsvector('english', coalesce(EXCLUDED.message, '') || ' ' || coalesce(EXCLUDED.author, ''))`,
+          [commit.hash, commit.message, commit.author, commit.email, commit.committedAt, commit.parents, commit.repoPath]
+        );
+      }
+
+      const hashes = batch.commits.map((c) => c.hash);
+      if (hashes.length > 0) {
+        const hashesParam = hashes.map((_, i) => `$${i + 1}`).join(',');
+        await client.query(`DELETE FROM commit_files WHERE commit_hash IN (${hashesParam})`, hashes);
+        await client.query(`DELETE FROM commit_issue_refs WHERE commit_hash IN (${hashesParam})`, hashes);
+      }
+
+      for (const file of batch.files) {
+        await client.query(
+          `INSERT INTO commit_files (commit_hash, file_path, status, additions, deletions)
+           VALUES ($1, $2, $3, $4, $5)`,
+          [file.commitHash, file.filePath, file.status, file.additions, file.deletions]
+        );
+      }
+
+      for (const ref of batch.issueRefs) {
+        await client.query(
+          `INSERT INTO commit_issue_refs (commit_hash, issue_key)
+           VALUES ($1, $2)
+           ON CONFLICT DO NOTHING`,
+          [ref.commitHash, ref.issueKey]
+        );
+      }
+
+      await client.query('COMMIT');
+    } catch (err) {
+      await client.query('ROLLBACK');
+      throw err;
+    } finally {
+      client.release();
+    }
+  }
+
+  async getLastCommitDate(repoPath: string): Promise<Date | null> {
+    interface LastCommitRow {
+      last_date: Date | null;
+    }
+    const result = await this.pool.query<LastCommitRow>(
+      `SELECT MAX(committed_at) as last_date FROM commits WHERE repo_path = $1`,
+      [repoPath]
+    );
+    return result.rows[0]?.last_date ?? null;
   }
 
   async getLastUpdated(projectKey: string): Promise<string | null> {

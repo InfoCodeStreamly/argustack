@@ -85,7 +85,43 @@ export async function ensureSchema(pool: pg.Pool): Promise<void> {
     )
   `);
 
-  // Indexes (IF NOT EXISTS not supported for all, so use CREATE INDEX IF NOT EXISTS)
+  // ─── Git tables ───────────────────────────────────────────────────────
+
+  await pool.query(`
+    CREATE TABLE IF NOT EXISTS commits (
+      hash VARCHAR(40) PRIMARY KEY,
+      message TEXT,
+      author VARCHAR(200),
+      email VARCHAR(200),
+      committed_at TIMESTAMPTZ,
+      parents TEXT[],
+      repo_path TEXT,
+      search_vector tsvector,
+      pulled_at TIMESTAMP DEFAULT NOW()
+    )
+  `);
+
+  await pool.query(`
+    CREATE TABLE IF NOT EXISTS commit_files (
+      id SERIAL PRIMARY KEY,
+      commit_hash VARCHAR(40) NOT NULL REFERENCES commits(hash),
+      file_path TEXT NOT NULL,
+      status VARCHAR(20),
+      additions INTEGER DEFAULT 0,
+      deletions INTEGER DEFAULT 0
+    )
+  `);
+
+  await pool.query(`
+    CREATE TABLE IF NOT EXISTS commit_issue_refs (
+      commit_hash VARCHAR(40) NOT NULL REFERENCES commits(hash),
+      issue_key VARCHAR(20) NOT NULL,
+      PRIMARY KEY (commit_hash, issue_key)
+    )
+  `);
+
+  // ─── Indexes ──────────────────────────────────────────────────────────
+
   const indexes = [
     'CREATE INDEX IF NOT EXISTS idx_issues_project ON issues(project_key)',
     'CREATE INDEX IF NOT EXISTS idx_issues_status ON issues(status)',
@@ -101,6 +137,14 @@ export async function ensureSchema(pool: pg.Pool): Promise<void> {
     'CREATE INDEX IF NOT EXISTS idx_worklogs_key ON issue_worklogs(issue_key)',
     'CREATE INDEX IF NOT EXISTS idx_links_source ON issue_links(source_key)',
     'CREATE INDEX IF NOT EXISTS idx_links_target ON issue_links(target_key)',
+    // Git indexes
+    'CREATE INDEX IF NOT EXISTS idx_commits_author ON commits(author)',
+    'CREATE INDEX IF NOT EXISTS idx_commits_date ON commits(committed_at)',
+    'CREATE INDEX IF NOT EXISTS idx_commits_repo ON commits(repo_path)',
+    'CREATE INDEX IF NOT EXISTS idx_commits_search ON commits USING GIN(search_vector)',
+    'CREATE INDEX IF NOT EXISTS idx_commit_files_hash ON commit_files(commit_hash)',
+    'CREATE INDEX IF NOT EXISTS idx_commit_files_path ON commit_files(file_path)',
+    'CREATE INDEX IF NOT EXISTS idx_commit_refs_issue ON commit_issue_refs(issue_key)',
   ];
 
   for (const idx of indexes) {

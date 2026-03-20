@@ -5,8 +5,10 @@ import dotenv from 'dotenv';
 import { requireWorkspace } from '../workspace/resolver.js';
 import { readConfig, getEnabledSources } from '../workspace/config.js';
 import { JiraProvider } from '../adapters/jira/index.js';
+import { GitProvider } from '../adapters/git/index.js';
 import { PostgresStorage } from '../adapters/postgres/index.js';
 import { PullUseCase } from '../use-cases/pull.js';
+import { PullGitUseCase } from '../use-cases/pull-git.js';
 import type { SourceType } from '../core/types/index.js';
 import { ALL_SOURCES, SOURCE_META } from '../core/types/index.js';
 
@@ -14,7 +16,7 @@ import { ALL_SOURCES, SOURCE_META } from '../core/types/index.js';
  * Create PostgresStorage from workspace .env.
  */
 function createStorage(workspaceRoot: string): PostgresStorage {
-  dotenv.config({ path: `${workspaceRoot}/.env` });
+  dotenv.config({ path: `${workspaceRoot}/.env`, quiet: true });
 
   return new PostgresStorage({
     host: process.env['DB_HOST'] ?? 'localhost',
@@ -32,7 +34,7 @@ async function syncJira(
   workspaceRoot: string,
   options: { project?: string; since?: string },
 ): Promise<void> {
-  dotenv.config({ path: `${workspaceRoot}/.env` });
+  dotenv.config({ path: `${workspaceRoot}/.env`, quiet: true });
 
   const jiraUrl = process.env['JIRA_URL'];
   const jiraEmail = process.env['JIRA_EMAIL'];
@@ -110,10 +112,59 @@ async function syncJira(
 }
 
 /**
+ * Sync Git data → PostgreSQL.
+ */
+async function syncGit(
+  workspaceRoot: string,
+  options: { since?: string },
+): Promise<void> {
+  dotenv.config({ path: `${workspaceRoot}/.env`, quiet: true });
+
+  const gitRepoPath = process.env['GIT_REPO_PATH'];
+
+  if (!gitRepoPath) {
+    console.log(chalk.red('  Missing Git repo path in .env'));
+    console.log(chalk.dim('  Required: GIT_REPO_PATH'));
+    process.exit(1);
+  }
+
+  const git = new GitProvider(gitRepoPath);
+  const storage = createStorage(workspaceRoot);
+  const spinner = ora('Syncing Git...').start();
+
+  try {
+    const pullGit = new PullGitUseCase(git, storage);
+    const since = options.since ? new Date(options.since) : undefined;
+
+    const result = await pullGit.execute(gitRepoPath, {
+      ...(since ? { since } : {}),
+      onProgress: (msg) => { spinner.text = msg; },
+    });
+
+    spinner.succeed('Git sync complete!');
+    console.log('');
+    console.log(
+      chalk.green(
+        `  ${result.commitsCount} commits, ${result.filesCount} files, ${result.issueRefsCount} issue refs`,
+      ),
+    );
+    console.log('');
+  } finally {
+    await storage.close();
+  }
+}
+
+/**
  * Called from `argustack init` to run first sync immediately after workspace creation.
+ * Always passes epoch date to force a full pull — Docker volume may contain stale data
+ * from a previous workspace, making incremental pull return 0 results.
  */
 export async function syncJiraFromInit(workspaceRoot: string): Promise<void> {
-  await syncJira(workspaceRoot, {});
+  await syncJira(workspaceRoot, { since: '1970-01-01' });
+}
+
+export async function syncGitFromInit(workspaceRoot: string): Promise<void> {
+  await syncGit(workspaceRoot, { since: '1970-01-01' });
 }
 
 /**
@@ -176,7 +227,7 @@ export function registerSyncCommand(program: Command): void {
               break;
             }
             case 'git': {
-              console.log(chalk.dim(`  ○ Git sync — coming soon`));
+              await syncGit(workspaceRoot, options);
               break;
             }
             case 'db': {

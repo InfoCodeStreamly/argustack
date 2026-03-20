@@ -107,7 +107,7 @@ describe('PullUseCase', () => {
 
     await useCase.execute();
 
-    expect(source.pullCalls[0]?.since).toBe('2025-06-15T00:00:00.000Z');
+    expect(source.pullCalls[0]?.since).toBe('2025-06-14T23:59:00.000Z');
   });
 
   it('does full pull when no lastUpdated and no since', async () => {
