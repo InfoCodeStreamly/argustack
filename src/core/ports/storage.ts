@@ -1,5 +1,6 @@
 import type { IssueBatch } from '../types/index.js';
 import type { CommitBatch } from '../types/git.js';
+import type { GitHubBatch, Release } from '../types/github.js';
 
 /** Generic query result — database-agnostic */
 export interface QueryResult {
@@ -30,6 +31,15 @@ export interface IStorage {
 
   /** Get the latest commit date for a repository (for incremental pull) */
   getLastCommitDate(repoPath: string): Promise<Date | null>;
+
+  /** Save a batch of GitHub PRs + reviews + comments + files (upsert logic) */
+  saveGitHubBatch(batch: GitHubBatch): Promise<void>;
+
+  /** Save releases (upsert logic) */
+  saveReleases(releases: Release[]): Promise<void>;
+
+  /** Get the latest PR updated_at timestamp for a repo (for incremental pull) */
+  getLastPrUpdated(repoFullName: string): Promise<Date | null>;
 
   /** Execute a raw SQL query with parameterized values */
   query(sql: string, params: unknown[]): Promise<QueryResult>;

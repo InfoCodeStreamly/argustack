@@ -36,7 +36,7 @@ describe('MCP server tools', () => {
     await serverTransport.close();
   });
 
-  it('lists all 6 tools', async () => {
+  it('lists all tools', async () => {
     const { tools } = await client.listTools();
 
     const toolNames = tools.map((t) => t.name);
@@ -50,7 +50,10 @@ describe('MCP server tools', () => {
     expect(toolNames).toContain('query_commits');
     expect(toolNames).toContain('issue_commits');
     expect(toolNames).toContain('commit_stats');
-    expect(tools).toHaveLength(9);
+    expect(toolNames).toContain('query_prs');
+    expect(toolNames).toContain('issue_prs');
+    expect(toolNames).toContain('query_releases');
+    expect(tools).toHaveLength(12);
   });
 
   it('workspace_info tool responds (even without workspace)', async () => {

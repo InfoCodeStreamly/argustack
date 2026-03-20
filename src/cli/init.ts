@@ -32,6 +32,9 @@ interface JiraSetupResult {
 
 interface GitSetupResult {
   gitRepoPath: string;
+  githubToken?: string | undefined;
+  githubOwner?: string | undefined;
+  githubRepo?: string | undefined;
 }
 
 interface DbSetupResult {
@@ -51,6 +54,9 @@ export interface InitFlags {
   jiraToken?: string;
   jiraProjects?: string;    // comma-separated or "all"
   gitRepo?: string;
+  githubToken?: string;
+  githubOwner?: string;
+  githubRepo?: string;
   targetDbHost?: string;
   targetDbPort?: string;
   targetDbUser?: string;
@@ -267,6 +273,72 @@ async function setupGitInteractive(): Promise<GitSetupResult | null> {
   }
 
   console.log(chalk.green(`  Git source configured: ${gitRepoPath}`));
+
+  // GitHub API (optional)
+  const hasGithub = await confirm({
+    message: 'Connect to GitHub API? (PRs, reviews, releases)',
+    default: false,
+  });
+
+  if (hasGithub) {
+    console.log(chalk.dim('  Generate token: Settings → Developer settings → Personal access tokens'));
+
+    const githubToken = await password({
+      message: 'GitHub token (PAT):',
+      mask: '*',
+      validate: (val): string | true => {
+        if (!val.trim()) {
+          return 'Token is required';
+        }
+        return true;
+      },
+    });
+
+    const githubOwner = await input({
+      message: 'Repository owner (org or user):',
+      validate: (val): string | true => {
+        if (!val.trim()) {
+          return 'Owner is required';
+        }
+        return true;
+      },
+    });
+
+    const githubRepo = await input({
+      message: 'Repository name:',
+      validate: (val): string | true => {
+        if (!val.trim()) {
+          return 'Repo name is required';
+        }
+        return true;
+      },
+    });
+
+    // Test connection
+    const spinner = ora('Testing GitHub connection...').start();
+    try {
+      const { Octokit } = await import('octokit');
+      const octokit = new Octokit({ auth: githubToken.trim() });
+      const { data: repo } = await octokit.rest.repos.get({
+        owner: githubOwner.trim(),
+        repo: githubRepo.trim(),
+      });
+      spinner.succeed(`Connected! ${repo.full_name} (${repo.private ? 'private' : 'public'})`);
+    } catch (err: unknown) {
+      spinner.fail('GitHub connection failed');
+      console.log(chalk.red(`  Error: ${err instanceof Error ? err.message : String(err)}`));
+      console.log(chalk.dim('  PRs/reviews won\'t be synced. You can add GitHub token to .env later.'));
+      return { gitRepoPath };
+    }
+
+    return {
+      gitRepoPath,
+      githubToken: githubToken.trim(),
+      githubOwner: githubOwner.trim(),
+      githubRepo: githubRepo.trim(),
+    };
+  }
+
   return { gitRepoPath };
 }
 
@@ -337,7 +409,12 @@ function setupGitFromFlags(flags: InitFlags): GitSetupResult | null {
   if (!flags.gitRepo) {
     throw new Error('Git requires: --git-repo');
   }
-  return { gitRepoPath: flags.gitRepo };
+  return {
+    gitRepoPath: flags.gitRepo,
+    githubToken: flags.githubToken,
+    githubOwner: flags.githubOwner,
+    githubRepo: flags.githubRepo,
+  };
 }
 
 function setupDbFromFlags(flags: InitFlags): DbSetupResult | null {
@@ -378,8 +455,15 @@ function generateEnv(
     lines.push(
       '# === Git ===',
       `GIT_REPO_PATH=${git.gitRepoPath}`,
-      '',
     );
+    if (git.githubToken && git.githubOwner && git.githubRepo) {
+      lines.push(
+        `GITHUB_TOKEN=${git.githubToken}`,
+        `GITHUB_OWNER=${git.githubOwner}`,
+        `GITHUB_REPO=${git.githubRepo}`,
+      );
+    }
+    lines.push('');
   }
 
   if (db) {

@@ -18,6 +18,16 @@ export type {
 } from './git.js';
 
 export type {
+  PullRequest,
+  PullRequestReview,
+  PullRequestComment,
+  PullRequestFile,
+  PullRequestIssueRef,
+  Release,
+  GitHubBatch,
+} from './github.js';
+
+export type {
   SourceType,
   SourceConfig,
   WorkspaceConfig,

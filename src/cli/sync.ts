@@ -9,6 +9,8 @@ import { GitProvider } from '../adapters/git/index.js';
 import { PostgresStorage } from '../adapters/postgres/index.js';
 import { PullUseCase } from '../use-cases/pull.js';
 import { PullGitUseCase } from '../use-cases/pull-git.js';
+import { GitHubProvider } from '../adapters/github/index.js';
+import { PullGitHubUseCase } from '../use-cases/pull-github.js';
 import type { SourceType } from '../core/types/index.js';
 import { ALL_SOURCES, SOURCE_META } from '../core/types/index.js';
 
@@ -148,6 +150,38 @@ async function syncGit(
         `  ${result.commitsCount} commits, ${result.filesCount} files, ${result.issueRefsCount} issue refs`,
       ),
     );
+
+    // GitHub API — PRs, reviews, releases (optional, requires GITHUB_TOKEN)
+    const githubToken = process.env['GITHUB_TOKEN'];
+    const githubOwner = process.env['GITHUB_OWNER'];
+    const githubRepo = process.env['GITHUB_REPO'];
+
+    if (githubToken && githubOwner && githubRepo) {
+      spinner.start('Syncing GitHub PRs...');
+
+      const github = new GitHubProvider({
+        token: githubToken,
+        owner: githubOwner,
+        repo: githubRepo,
+      });
+
+      const pullGithub = new PullGitHubUseCase(github, storage);
+      const repoFullName = `${githubOwner}/${githubRepo}`;
+      const ghSince = options.since ? new Date(options.since) : undefined;
+
+      const ghResult = await pullGithub.execute(repoFullName, {
+        ...(ghSince ? { since: ghSince } : {}),
+        onProgress: (msg) => { spinner.text = msg; },
+      });
+
+      spinner.succeed('GitHub sync complete!');
+      console.log(
+        chalk.green(
+          `  ${ghResult.prsCount} PRs, ${ghResult.reviewsCount} reviews, ${ghResult.releasesCount} releases`,
+        ),
+      );
+    }
+
     console.log('');
   } finally {
     await storage.close();
