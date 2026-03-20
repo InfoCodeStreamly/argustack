@@ -120,6 +120,103 @@ export async function ensureSchema(pool: pg.Pool): Promise<void> {
     )
   `);
 
+  // ─── GitHub tables ──────────────────────────────────────────────────────
+
+  await pool.query(`
+    CREATE TABLE IF NOT EXISTS pull_requests (
+      number INTEGER NOT NULL,
+      repo_full_name VARCHAR(200) NOT NULL,
+      title TEXT,
+      body TEXT,
+      state VARCHAR(10),
+      author VARCHAR(200),
+      created_at TIMESTAMPTZ,
+      updated_at TIMESTAMPTZ,
+      merged_at TIMESTAMPTZ,
+      closed_at TIMESTAMPTZ,
+      merge_commit_sha VARCHAR(40),
+      head_ref VARCHAR(200),
+      base_ref VARCHAR(200),
+      labels TEXT[],
+      reviewers TEXT[],
+      additions INTEGER DEFAULT 0,
+      deletions INTEGER DEFAULT 0,
+      changed_files INTEGER DEFAULT 0,
+      raw_json JSONB,
+      search_vector tsvector,
+      pulled_at TIMESTAMP DEFAULT NOW(),
+      PRIMARY KEY (repo_full_name, number)
+    )
+  `);
+
+  await pool.query(`
+    CREATE TABLE IF NOT EXISTS pr_reviews (
+      id SERIAL PRIMARY KEY,
+      pr_number INTEGER NOT NULL,
+      repo_full_name VARCHAR(200) NOT NULL,
+      review_id INTEGER NOT NULL,
+      reviewer VARCHAR(200),
+      state VARCHAR(30),
+      body TEXT,
+      submitted_at TIMESTAMPTZ
+    )
+  `);
+
+  await pool.query(`
+    CREATE TABLE IF NOT EXISTS pr_comments (
+      id SERIAL PRIMARY KEY,
+      pr_number INTEGER NOT NULL,
+      repo_full_name VARCHAR(200) NOT NULL,
+      comment_id BIGINT NOT NULL,
+      author VARCHAR(200),
+      body TEXT,
+      path TEXT,
+      line INTEGER,
+      created_at TIMESTAMPTZ,
+      updated_at TIMESTAMPTZ
+    )
+  `);
+
+  await pool.query(`
+    CREATE TABLE IF NOT EXISTS pr_files (
+      id SERIAL PRIMARY KEY,
+      pr_number INTEGER NOT NULL,
+      repo_full_name VARCHAR(200) NOT NULL,
+      file_path TEXT NOT NULL,
+      status VARCHAR(20),
+      additions INTEGER DEFAULT 0,
+      deletions INTEGER DEFAULT 0
+    )
+  `);
+
+  await pool.query(`
+    CREATE TABLE IF NOT EXISTS pr_issue_refs (
+      pr_number INTEGER NOT NULL,
+      repo_full_name VARCHAR(200) NOT NULL,
+      issue_key VARCHAR(20) NOT NULL,
+      PRIMARY KEY (repo_full_name, pr_number, issue_key)
+    )
+  `);
+
+  await pool.query(`
+    CREATE TABLE IF NOT EXISTS releases (
+      id INTEGER NOT NULL,
+      repo_full_name VARCHAR(200) NOT NULL,
+      tag_name VARCHAR(200),
+      name TEXT,
+      body TEXT,
+      author VARCHAR(200),
+      draft BOOLEAN DEFAULT FALSE,
+      prerelease BOOLEAN DEFAULT FALSE,
+      created_at TIMESTAMPTZ,
+      published_at TIMESTAMPTZ,
+      raw_json JSONB,
+      search_vector tsvector,
+      pulled_at TIMESTAMP DEFAULT NOW(),
+      PRIMARY KEY (repo_full_name, id)
+    )
+  `);
+
   // ─── Indexes ──────────────────────────────────────────────────────────
 
   const indexes = [
@@ -145,6 +242,22 @@ export async function ensureSchema(pool: pg.Pool): Promise<void> {
     'CREATE INDEX IF NOT EXISTS idx_commit_files_hash ON commit_files(commit_hash)',
     'CREATE INDEX IF NOT EXISTS idx_commit_files_path ON commit_files(file_path)',
     'CREATE INDEX IF NOT EXISTS idx_commit_refs_issue ON commit_issue_refs(issue_key)',
+    // GitHub indexes
+    'CREATE INDEX IF NOT EXISTS idx_prs_repo ON pull_requests(repo_full_name)',
+    'CREATE INDEX IF NOT EXISTS idx_prs_state ON pull_requests(state)',
+    'CREATE INDEX IF NOT EXISTS idx_prs_author ON pull_requests(author)',
+    'CREATE INDEX IF NOT EXISTS idx_prs_merged ON pull_requests(merged_at)',
+    'CREATE INDEX IF NOT EXISTS idx_prs_updated ON pull_requests(updated_at)',
+    'CREATE INDEX IF NOT EXISTS idx_prs_merge_sha ON pull_requests(merge_commit_sha)',
+    'CREATE INDEX IF NOT EXISTS idx_prs_search ON pull_requests USING GIN(search_vector)',
+    'CREATE INDEX IF NOT EXISTS idx_pr_reviews_pr ON pr_reviews(repo_full_name, pr_number)',
+    'CREATE INDEX IF NOT EXISTS idx_pr_comments_pr ON pr_comments(repo_full_name, pr_number)',
+    'CREATE INDEX IF NOT EXISTS idx_pr_files_pr ON pr_files(repo_full_name, pr_number)',
+    'CREATE INDEX IF NOT EXISTS idx_pr_files_path ON pr_files(file_path)',
+    'CREATE INDEX IF NOT EXISTS idx_pr_refs_issue ON pr_issue_refs(issue_key)',
+    'CREATE INDEX IF NOT EXISTS idx_releases_repo ON releases(repo_full_name)',
+    'CREATE INDEX IF NOT EXISTS idx_releases_tag ON releases(tag_name)',
+    'CREATE INDEX IF NOT EXISTS idx_releases_search ON releases USING GIN(search_vector)',
   ];
 
   for (const idx of indexes) {

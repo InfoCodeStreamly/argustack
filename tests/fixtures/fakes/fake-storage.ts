@@ -1,36 +1,31 @@
 /**
  * Fake IStorage — in-memory Map-based implementation.
  * Used in unit/integration tests instead of PostgreSQL.
+ *
+ * Methods return Promise.resolve() instead of using async keyword
+ * to avoid require-await lint violations.
  */
 
 import type { IStorage, QueryResult } from '../../../src/core/ports/storage.js';
-import type { IssueBatch, Issue } from '../../../src/core/types/index.js';
+import type { IssueBatch, Issue, PullRequest, Release, GitHubBatch } from '../../../src/core/types/index.js';
+import type { CommitBatch, Commit } from '../../../src/core/types/git.js';
 
 export class FakeStorage implements IStorage {
   readonly name = 'FakeStorage';
 
-  /** All stored issues, keyed by issue_key */
   readonly issues = new Map<string, Issue>();
-
-  /** Batches received (for verifying call sequence) */
   readonly savedBatches: IssueBatch[] = [];
-
-  /** Last updated timestamps per project */
   private readonly _lastUpdated = new Map<string, string>();
 
-  /** Track if initialize() was called */
   initialized = false;
-
-  /** Track if close() was called */
   closed = false;
 
-  // eslint-disable-next-line @typescript-eslint/require-await -- fake: sync impl of async interface
-  async initialize(): Promise<void> {
+  initialize(): Promise<void> {
     this.initialized = true;
+    return Promise.resolve();
   }
 
-  // eslint-disable-next-line @typescript-eslint/require-await -- fake: sync impl of async interface
-  async saveBatch(batch: IssueBatch): Promise<void> {
+  saveBatch(batch: IssueBatch): Promise<void> {
     this.savedBatches.push(batch);
     for (const issue of batch.issues) {
       this.issues.set(issue.key, issue);
@@ -41,21 +36,76 @@ export class FakeStorage implements IStorage {
         }
       }
     }
+    return Promise.resolve();
   }
 
-  // eslint-disable-next-line @typescript-eslint/require-await -- fake: sync impl of async interface
-  async getLastUpdated(projectKey: string): Promise<string | null> {
-    return this._lastUpdated.get(projectKey) ?? null;
+  getLastUpdated(projectKey: string): Promise<string | null> {
+    return Promise.resolve(this._lastUpdated.get(projectKey) ?? null);
   }
 
-  // eslint-disable-next-line @typescript-eslint/require-await -- fake: sync impl of async interface
-  async query(_sql: string, _params: unknown[]): Promise<QueryResult> {
-    return { rows: [] };
+  query(_sql: string, _params: unknown[]): Promise<QueryResult> {
+    return Promise.resolve({ rows: [] });
   }
 
-  // eslint-disable-next-line @typescript-eslint/require-await -- fake: sync impl of async interface
-  async close(): Promise<void> {
+  close(): Promise<void> {
     this.closed = true;
+    return Promise.resolve();
+  }
+
+  // ─── Git methods ────────────────────────────────────────────
+
+  readonly commits = new Map<string, Commit>();
+  readonly savedCommitBatches: CommitBatch[] = [];
+  private readonly _lastCommitDate = new Map<string, Date>();
+
+  saveCommitBatch(batch: CommitBatch): Promise<void> {
+    this.savedCommitBatches.push(batch);
+    for (const commit of batch.commits) {
+      this.commits.set(commit.hash, commit);
+      const date = new Date(commit.committedAt);
+      const current = this._lastCommitDate.get(commit.repoPath);
+      if (!current || date > current) {
+        this._lastCommitDate.set(commit.repoPath, date);
+      }
+    }
+    return Promise.resolve();
+  }
+
+  getLastCommitDate(repoPath: string): Promise<Date | null> {
+    return Promise.resolve(this._lastCommitDate.get(repoPath) ?? null);
+  }
+
+  // ─── GitHub methods ─────────────────────────────────────────
+
+  readonly pullRequests = new Map<number, PullRequest>();
+  readonly releases = new Map<number, Release>();
+  readonly savedGitHubBatches: GitHubBatch[] = [];
+  readonly savedReleases: Release[][] = [];
+  private readonly _lastPrUpdated = new Map<string, Date>();
+
+  saveGitHubBatch(batch: GitHubBatch): Promise<void> {
+    this.savedGitHubBatches.push(batch);
+    for (const pr of batch.pullRequests) {
+      this.pullRequests.set(pr.number, pr);
+      const date = new Date(pr.updatedAt);
+      const current = this._lastPrUpdated.get(pr.repoFullName);
+      if (!current || date > current) {
+        this._lastPrUpdated.set(pr.repoFullName, date);
+      }
+    }
+    return Promise.resolve();
+  }
+
+  saveReleases(releases: Release[]): Promise<void> {
+    this.savedReleases.push(releases);
+    for (const rel of releases) {
+      this.releases.set(rel.id, rel);
+    }
+    return Promise.resolve();
+  }
+
+  getLastPrUpdated(repoFullName: string): Promise<Date | null> {
+    return Promise.resolve(this._lastPrUpdated.get(repoFullName) ?? null);
   }
 
   // ─── Test helpers ─────────────────────────────────────────────
@@ -74,6 +124,14 @@ export class FakeStorage implements IStorage {
     this.issues.clear();
     this.savedBatches.length = 0;
     this._lastUpdated.clear();
+    this.commits.clear();
+    this.savedCommitBatches.length = 0;
+    this._lastCommitDate.clear();
+    this.pullRequests.clear();
+    this.releases.clear();
+    this.savedGitHubBatches.length = 0;
+    this.savedReleases.length = 0;
+    this._lastPrUpdated.clear();
     this.initialized = false;
     this.closed = false;
   }

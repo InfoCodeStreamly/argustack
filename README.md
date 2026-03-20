@@ -21,12 +21,19 @@ Argustack builds this knowledge base from your project's sources of truth:
   ┌──────────────────────┐        │  ├── issue_worklogs  (time logs)  │
   │  Git repository      │  pull  │  ├── issue_links     (relations)  │
   │  (commits, files,    │ ──────►│  ├── commits         (history)    │
-  │   diffs, authors)    │        │  ├── commit_files    (per-file +/-│)│
-  └──────────────────────┘        │  └── commit_issue_refs (cross-ref)│
+  │   diffs, authors)    │        │  ├── commit_files    (per-file Δ) │
+  └──────────────────────┘        │  ├── commit_issue_refs (cross-ref)│
+                                  │  │                                  │
+  ┌──────────────────────┐        │  │  GitHub (optional, via token)    │
+  │  GitHub API          │  pull  │  ├── pull_requests   (PRs + meta) │
+  │  (PRs, reviews,      │ ──────►│  ├── pr_reviews      (approvals)  │
+  │   releases)          │        │  ├── pr_comments     (discussions) │
+  └──────────────────────┘        │  ├── pr_issue_refs   (PR↔Jira)    │
+                                  │  └── releases        (tags)        │
+  ┌──────────────────────┐        │                                     │
+  │  Database (planned)  │        │  MCP Server (localhost, stdio)      │
+  └──────────────────────┘        │  └── queries DB ──► Claude / LLM   │
                                   │                                     │
-  ┌──────────────────────┐        │  MCP Server (localhost, stdio)      │
-  │  Database (planned)  │        │  └── queries DB ──► Claude / LLM   │
-  └──────────────────────┘        │                                     │
                                   │  .env (credentials — never leaves) │
                                   └─────────────────────────────────────┘
 ```
@@ -34,13 +41,14 @@ Argustack builds this knowledge base from your project's sources of truth:
 > *Is this bug still relevant or already fixed in code?*
 > *Was the feature implemented as described in the ticket?*
 > *Who worked on this module and what changed last month?*
-> *Which commits reference ticket PAP-123?*
+> *Which commits and PRs reference ticket PAP-123?*
+> *Who approved the PR and what was the review feedback?*
 
 ## How it works
 
-**Retrieval** — pulls all data from Jira and Git into local PostgreSQL with pgvector. Every field, every comment, every changelog entry, every commit with per-file additions/deletions. Raw JSON preserved as-is. Nothing is filtered or lost.
+**Retrieval** — pulls all data from Jira, Git, and GitHub into local PostgreSQL with pgvector. Every field, every comment, every changelog entry, every commit with per-file diffs, every PR with reviews and approvals. Raw JSON preserved as-is. Nothing is filtered or lost.
 
-**Augmentation** — MCP server gives Claude Desktop / Claude Code direct access to your local database. Full-text search, filters, raw SQL, aggregate statistics, cross-reference between Jira issues and Git commits — all without leaving your machine.
+**Augmentation** — MCP server gives Claude Desktop / Claude Code direct access to your local database. Full-text search, filters, raw SQL, aggregate statistics, cross-reference between Jira issues, Git commits, and GitHub PRs — all without leaving your machine.
 
 **Generation** — ask questions in natural language. Claude queries your local data and answers with full project context.
 
@@ -63,9 +71,10 @@ That's it. The interactive setup will:
 1. Ask which sources you have (Jira, Git, Database)
 2. Collect credentials and test connections
 3. For Git — choose local path or clone from URL
-4. Create a workspace with Docker config
-5. Start PostgreSQL + pgweb automatically
-6. Pull all your data
+4. Optionally connect to GitHub API (PRs, reviews, releases)
+5. Create a workspace with Docker config
+6. Start PostgreSQL + pgweb automatically
+7. Pull all your data
 
 ```
 ? Workspace directory: ~/projects/my-team
@@ -90,6 +99,8 @@ Testing connection... Connected! Found 3 projects: MKT, BRAND, WEB
   BRAND: 89 issues, 12 comments, 203 changelogs
 ✔ Git sync complete!
   142 commits, 876 files, 23 issue refs
+✔ GitHub sync complete!
+  87 PRs, 124 reviews, 3 releases
 ```
 
 Browse your data at [localhost:8086](http://localhost:8086) — pgweb UI for running SQL queries and exploring tables in your browser.
@@ -142,6 +153,21 @@ Every custom field is preserved exactly as Jira returns it. 500 custom fields? A
 
 Commit messages mentioning issue keys like `PAP-123` or `PROJ-45` are automatically linked to Jira issues.
 
+### GitHub tables
+
+If you connect a GitHub token during `argustack init`, PRs and releases are pulled alongside commits:
+
+| Table | Content |
+|-------|---------|
+| `pull_requests` | PRs — state, author, reviewers, additions/deletions, merge info, full-text search |
+| `pr_reviews` | Review approvals and change requests |
+| `pr_comments` | Inline review comments with file paths and line numbers |
+| `pr_files` | Per-file changes in each PR |
+| `pr_issue_refs` | Cross-reference: PR ↔ Jira issue (extracted from PR title and body) |
+| `releases` | GitHub releases with tags, notes, and full-text search |
+
+PR titles and bodies mentioning issue keys like `PAP-123` are automatically linked to Jira issues — just like commits.
+
 ## MCP Tools
 
 When connected to Claude, these tools are available:
@@ -163,6 +189,14 @@ When connected to Claude, these tools are available:
 | `query_commits` | Search commits by text, author, date, file path, or raw SQL |
 | `issue_commits` | Cross-reference: find all commits mentioning a Jira issue key |
 | `commit_stats` | Aggregate stats — top authors, most changed files, linked issues |
+
+### GitHub tools
+
+| Tool | What it does |
+|------|-------------|
+| `query_prs` | Search PRs — full-text, state, author, base branch, or raw SQL |
+| `issue_prs` | Cross-reference: find all PRs mentioning a Jira issue key with reviews |
+| `query_releases` | List releases with full-text search |
 
 ### System tools
 
@@ -197,13 +231,16 @@ When you run `argustack init`, it creates a `.env` file in your workspace with y
 # .env — YOUR file, on YOUR machine, never uploaded anywhere
 JIRA_URL=https://your-team.atlassian.net
 JIRA_EMAIL=you@company.com
-JIRA_API_TOKEN=ATATT3x...
+JIRA_API_TOKEN=your-api-token-here
 JIRA_PROJECTS=PROJ,OTHER
 GIT_REPO_PATH=/path/to/your/repo
+GITHUB_TOKEN=your-github-token-here
+GITHUB_OWNER=your-org
+GITHUB_REPO=your-repo
 DB_HOST=localhost
 DB_PORT=5434
 DB_USER=argustack
-DB_PASSWORD=argustack_local
+DB_PASSWORD=your-db-password
 DB_NAME=argustack
 ```
 
@@ -212,9 +249,10 @@ DB_NAME=argustack
 | What | Where | Who can see |
 |------|-------|-------------|
 | Jira token | `.env` on your disk | Only you |
+| GitHub token | `.env` on your disk | Only you |
 | Jira data | PostgreSQL in Docker on `localhost:5434` | Only you |
-| Git data | PostgreSQL in Docker on `localhost:5434` | Only you |
-| Database password | `.env` on your disk (default: `argustack_local`) | Only you |
+| Git + GitHub data | PostgreSQL in Docker on `localhost:5434` | Only you |
+| Database password | `.env` on your disk | Only you |
 | Source code (this repo) | GitHub | Everyone — **no secrets here** |
 
 **What Argustack does NOT do:**
@@ -230,6 +268,7 @@ DB_NAME=argustack
 - TypeScript / Node.js
 - Commander.js — CLI
 - jira.js — Jira REST API
+- Octokit — GitHub REST API (PRs, reviews, releases)
 - es-git — native Git bindings (N-API, powered by libgit2)
 - PostgreSQL 16 + pgvector — storage + vector search
 - MCP SDK — Claude integration
@@ -239,7 +278,8 @@ DB_NAME=argustack
 
 - [x] Jira pull (all fields, comments, changelogs, worklogs, links)
 - [x] Git pull (commits, per-file diffs, issue cross-references)
-- [x] MCP server for Claude Desktop / Claude Code (9 tools)
+- [x] GitHub pull (PRs, reviews, comments, files, releases, Jira cross-references)
+- [x] MCP server for Claude Desktop / Claude Code (12 tools)
 - [ ] Database adapter (schema, sample data)
 - [ ] Embeddings + semantic search
 - [ ] Cross-source analysis (Jira ticket vs actual code vs DB state)

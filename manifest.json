@@ -54,6 +54,18 @@
     {
       "name": "commit_stats",
       "description": "Aggregate Git stats — top authors, most changed files, linked issues"
+    },
+    {
+      "name": "query_prs",
+      "description": "Search GitHub pull requests with full-text search and filters"
+    },
+    {
+      "name": "issue_prs",
+      "description": "Find all PRs mentioning a Jira issue key with review details"
+    },
+    {
+      "name": "query_releases",
+      "description": "List GitHub releases for the repository"
     }
   ],
   "compatibility": {

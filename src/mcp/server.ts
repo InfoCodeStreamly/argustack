@@ -995,6 +995,289 @@ server.registerTool(
   }
 );
 
+// ─── Tool: query_prs ──────────────────────────────────────────────────────────
+
+interface PrRow {
+  number?: number;
+  title?: string;
+  state?: string;
+  author?: string;
+  created_at?: string;
+  updated_at?: string;
+  merged_at?: string;
+  base_ref?: string;
+  additions?: number;
+  deletions?: number;
+}
+
+server.registerTool(
+  'query_prs',
+  {
+    description: 'Search GitHub pull requests stored in the local database. Supports full-text search, filtering by state/author/base branch, and raw SQL.',
+    inputSchema: {
+      search: z.string().optional().describe('Full-text search in PR title and body'),
+      state: z.string().optional().describe('Filter by state: open, closed, merged'),
+      author: z.string().optional().describe('Filter by PR author'),
+      base_ref: z.string().optional().describe('Filter by base branch (e.g. "main")'),
+      since: z.string().optional().describe('PRs updated since date (YYYY-MM-DD)'),
+      limit: z.number().optional().describe('Max results (default: 50)'),
+      sql: z.string().optional().describe('Raw SQL. Tables: pull_requests, pr_reviews, pr_comments, pr_files, pr_issue_refs'),
+    },
+  },
+  async ({ search, state, author, base_ref: baseRef, since, limit, sql }) => {
+    const ws = loadWorkspace();
+    if (!ws.ok) {
+      return {
+        content: [{ type: 'text' as const, text: `Workspace not found: ${ws.reason}` }],
+        isError: true,
+      };
+    }
+
+    const { storage } = await createAdapters(ws.root);
+
+    try {
+      const maxResults = limit ?? 50;
+      let sqlQuery: string;
+      let params: unknown[];
+
+      if (sql) {
+        sqlQuery = sql;
+        params = [];
+      } else {
+        const conditions: string[] = [];
+        params = [];
+        let paramIdx = 1;
+
+        if (search) {
+          conditions.push(`search_vector @@ plainto_tsquery('english', $${String(paramIdx)})`);
+          params.push(search);
+          paramIdx++;
+        }
+        if (state) {
+          conditions.push(`state = $${String(paramIdx)}`);
+          params.push(state.toLowerCase());
+          paramIdx++;
+        }
+        if (author) {
+          conditions.push(`author ILIKE $${String(paramIdx)}`);
+          params.push(`%${author}%`);
+          paramIdx++;
+        }
+        if (baseRef) {
+          conditions.push(`base_ref = $${String(paramIdx)}`);
+          params.push(baseRef);
+          paramIdx++;
+        }
+        if (since) {
+          conditions.push(`updated_at >= $${String(paramIdx)}`);
+          params.push(since);
+          paramIdx++;
+        }
+
+        const where = conditions.length > 0 ? `WHERE ${conditions.join(' AND ')}` : '';
+        sqlQuery = `
+          SELECT number, title, state, author, created_at, updated_at, merged_at,
+                 base_ref, additions, deletions
+          FROM pull_requests
+          ${where}
+          ORDER BY updated_at DESC NULLS LAST
+          LIMIT ${String(maxResults)}
+        `;
+      }
+
+      const result = await storage.query(sqlQuery, params);
+      await storage.close();
+
+      if (result.rows.length === 0) {
+        return {
+          content: [{ type: 'text' as const, text: 'No pull requests found. Run "argustack sync git" with GITHUB_TOKEN configured.' }],
+        };
+      }
+
+      const lines = result.rows.map((row: Record<string, unknown>) => {
+        const typed = row as unknown as PrRow;
+        if (typed.number) {
+          const date = typed.merged_at ? str(typed.merged_at).substring(0, 10) : str(typed.updated_at ?? '').substring(0, 10);
+          return `#${str(typed.number)} [${str(typed.state)}] ${str(typed.title)} by ${str(typed.author)} (${date}) +${str(typed.additions)}/-${str(typed.deletions)}`;
+        }
+        return JSON.stringify(row);
+      });
+
+      return {
+        content: [{
+          type: 'text' as const,
+          text: [`Found ${String(result.rows.length)} pull requests:`, '', ...lines].join('\n'),
+        }],
+      };
+    } catch (err: unknown) {
+      return {
+        content: [{ type: 'text' as const, text: `Query failed: ${getErrorMessage(err)}` }],
+        isError: true,
+      };
+    }
+  }
+);
+
+// ─── Tool: issue_prs ──────────────────────────────────────────────────────────
+
+server.registerTool(
+  'issue_prs',
+  {
+    description: 'Cross-reference: find all GitHub pull requests that mention a Jira issue key. Shows which PRs implemented a ticket.',
+    inputSchema: {
+      issue_key: z.string().describe('Issue key (e.g. "PAP-123")'),
+    },
+  },
+  async ({ issue_key: issueKey }) => {
+    const ws = loadWorkspace();
+    if (!ws.ok) {
+      return {
+        content: [{ type: 'text' as const, text: `Workspace not found: ${ws.reason}` }],
+        isError: true,
+      };
+    }
+
+    const { storage } = await createAdapters(ws.root);
+
+    try {
+      const prsResult = await storage.query(
+        `SELECT p.number, p.title, p.state, p.author, p.created_at, p.merged_at,
+                p.additions, p.deletions, p.base_ref, p.head_ref
+         FROM pull_requests p
+         JOIN pr_issue_refs r ON p.repo_full_name = r.repo_full_name AND p.number = r.pr_number
+         WHERE r.issue_key = $1
+         ORDER BY p.created_at DESC`,
+        [issueKey.toUpperCase()]
+      );
+
+      if (prsResult.rows.length === 0) {
+        await storage.close();
+        return {
+          content: [{
+            type: 'text' as const,
+            text: `No PRs found mentioning ${issueKey}. Make sure GitHub sync is configured.`,
+          }],
+        };
+      }
+
+      const sections: string[] = [];
+      sections.push(`# Pull Requests for ${issueKey} (${String(prsResult.rows.length)})`);
+      sections.push('');
+
+      for (const rawRow of prsResult.rows) {
+        const pr = rawRow as unknown as PrRow & { head_ref?: string };
+        sections.push(`## #${str(pr.number)} — ${str(pr.title)}`);
+        sections.push(`State: ${str(pr.state)} | Author: ${str(pr.author)} | ${str(pr.base_ref)} ← ${str(pr.head_ref)}`);
+        sections.push(`+${str(pr.additions)} -${str(pr.deletions)} | Created: ${str(pr.created_at ?? '').substring(0, 10)}${pr.merged_at ? ` | Merged: ${str(pr.merged_at).substring(0, 10)}` : ''}`);
+
+        const reviewsResult = await storage.query(
+          `SELECT reviewer, state, submitted_at FROM pr_reviews
+           WHERE repo_full_name = (SELECT repo_full_name FROM pull_requests WHERE number = $1 LIMIT 1) AND pr_number = $1
+           ORDER BY submitted_at`,
+          [pr.number]
+        );
+
+        if (reviewsResult.rows.length > 0) {
+          sections.push('Reviews:');
+          for (const r of reviewsResult.rows) {
+            const review = r as { reviewer?: string; state?: string; submitted_at?: string };
+            sections.push(`  ${str(review.reviewer)}: ${str(review.state)} (${str(review.submitted_at ?? '').substring(0, 10)})`);
+          }
+        }
+
+        sections.push('');
+      }
+
+      await storage.close();
+
+      return {
+        content: [{ type: 'text' as const, text: sections.join('\n') }],
+      };
+    } catch (err: unknown) {
+      return {
+        content: [{ type: 'text' as const, text: `Query failed: ${getErrorMessage(err)}` }],
+        isError: true,
+      };
+    }
+  }
+);
+
+// ─── Tool: query_releases ─────────────────────────────────────────────────────
+
+server.registerTool(
+  'query_releases',
+  {
+    description: 'List GitHub releases for the repository. Useful for understanding release cadence and what was shipped.',
+    inputSchema: {
+      search: z.string().optional().describe('Full-text search in release name/body'),
+      limit: z.number().optional().describe('Max results (default: 20)'),
+    },
+  },
+  async ({ search, limit }) => {
+    const ws = loadWorkspace();
+    if (!ws.ok) {
+      return {
+        content: [{ type: 'text' as const, text: `Workspace not found: ${ws.reason}` }],
+        isError: true,
+      };
+    }
+
+    const { storage } = await createAdapters(ws.root);
+
+    try {
+      const maxResults = limit ?? 20;
+      let sqlQuery: string;
+      const params: unknown[] = [];
+
+      if (search) {
+        sqlQuery = `
+          SELECT tag_name, name, author, published_at, draft, prerelease
+          FROM releases
+          WHERE search_vector @@ plainto_tsquery('english', $1)
+          ORDER BY published_at DESC NULLS LAST
+          LIMIT ${String(maxResults)}
+        `;
+        params.push(search);
+      } else {
+        sqlQuery = `
+          SELECT tag_name, name, author, published_at, draft, prerelease
+          FROM releases
+          ORDER BY published_at DESC NULLS LAST
+          LIMIT ${String(maxResults)}
+        `;
+      }
+
+      const result = await storage.query(sqlQuery, params);
+      await storage.close();
+
+      if (result.rows.length === 0) {
+        return {
+          content: [{ type: 'text' as const, text: 'No releases found. Run "argustack sync git" with GITHUB_TOKEN.' }],
+        };
+      }
+
+      const lines = result.rows.map((row: Record<string, unknown>) => {
+        const r = row as { tag_name?: string; name?: string; author?: string; published_at?: string; draft?: boolean; prerelease?: boolean };
+        const flags = [r.draft ? 'draft' : '', r.prerelease ? 'pre' : ''].filter(Boolean).join(',');
+        const date = str(r.published_at ?? '').substring(0, 10);
+        return `${str(r.tag_name)} — ${str(r.name) || '(no name)'} by ${str(r.author)} (${date})${flags ? ` [${flags}]` : ''}`;
+      });
+
+      return {
+        content: [{
+          type: 'text' as const,
+          text: [`Found ${String(result.rows.length)} releases:`, '', ...lines].join('\n'),
+        }],
+      };
+    } catch (err: unknown) {
+      return {
+        content: [{ type: 'text' as const, text: `Query failed: ${getErrorMessage(err)}` }],
+        isError: true,
+      };
+    }
+  }
+);
+
 // ─── Start ────────────────────────────────────────────────────────────────────
 
 export async function startMcpServer(): Promise<void> {
