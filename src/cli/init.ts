@@ -190,17 +190,81 @@ async function setupJiraInteractive(): Promise<JiraSetupResult | null> {
 async function setupGitInteractive(): Promise<GitSetupResult | null> {
   console.log('');
   console.log(chalk.bold('  Git setup'));
-  console.log(chalk.dim('  Point to a Git repository.\n'));
+  console.log(chalk.dim('  Connect to a Git repository.\n'));
 
-  const gitRepoPath = await input({
-    message: 'Git repo path (local) or URL:',
-    validate: (val): string | true => {
-      if (!val.trim()) {
-        return 'Path or URL is required';
-      }
-      return true;
-    },
+  const { select } = await import('@inquirer/prompts');
+
+  const mode = await select<'local' | 'clone'>({
+    message: 'Where is your Git repository?',
+    choices: [
+      { value: 'local' as const, name: 'Local path — already cloned on this machine' },
+      { value: 'clone' as const, name: 'Clone from URL — download from GitHub/GitLab/etc.' },
+    ],
   });
+
+  let gitRepoPath: string;
+
+  if (mode === 'local') {
+    gitRepoPath = await input({
+      message: 'Path to local repo:',
+      validate: (val): string | true => {
+        const trimmed = val.trim();
+        if (!trimmed) {
+          return 'Path is required';
+        }
+        const resolved = resolve(trimmed.replace(/^~/, process.env['HOME'] ?? '~'));
+        if (!existsSync(join(resolved, '.git'))) {
+          return `Not a git repository: ${resolved} (no .git/ directory)`;
+        }
+        return true;
+      },
+    });
+    gitRepoPath = resolve(gitRepoPath.trim().replace(/^~/, process.env['HOME'] ?? '~'));
+  } else {
+    const repoUrl = await input({
+      message: 'Repository URL (HTTPS):',
+      validate: (val): string | true => {
+        const trimmed = val.trim();
+        if (!trimmed) {
+          return 'URL is required';
+        }
+        if (!trimmed.startsWith('https://') && !trimmed.startsWith('git@')) {
+          return 'Must start with https:// or git@';
+        }
+        return true;
+      },
+    });
+
+    const defaultDir = repoUrl.trim().split('/').pop()?.replace(/\.git$/, '') ?? 'repo';
+    const cloneDir = await input({
+      message: 'Clone into directory:',
+      default: defaultDir,
+    });
+
+    const targetPath = resolve(cloneDir.trim());
+    const spinner = ora(`Cloning ${repoUrl.trim()}...`).start();
+
+    try {
+      execSync(`git clone ${repoUrl.trim()} ${targetPath}`, { stdio: 'pipe' });
+      spinner.succeed(`Cloned to ${targetPath}`);
+      gitRepoPath = targetPath;
+    } catch (err: unknown) {
+      spinner.fail('Clone failed');
+      console.log(chalk.red(`  Error: ${err instanceof Error ? err.message : String(err)}`));
+      console.log(chalk.dim('  Check URL and network. Make sure git is installed.'));
+
+      const retry = await confirm({ message: 'Try again?', default: true });
+      if (retry) {
+        return setupGitInteractive();
+      }
+
+      const skip = await confirm({ message: 'Skip Git for now?', default: false });
+      if (skip) {
+        return null;
+      }
+      return setupGitInteractive();
+    }
+  }
 
   console.log(chalk.green(`  Git source configured: ${gitRepoPath}`));
   return { gitRepoPath };
@@ -452,6 +516,7 @@ function printSummary(
   git: GitSetupResult | null,
   db: DbSetupResult | null,
   pgwebPort: number,
+  willAutoStart: boolean,
 ): void {
   console.log('');
   console.log(chalk.green.bold('  Done! Your workspace is ready.'));
@@ -471,19 +536,22 @@ function printSummary(
     console.log(`    ${chalk.yellow('—')} None yet. Use ${chalk.cyan('argustack source add <type>')}`);
   }
 
-  console.log('');
-  console.log(chalk.dim('  Next steps:'));
-  console.log(`  ${chalk.cyan('cd')} ${workspaceDir}`);
-  console.log(`  ${chalk.cyan('docker compose up -d')}          # start database`);
-  if (jira) {
-    console.log(`  ${chalk.cyan('argustack sync jira')}            # sync from Jira`);
-  }
-  console.log(`  ${chalk.cyan(`http://localhost:${pgwebPort}`)}            # browse data in pgweb`);
+  if (!willAutoStart) {
+    console.log('');
+    console.log(chalk.dim('  Next steps:'));
+    console.log(`  ${chalk.cyan('cd')} ${workspaceDir}`);
+    console.log(`  ${chalk.cyan('docker compose up -d')}          # start database`);
+    if (jira) {
+      console.log(`  ${chalk.cyan('argustack sync jira')}            # sync from Jira`);
+    }
+    console.log(`  ${chalk.cyan(`http://localhost:${pgwebPort}`)}            # browse data in pgweb`);
 
-  console.log('');
-  console.log(chalk.dim('  Claude integration:'));
-  console.log(`    Claude Code:    ${chalk.green('Open this folder — MCP tools ready!')}`);
-  console.log(`    Claude Desktop: ${chalk.cyan('argustack mcp install')}`);
+    console.log('');
+    console.log(chalk.dim('  Claude integration:'));
+    console.log(`    Claude Code:    ${chalk.green('Open this folder — MCP tools ready!')}`);
+    console.log(`    Claude Desktop: ${chalk.cyan('argustack mcp install')}`);
+  }
+
   console.log('');
 }
 
@@ -541,7 +609,7 @@ async function runInitNonInteractive(flags: InitFlags): Promise<void> {
     throw err;
   }
 
-  printSummary(workspaceDir, jiraResult, gitResult, dbResult, pgwebPort);
+  printSummary(workspaceDir, jiraResult, gitResult, dbResult, pgwebPort, false);
 }
 
 // ─── Interactive init ────────────────────────────────────────────────────────
@@ -653,20 +721,20 @@ async function runInitInteractive(flags: InitFlags): Promise<void> {
     return;
   }
 
-  printSummary(workspaceDir, jiraResult, gitResult, dbResult, pgwebPort);
-
   // 6. Offer to start DB + sync automatically
   const autoStart = await confirm({
     message: 'Start database and sync now?',
     default: true,
   });
 
+  printSummary(workspaceDir, jiraResult, gitResult, dbResult, pgwebPort, autoStart);
+
   if (autoStart) {
-    await startAndSync(workspaceDir, jiraResult !== null);
+    await startAndSync(workspaceDir, jiraResult !== null, gitResult !== null, pgwebPort);
   }
 }
 
-async function startAndSync(workspaceDir: string, hasJira: boolean): Promise<void> {
+async function startAndSync(workspaceDir: string, hasJira: boolean, hasGit: boolean, pgwebPort: number): Promise<void> {
   const spinnerDb = ora('Starting Docker containers...').start();
   try {
     execSync('docker compose up -d', { cwd: workspaceDir, stdio: 'pipe' });
@@ -706,10 +774,29 @@ async function startAndSync(workspaceDir: string, hasJira: boolean): Promise<voi
       const { syncJiraFromInit } = await import('./sync.js');
       await syncJiraFromInit(workspaceDir);
     } catch (err: unknown) {
-      console.log(chalk.red(`  Sync failed: ${err instanceof Error ? err.message : String(err)}`));
-      console.log(chalk.dim(`  Try manually: cd ${workspaceDir} && argustack sync`));
+      console.log(chalk.red(`  Jira sync failed: ${err instanceof Error ? err.message : String(err)}`));
+      console.log(chalk.dim(`  Try manually: cd ${workspaceDir} && argustack sync jira`));
     }
   }
+
+  if (hasGit) {
+    console.log('');
+    try {
+      const { syncGitFromInit } = await import('./sync.js');
+      await syncGitFromInit(workspaceDir);
+    } catch (err: unknown) {
+      console.log(chalk.red(`  Git sync failed: ${err instanceof Error ? err.message : String(err)}`));
+      console.log(chalk.dim(`  Try manually: cd ${workspaceDir} && argustack sync git`));
+    }
+  }
+
+  console.log(chalk.dim('  What\'s next:'));
+  console.log(`  ${chalk.cyan(`http://localhost:${pgwebPort}`)}            # browse data in pgweb`);
+  console.log('');
+  console.log(chalk.dim('  Claude integration:'));
+  console.log(`    Claude Code:    ${chalk.green('Open this folder — MCP tools ready!')}`);
+  console.log(`    Claude Desktop: ${chalk.cyan('argustack mcp install')}`);
+  console.log('');
 }
 
 // ─── Main entry point ────────────────────────────────────────────────────────

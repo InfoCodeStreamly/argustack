@@ -57,7 +57,12 @@ export class PullUseCase {
       log(`Pulling ${projectKey} from ${this.source.name}...`);
 
       // Determine "since" — explicit or from last pull
-      const since = options.since ?? (await this.storage.getLastUpdated(projectKey));
+      // Subtract 1 minute overlap for auto-incremental to avoid missing issues
+      // (Jira API has minute-level precision; UPSERT makes re-pulls harmless)
+      const lastUpdated = options.since ?? (await this.storage.getLastUpdated(projectKey));
+      const since = lastUpdated && !options.since
+        ? new Date(new Date(lastUpdated).getTime() - 60_000).toISOString()
+        : lastUpdated;
       if (since) {
         log(`  Incremental pull: issues updated since ${since}`);
       }

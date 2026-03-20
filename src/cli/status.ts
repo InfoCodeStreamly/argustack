@@ -41,7 +41,7 @@ export function registerStatusCommand(program: Command): void {
 
         if (enabled.length > 0) {
           try {
-            dotenv.config({ path: `${workspaceRoot}/.env` });
+            dotenv.config({ path: `${workspaceRoot}/.env`, quiet: true });
             const storage = new PostgresStorage({
               host: process.env['DB_HOST'] ?? 'localhost',
               port: parseInt(process.env['DB_PORT'] ?? '5434', 10),

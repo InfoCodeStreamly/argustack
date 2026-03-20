@@ -157,7 +157,7 @@ async function createAdapters(workspaceRoot: string): Promise<{
   source: ISourceProvider | null;
   storage: IStorage;
 }> {
-  dotenv.config({ path: `${workspaceRoot}/.env` });
+  dotenv.config({ path: `${workspaceRoot}/.env`, quiet: true });
 
   const { JIRA_URL, JIRA_EMAIL, JIRA_API_TOKEN } = process.env;
   const { DB_HOST, DB_PORT, DB_USER, DB_PASSWORD, DB_NAME } = process.env;
@@ -688,6 +688,307 @@ server.registerTool(
     } catch (err: unknown) {
       return {
         content: [{ type: 'text' as const, text: `Stats query failed: ${getErrorMessage(err)}` }],
+        isError: true,
+      };
+    }
+  }
+);
+
+// ─── Tool: query_commits ──────────────────────────────────────────────────────
+
+/** Commit row from query */
+interface CommitRow {
+  hash?: string;
+  message?: string;
+  author?: string;
+  email?: string;
+  committed_at?: string;
+  repo_path?: string;
+}
+
+server.registerTool(
+  'query_commits',
+  {
+    description: 'Search and query Git commits stored in the local database. Supports full-text search, filtering by author/date, and raw SQL.',
+    inputSchema: {
+      search: z.string().optional().describe('Full-text search in commit messages (e.g. "fix login", "PAP-123")'),
+      author: z.string().optional().describe('Filter by author name'),
+      since: z.string().optional().describe('Commits after this date (YYYY-MM-DD)'),
+      until: z.string().optional().describe('Commits before this date (YYYY-MM-DD)'),
+      file_path: z.string().optional().describe('Filter by changed file path (e.g. "src/auth/login.ts")'),
+      limit: z.number().optional().describe('Max results (default: 50)'),
+      sql: z.string().optional().describe('Raw SQL query. Tables: commits, commit_files, commit_issue_refs'),
+    },
+  },
+  async ({ search, author, since, until, file_path: filePath, limit, sql }) => {
+    const ws = loadWorkspace();
+    if (!ws.ok) {
+      return {
+        content: [{ type: 'text' as const, text: `Workspace not found: ${ws.reason}` }],
+        isError: true,
+      };
+    }
+
+    const { storage } = await createAdapters(ws.root);
+
+    try {
+      const maxResults = limit ?? 50;
+      let sqlQuery: string;
+      let params: unknown[];
+
+      if (sql) {
+        sqlQuery = sql;
+        params = [];
+      } else {
+        const conditions: string[] = [];
+        params = [];
+        let paramIdx = 1;
+        let needJoin = false;
+
+        if (search) {
+          conditions.push(`c.search_vector @@ plainto_tsquery('english', $${String(paramIdx)})`);
+          params.push(search);
+          paramIdx++;
+        }
+
+        if (author) {
+          conditions.push(`c.author ILIKE $${String(paramIdx)}`);
+          params.push(`%${author}%`);
+          paramIdx++;
+        }
+
+        if (since) {
+          conditions.push(`c.committed_at >= $${String(paramIdx)}`);
+          params.push(since);
+          paramIdx++;
+        }
+
+        if (until) {
+          conditions.push(`c.committed_at <= $${String(paramIdx)}`);
+          params.push(until);
+          paramIdx++;
+        }
+
+        if (filePath) {
+          needJoin = true;
+          conditions.push(`cf.file_path ILIKE $${String(paramIdx)}`);
+          params.push(`%${filePath}%`);
+          paramIdx++;
+        }
+
+        const from = needJoin
+          ? 'commits c JOIN commit_files cf ON c.hash = cf.commit_hash'
+          : 'commits c';
+        const where = conditions.length > 0 ? `WHERE ${conditions.join(' AND ')}` : '';
+
+        sqlQuery = `
+          SELECT DISTINCT c.hash, c.message, c.author, c.email, c.committed_at, c.repo_path
+          FROM ${from}
+          ${where}
+          ORDER BY c.committed_at DESC NULLS LAST
+          LIMIT ${String(maxResults)}
+        `;
+      }
+
+      const result = await storage.query(sqlQuery, params);
+      await storage.close();
+
+      if (result.rows.length === 0) {
+        return {
+          content: [{ type: 'text' as const, text: 'No commits found matching your criteria.' }],
+        };
+      }
+
+      const lines = result.rows.map((row: Record<string, unknown>) => {
+        const typed = row as unknown as CommitRow;
+        if (typed.hash) {
+          const shortHash = typed.hash.substring(0, 7);
+          const date = typed.committed_at ? typed.committed_at.substring(0, 10) : '?';
+          return `${shortHash} ${date} ${str(typed.author)}: ${str(typed.message).split('\n')[0]}`;
+        }
+        return JSON.stringify(row);
+      });
+
+      return {
+        content: [{
+          type: 'text' as const,
+          text: [`Found ${String(result.rows.length)} commits:`, '', ...lines].join('\n'),
+        }],
+      };
+    } catch (err: unknown) {
+      return {
+        content: [{ type: 'text' as const, text: `Query failed: ${getErrorMessage(err)}` }],
+        isError: true,
+      };
+    }
+  }
+);
+
+// ─── Tool: issue_commits ──────────────────────────────────────────────────────
+
+server.registerTool(
+  'issue_commits',
+  {
+    description: 'Cross-reference: find all Git commits that mention a Jira issue key. Shows what code was actually changed for a ticket.',
+    inputSchema: {
+      issue_key: z.string().describe('Issue key (e.g. "PAP-123")'),
+    },
+  },
+  async ({ issue_key: issueKey }) => {
+    const ws = loadWorkspace();
+    if (!ws.ok) {
+      return {
+        content: [{ type: 'text' as const, text: `Workspace not found: ${ws.reason}` }],
+        isError: true,
+      };
+    }
+
+    const { storage } = await createAdapters(ws.root);
+
+    try {
+      const commitsResult = await storage.query(
+        `SELECT c.hash, c.message, c.author, c.committed_at
+         FROM commits c
+         JOIN commit_issue_refs r ON c.hash = r.commit_hash
+         WHERE r.issue_key = $1
+         ORDER BY c.committed_at DESC`,
+        [issueKey.toUpperCase()]
+      );
+
+      if (commitsResult.rows.length === 0) {
+        await storage.close();
+        return {
+          content: [{
+            type: 'text' as const,
+            text: `No commits found mentioning ${issueKey}. Make sure you've run "argustack sync git".`,
+          }],
+        };
+      }
+
+      const sections: string[] = [];
+      sections.push(`# Commits for ${issueKey} (${String(commitsResult.rows.length)})`);
+      sections.push('');
+
+      for (const rawRow of commitsResult.rows) {
+        const row = rawRow as unknown as CommitRow;
+        const shortHash = (row.hash ?? '').substring(0, 7);
+
+        sections.push(`## ${shortHash} — ${str(row.author)} (${str(row.committed_at).substring(0, 10)})`);
+        sections.push(str(row.message));
+
+        const filesResult = await storage.query(
+          `SELECT file_path, status, additions, deletions FROM commit_files WHERE commit_hash = $1`,
+          [row.hash]
+        );
+
+        if (filesResult.rows.length > 0) {
+          sections.push('Files:');
+          for (const f of filesResult.rows) {
+            const file = f as { file_path?: string; status?: string; additions?: number; deletions?: number };
+            sections.push(`  ${str(file.status)} ${str(file.file_path)} (+${str(file.additions)} -${str(file.deletions)})`);
+          }
+        }
+        sections.push('');
+      }
+
+      await storage.close();
+
+      return {
+        content: [{ type: 'text' as const, text: sections.join('\n') }],
+      };
+    } catch (err: unknown) {
+      return {
+        content: [{ type: 'text' as const, text: `Query failed: ${getErrorMessage(err)}` }],
+        isError: true,
+      };
+    }
+  }
+);
+
+// ─── Tool: commit_stats ───────────────────────────────────────────────────────
+
+server.registerTool(
+  'commit_stats',
+  {
+    description: 'Aggregate statistics about Git commits — total count, top authors, most changed files, commits per day.',
+    inputSchema: {
+      since: z.string().optional().describe('Stats from this date (YYYY-MM-DD)'),
+      author: z.string().optional().describe('Filter stats by author name'),
+    },
+  },
+  async ({ since, author }) => {
+    const ws = loadWorkspace();
+    if (!ws.ok) {
+      return {
+        content: [{ type: 'text' as const, text: `Workspace not found: ${ws.reason}` }],
+        isError: true,
+      };
+    }
+
+    const { storage } = await createAdapters(ws.root);
+
+    try {
+      const conditions: string[] = [];
+      const params: unknown[] = [];
+      let paramIdx = 1;
+
+      if (since) {
+        conditions.push(`committed_at >= $${String(paramIdx)}`);
+        params.push(since);
+        paramIdx++;
+      }
+      if (author) {
+        conditions.push(`author ILIKE $${String(paramIdx)}`);
+        params.push(`%${author}%`);
+        paramIdx++;
+      }
+
+      const where = conditions.length > 0 ? `WHERE ${conditions.join(' AND ')}` : '';
+
+      const [total, byAuthor, hotFiles, issueRefCount] = await Promise.all([
+        storage.query(`SELECT COUNT(*) as count FROM commits ${where}`, params),
+        storage.query(`SELECT author, COUNT(*) as count FROM commits ${where} GROUP BY author ORDER BY count DESC LIMIT 15`, params),
+        storage.query(
+          `SELECT cf.file_path, COUNT(*) as changes
+           FROM commit_files cf
+           JOIN commits c ON cf.commit_hash = c.hash
+           ${where ? where.replace(/committed_at/g, 'c.committed_at').replace(/author/g, 'c.author') : ''}
+           GROUP BY cf.file_path ORDER BY changes DESC LIMIT 15`,
+          params
+        ),
+        storage.query(`SELECT COUNT(DISTINCT issue_key) as count FROM commit_issue_refs`, []),
+      ]);
+
+      await storage.close();
+
+      const sections: string[] = [];
+      const totalRow = total.rows[0] as unknown as CountRow | undefined;
+      const refsRow = issueRefCount.rows[0] as unknown as CountRow | undefined;
+
+      sections.push(`# Git Statistics${since ? ` (since ${since})` : ''}${author ? ` (author: ${author})` : ''}`);
+      sections.push(`Total commits: ${str(totalRow?.count)}`);
+      sections.push(`Linked issue keys: ${str(refsRow?.count)}`);
+
+      sections.push('');
+      sections.push('## Top Authors');
+      for (const rawRow of byAuthor.rows) {
+        const r = rawRow as { author?: string; count?: string };
+        sections.push(`  ${str(r.author) || 'unknown'}: ${str(r.count)}`);
+      }
+
+      sections.push('');
+      sections.push('## Most Changed Files');
+      for (const rawRow of hotFiles.rows) {
+        const r = rawRow as { file_path?: string; changes?: string };
+        sections.push(`  ${str(r.file_path)}: ${str(r.changes)} changes`);
+      }
+
+      return {
+        content: [{ type: 'text' as const, text: sections.join('\n') }],
+      };
+    } catch (err: unknown) {
+      return {
+        content: [{ type: 'text' as const, text: `Stats failed: ${getErrorMessage(err)}` }],
         isError: true,
       };
     }
