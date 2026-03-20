@@ -20,3 +20,4 @@ Docs/
 
 # Test logs
 tests/logs/
+.claude/settings.local.json
