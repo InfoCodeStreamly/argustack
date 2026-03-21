@@ -4,6 +4,7 @@
 
 Argustack — standalone open-source CLI tool for project analysis. Cross-references sources of truth:
 - **Jira** — what was planned (issues, bugs, tasks)
+- **Jira CSV** — import from CSV export for teams without API access
 - **Git** — what was coded (commits, diffs, authors)
 - **GitHub** — what was reviewed (PRs, approvals, releases)
 - **DB** — what factually exists in production (coming soon)
@@ -17,6 +18,7 @@ Downloads everything into local PostgreSQL, then gives Claude direct access via 
 - **jira.js** (`Version3Client`) — typed Jira REST API client
 - **Octokit** — GitHub REST API (PRs, reviews, releases)
 - **es-git** — native Git bindings (N-API, libgit2)
+- **csv-parse** — streaming RFC 4180 CSV parser (for Jira CSV import)
 - **@inquirer/prompts** — interactive CLI prompts (init)
 - **PostgreSQL 16 + pgvector** — local DB (Docker), vector search
 - **OpenAI** — text-embedding-3-small for semantic search (optional)
@@ -56,6 +58,11 @@ src/
 │   │   ├── client.ts                    Version3Client wrapper
 │   │   ├── mapper.ts                    Raw Jira JSON → core types
 │   │   ├── provider.ts                  Paginated pull, fields=*all, expand=changelog
+│   │   └── index.ts                     re-exports
+│   ├── csv/                          CsvProvider — Jira CSV import
+│   │   ├── parser.ts                    Header detection, date parsing
+│   │   ├── mapper.ts                    CSV row → core types
+│   │   ├── provider.ts                  Streaming CSV → IssueBatch
 │   │   └── index.ts                     re-exports
 │   ├── git/                          GitProvider — reads local repos
 │   │   ├── provider.ts                  es-git walker, commit + diff extraction
@@ -115,7 +122,7 @@ CLI (sync.ts)
 ## Source Types
 
 ```typescript
-type SourceType = 'jira' | 'git' | 'github' | 'db';
+type SourceType = 'jira' | 'git' | 'github' | 'csv' | 'db';
 ```
 
 Each source is independent — own adapter, own use case, own sync command, own setup in init.
@@ -182,6 +189,9 @@ GITHUB_TOKEN=ghp_...
 GITHUB_OWNER=org-or-user
 GITHUB_REPO=repo-name
 
+# === Jira CSV (alternative to Jira API) ===
+# CSV_FILE_PATH=/path/to/Jira.csv
+
 # === Argustack internal PostgreSQL ===
 DB_HOST=localhost
 DB_PORT=5434
@@ -210,6 +220,8 @@ argustack sync                   # pull all enabled sources
 argustack sync jira              # pull Jira only
 argustack sync git               # pull Git only
 argustack sync github            # pull GitHub only (PRs, reviews, releases)
+argustack sync csv               # import from Jira CSV export
+argustack sync csv -f file.csv   # import specific CSV file
 argustack sync -p PROJ           # pull specific Jira project
 argustack sync --since 2025-01-01  # incremental pull
 argustack embed                  # generate embeddings for semantic search

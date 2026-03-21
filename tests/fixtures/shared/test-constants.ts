@@ -365,6 +365,89 @@ export function createEmptyGitHubBatch(): GitHubBatch {
   };
 }
 
+// ─── CSV Test Helpers ─────────────────────────────────────────────────
+
+export const CSV_TEST_IDS = {
+  issueKey: 'CSV-1',
+  issueId: '200001',
+  issueKey2: 'CSV-2',
+  issueId2: '200002',
+  projectKey: 'CSV',
+} as const;
+
+export function createCsvHeaders(): string[] {
+  return [
+    'Summary', 'Issue key', 'Issue id', 'Issue Type', 'Status',
+    'Priority', 'Resolution', 'Assignee', 'Reporter',
+    'Created', 'Updated', 'Resolved', 'Description',
+    'Due date', 'Parent key', 'Status Category',
+    'Labels', 'Labels',
+    'Components', 'Components',
+    'Fix versions',
+    'Comment', 'Comment',
+    'Log Work', 'Log Work',
+    'Inward issue link (Blocks)', 'Outward issue link (Blocks)',
+    'Custom field (Story Points)', 'Custom field (Team)',
+  ];
+}
+
+export function createCsvRow(overrides?: Partial<Record<string, string>>): string[] {
+  const defaults: Record<string, string> = {
+    Summary: 'Test CSV issue',
+    'Issue key': CSV_TEST_IDS.issueKey,
+    'Issue id': CSV_TEST_IDS.issueId,
+    'Issue Type': 'Task',
+    Status: 'In Progress',
+    Priority: 'Medium',
+    Resolution: '',
+    Assignee: TEST_IDS.author,
+    Reporter: TEST_IDS.reporter,
+    Created: '15/Jan/25 10:00 AM',
+    Updated: '16/Jan/25 12:00 PM',
+    Resolved: '',
+    Description: 'Test description',
+    'Due date': '',
+    'Parent key': '',
+    'Status Category': 'In Progress',
+    Labels1: 'backend',
+    Labels2: 'api',
+    Components1: 'API',
+    Components2: '',
+    'Fix versions': '',
+    Comment1: '15/Jan/25 11:00 AM;john.doe;First comment',
+    Comment2: '',
+    'Log Work1': 'Implementation;15/Jan/25 09:00 AM;john.doe;120',
+    'Log Work2': '',
+    'Inward issue link (Blocks)': CSV_TEST_IDS.issueKey2,
+    'Outward issue link (Blocks)': '',
+    'Custom field (Story Points)': '5',
+    'Custom field (Team)': 'Backend',
+    ...overrides,
+  };
+
+  const headers = createCsvHeaders();
+  const row: string[] = [];
+  const fieldNames = [
+    'Summary', 'Issue key', 'Issue id', 'Issue Type', 'Status',
+    'Priority', 'Resolution', 'Assignee', 'Reporter',
+    'Created', 'Updated', 'Resolved', 'Description',
+    'Due date', 'Parent key', 'Status Category',
+    'Labels1', 'Labels2',
+    'Components1', 'Components2',
+    'Fix versions',
+    'Comment1', 'Comment2',
+    'Log Work1', 'Log Work2',
+    'Inward issue link (Blocks)', 'Outward issue link (Blocks)',
+    'Custom field (Story Points)', 'Custom field (Team)',
+  ];
+
+  for (let i = 0; i < headers.length; i++) {
+    row.push(defaults[fieldNames[i] ?? ''] ?? '');
+  }
+
+  return row;
+}
+
 // ─── Factory: WorkspaceConfig ─────────────────────────────────────────
 
 export function createWorkspaceConfig(overrides?: Partial<WorkspaceConfig>): WorkspaceConfig {

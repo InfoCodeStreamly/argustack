@@ -6,8 +6,9 @@
 
 CLI tool that downloads your project data into a local database, then gives Claude / any LLM direct access to query it.
 
-Three sources of truth:
+Four sources of truth:
 - **Jira** — issues, comments, changelogs, worklogs, links (what was planned)
+- **Jira CSV** — import from CSV export for teams without Jira API access
 - **Git** — commits, per-file diffs, issue cross-references (what was coded)
 - **GitHub** — PRs, reviews, comments, releases (what was reviewed)
 - **Database** — coming soon (what actually exists in production)
@@ -38,11 +39,12 @@ docker compose up -d       # start database
 argustack sync             # pull all data from configured sources
 argustack sync jira        # pull specific source
 argustack sync github      # pull GitHub PRs/reviews/releases separately
+argustack sync csv         # import from Jira CSV export
 argustack embed            # generate OpenAI embeddings for semantic search
 argustack mcp install      # connect to Claude Desktop as MCP server
 ```
 
-Non-interactive flags: `--no-interactive`, `--dir`, `--source`, `--jira-url`, `--jira-email`, `--jira-token`, `--jira-projects`, `--git-repo`, `--github-token`, `--github-owner`, `--github-repo`, `--db-port`, `--pgweb-port`.
+Non-interactive flags: `--no-interactive`, `--dir`, `--source`, `--jira-url`, `--jira-email`, `--jira-token`, `--jira-projects`, `--git-repo`, `--github-token`, `--github-owner`, `--github-repo`, `--csv-file`, `--db-port`, `--pgweb-port`.
 
 After sync, users open Claude Desktop or Claude Code and ask questions in natural language.
 Claude queries the local database via 15 MCP tools and answers with full project context.
@@ -65,7 +67,7 @@ Clean Architecture with dependency inversion:
 ```
 src/core/types/    — Domain types (Issue, PullRequest, Commit, Config)
 src/core/ports/    — Interfaces (ISourceProvider, IStorage)
-src/adapters/      — Implementations (jira/, git/, github/, postgres/, openai/)
+src/adapters/      — Implementations (jira/, git/, github/, csv/, postgres/, openai/)
 src/use-cases/     — Business logic (PullUseCase, PullGitUseCase, PullGitHubUseCase, EmbedUseCase)
 src/cli/           — CLI entry point, commands
 src/mcp/           — MCP server for Claude Desktop / Claude Code
@@ -88,6 +90,7 @@ Cross-references: commit messages and PR titles mentioning `PAP-123` are automat
 - Progress indicators during sync — ports expose optional count methods (`getIssueCount()`, `getCommitCount()`, `getPrCount()`) for displaying `150/506 issues (30%)`
 - Git MCP tools (`query_commits`, `issue_commits`, `commit_stats`) accept optional `repo_path` filter for multi-repo workspaces
 - Each workspace is isolated — own Docker, own credentials, own database
+- Jira CSV import — universal adapter for any Jira instance, dynamic header detection, supports worklogs/comments/links/custom fields
 - ESM modules, TypeScript strict mode, Vitest for testing
 
 ## Detailed docs

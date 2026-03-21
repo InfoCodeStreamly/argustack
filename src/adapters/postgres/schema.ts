@@ -9,15 +9,15 @@ export async function ensureSchema(pool: pg.Pool): Promise<void> {
   await pool.query(`
     CREATE TABLE IF NOT EXISTS issues (
       id SERIAL PRIMARY KEY,
-      issue_key VARCHAR(20) UNIQUE NOT NULL,
-      issue_id VARCHAR(20),
-      project_key VARCHAR(20),
+      issue_key TEXT UNIQUE NOT NULL,
+      issue_id TEXT,
+      project_key TEXT,
       summary TEXT NOT NULL,
       description TEXT,
       issue_type VARCHAR(50),
       status VARCHAR(50),
       status_category VARCHAR(50),
-      priority VARCHAR(20),
+      priority TEXT,
       resolution VARCHAR(50),
       assignee VARCHAR(100),
       reporter VARCHAR(100),
@@ -28,7 +28,7 @@ export async function ensureSchema(pool: pg.Pool): Promise<void> {
       labels TEXT[],
       components TEXT[],
       fix_versions TEXT[],
-      parent_key VARCHAR(20),
+      parent_key TEXT,
       sprint VARCHAR(200),
       story_points NUMERIC,
       custom_fields JSONB,
@@ -42,8 +42,8 @@ export async function ensureSchema(pool: pg.Pool): Promise<void> {
   await pool.query(`
     CREATE TABLE IF NOT EXISTS issue_comments (
       id SERIAL PRIMARY KEY,
-      issue_key VARCHAR(20) NOT NULL,
-      comment_id VARCHAR(20),
+      issue_key TEXT NOT NULL,
+      comment_id TEXT,
       author VARCHAR(100),
       body TEXT,
       created TIMESTAMP,
@@ -54,7 +54,7 @@ export async function ensureSchema(pool: pg.Pool): Promise<void> {
   await pool.query(`
     CREATE TABLE IF NOT EXISTS issue_changelogs (
       id SERIAL PRIMARY KEY,
-      issue_key VARCHAR(20) NOT NULL,
+      issue_key TEXT NOT NULL,
       author VARCHAR(100),
       field VARCHAR(100),
       from_value TEXT,
@@ -66,9 +66,9 @@ export async function ensureSchema(pool: pg.Pool): Promise<void> {
   await pool.query(`
     CREATE TABLE IF NOT EXISTS issue_worklogs (
       id SERIAL PRIMARY KEY,
-      issue_key VARCHAR(20) NOT NULL,
+      issue_key TEXT NOT NULL,
       author VARCHAR(100),
-      time_spent VARCHAR(20),
+      time_spent TEXT,
       time_spent_seconds INTEGER,
       comment TEXT,
       started TIMESTAMP
@@ -78,8 +78,8 @@ export async function ensureSchema(pool: pg.Pool): Promise<void> {
   await pool.query(`
     CREATE TABLE IF NOT EXISTS issue_links (
       id SERIAL PRIMARY KEY,
-      source_key VARCHAR(20) NOT NULL,
-      target_key VARCHAR(20) NOT NULL,
+      source_key TEXT NOT NULL,
+      target_key TEXT NOT NULL,
       link_type VARCHAR(50),
       direction VARCHAR(10)
     )
@@ -106,7 +106,7 @@ export async function ensureSchema(pool: pg.Pool): Promise<void> {
       id SERIAL PRIMARY KEY,
       commit_hash VARCHAR(40) NOT NULL REFERENCES commits(hash),
       file_path TEXT NOT NULL,
-      status VARCHAR(20),
+      status TEXT,
       additions INTEGER DEFAULT 0,
       deletions INTEGER DEFAULT 0
     )
@@ -115,7 +115,7 @@ export async function ensureSchema(pool: pg.Pool): Promise<void> {
   await pool.query(`
     CREATE TABLE IF NOT EXISTS commit_issue_refs (
       commit_hash VARCHAR(40) NOT NULL REFERENCES commits(hash),
-      issue_key VARCHAR(20) NOT NULL,
+      issue_key TEXT NOT NULL,
       PRIMARY KEY (commit_hash, issue_key)
     )
   `);
@@ -183,7 +183,7 @@ export async function ensureSchema(pool: pg.Pool): Promise<void> {
       pr_number INTEGER NOT NULL,
       repo_full_name VARCHAR(200) NOT NULL,
       file_path TEXT NOT NULL,
-      status VARCHAR(20),
+      status TEXT,
       additions INTEGER DEFAULT 0,
       deletions INTEGER DEFAULT 0
     )
@@ -193,7 +193,7 @@ export async function ensureSchema(pool: pg.Pool): Promise<void> {
     CREATE TABLE IF NOT EXISTS pr_issue_refs (
       pr_number INTEGER NOT NULL,
       repo_full_name VARCHAR(200) NOT NULL,
-      issue_key VARCHAR(20) NOT NULL,
+      issue_key TEXT NOT NULL,
       PRIMARY KEY (repo_full_name, pr_number, issue_key)
     )
   `);

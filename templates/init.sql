@@ -6,15 +6,15 @@ CREATE EXTENSION IF NOT EXISTS vector;
 -- Main issues table
 CREATE TABLE issues (
     id SERIAL PRIMARY KEY,
-    issue_key VARCHAR(20) UNIQUE NOT NULL,
-    issue_id VARCHAR(20),
-    project_key VARCHAR(20),
+    issue_key TEXT UNIQUE NOT NULL,
+    issue_id TEXT,
+    project_key TEXT,
     summary TEXT NOT NULL,
     description TEXT,
     issue_type VARCHAR(50),
     status VARCHAR(50),
     status_category VARCHAR(50),
-    priority VARCHAR(20),
+    priority TEXT,
     resolution VARCHAR(50),
     assignee VARCHAR(100),
     reporter VARCHAR(100),
@@ -25,7 +25,7 @@ CREATE TABLE issues (
     labels TEXT[],
     components TEXT[],
     fix_versions TEXT[],
-    parent_key VARCHAR(20),
+    parent_key TEXT,
     sprint VARCHAR(200),
     story_points NUMERIC,
     custom_fields JSONB,          -- all custom fields as JSON
@@ -38,8 +38,8 @@ CREATE TABLE issues (
 -- Comments
 CREATE TABLE issue_comments (
     id SERIAL PRIMARY KEY,
-    issue_key VARCHAR(20) NOT NULL REFERENCES issues(issue_key),
-    comment_id VARCHAR(20),
+    issue_key TEXT NOT NULL REFERENCES issues(issue_key),
+    comment_id TEXT,
     author VARCHAR(100),
     body TEXT,
     created TIMESTAMP,
@@ -49,7 +49,7 @@ CREATE TABLE issue_comments (
 -- Changelog (change history)
 CREATE TABLE issue_changelogs (
     id SERIAL PRIMARY KEY,
-    issue_key VARCHAR(20) NOT NULL REFERENCES issues(issue_key),
+    issue_key TEXT NOT NULL REFERENCES issues(issue_key),
     author VARCHAR(100),
     field VARCHAR(100),
     from_value TEXT,
@@ -60,9 +60,9 @@ CREATE TABLE issue_changelogs (
 -- Worklogs
 CREATE TABLE issue_worklogs (
     id SERIAL PRIMARY KEY,
-    issue_key VARCHAR(20) NOT NULL REFERENCES issues(issue_key),
+    issue_key TEXT NOT NULL REFERENCES issues(issue_key),
     author VARCHAR(100),
-    time_spent VARCHAR(20),
+    time_spent TEXT,
     time_spent_seconds INTEGER,
     comment TEXT,
     started TIMESTAMP
@@ -71,8 +71,8 @@ CREATE TABLE issue_worklogs (
 -- Links
 CREATE TABLE issue_links (
     id SERIAL PRIMARY KEY,
-    source_key VARCHAR(20) NOT NULL,
-    target_key VARCHAR(20) NOT NULL,
+    source_key TEXT NOT NULL,
+    target_key TEXT NOT NULL,
     link_type VARCHAR(50),
     direction VARCHAR(10)
 );
@@ -95,14 +95,14 @@ CREATE TABLE commit_files (
     id SERIAL PRIMARY KEY,
     commit_hash VARCHAR(40) NOT NULL REFERENCES commits(hash),
     file_path TEXT NOT NULL,
-    status VARCHAR(20),
+    status TEXT,
     additions INTEGER DEFAULT 0,
     deletions INTEGER DEFAULT 0
 );
 
 CREATE TABLE commit_issue_refs (
     commit_hash VARCHAR(40) NOT NULL REFERENCES commits(hash),
-    issue_key VARCHAR(20) NOT NULL,
+    issue_key TEXT NOT NULL,
     PRIMARY KEY (commit_hash, issue_key)
 );
 
@@ -162,7 +162,7 @@ CREATE TABLE pr_files (
     pr_number INTEGER NOT NULL,
     repo_full_name VARCHAR(200) NOT NULL,
     file_path TEXT NOT NULL,
-    status VARCHAR(20),
+    status TEXT,
     additions INTEGER DEFAULT 0,
     deletions INTEGER DEFAULT 0
 );
@@ -170,7 +170,7 @@ CREATE TABLE pr_files (
 CREATE TABLE pr_issue_refs (
     pr_number INTEGER NOT NULL,
     repo_full_name VARCHAR(200) NOT NULL,
-    issue_key VARCHAR(20) NOT NULL,
+    issue_key TEXT NOT NULL,
     PRIMARY KEY (repo_full_name, pr_number, issue_key)
 );
 
