@@ -1,5 +1,6 @@
 #!/usr/bin/env node
 
+import { createRequire } from 'node:module';
 import { Command } from 'commander';
 import { registerSourceCommands } from './sources.js';
 import { registerSyncCommand } from './sync.js';
@@ -9,12 +10,15 @@ import { registerEmbedCommand } from './embed.js';
 import { runInit } from './init.js';
 import type { InitFlags } from './init.js';
 
+const require = createRequire(import.meta.url);
+const { version } = require('../../package.json') as { version: string };
+
 const program = new Command();
 
 program
   .name('argustack')
   .description('Project analysis platform — Jira + Git + DB')
-  .version('0.1.0');
+  .version(version);
 
 // argustack init — interactive or with flags
 program
