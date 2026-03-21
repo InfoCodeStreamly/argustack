@@ -1202,6 +1202,223 @@ server.registerTool(
   }
 );
 
+// ─── Tool: issue_timeline ─────────────────────────────────────────────────────
+
+interface TimelineEvent {
+  date: string;
+  type: 'created' | 'changelog' | 'commit' | 'pr_opened' | 'pr_reviewed' | 'pr_merged';
+  text: string;
+}
+
+server.registerTool(
+  'issue_timeline',
+  {
+    description: 'Full cross-source timeline for a Jira issue: changelog events, Git commits, GitHub PRs with reviews — all in chronological order. Combines get_issue + issue_commits + issue_prs into a single view.',
+    inputSchema: {
+      issue_key: z.string().describe('Issue key (e.g. "PAP-123")'),
+    },
+  },
+  async ({ issue_key: issueKey }) => {
+    const ws = loadWorkspace();
+    if (!ws.ok) {
+      return {
+        content: [{ type: 'text' as const, text: `Workspace not found: ${ws.reason}` }],
+        isError: true,
+      };
+    }
+
+    const { storage } = await createAdapters(ws.root);
+    const key = issueKey.toUpperCase();
+
+    try {
+      // 5 parallel queries
+      const [issueResult, changelogsResult, commitsResult, prsResult, commitFilesResult] = await Promise.all([
+        storage.query(
+          `SELECT issue_key, summary, status, issue_type, assignee, reporter, created, updated, resolved FROM issues WHERE issue_key = $1`,
+          [key]
+        ),
+        storage.query(
+          `SELECT author, field, from_value, to_value, changed_at FROM issue_changelogs WHERE issue_key = $1 ORDER BY changed_at`,
+          [key]
+        ),
+        storage.query(
+          `SELECT c.hash, c.message, c.author, c.email, c.committed_at
+           FROM commits c JOIN commit_issue_refs r ON c.hash = r.commit_hash
+           WHERE r.issue_key = $1 ORDER BY c.committed_at`,
+          [key]
+        ),
+        storage.query(
+          `SELECT p.number, p.title, p.state, p.author, p.created_at, p.merged_at, p.base_ref,
+                  p.additions, p.deletions, p.repo_full_name
+           FROM pull_requests p JOIN pr_issue_refs r ON p.repo_full_name = r.repo_full_name AND p.number = r.pr_number
+           WHERE r.issue_key = $1 ORDER BY p.created_at`,
+          [key]
+        ),
+        storage.query(
+          `SELECT cf.commit_hash, cf.file_path, cf.status, cf.additions, cf.deletions
+           FROM commit_files cf JOIN commit_issue_refs r ON cf.commit_hash = r.commit_hash
+           WHERE r.issue_key = $1`,
+          [key]
+        ),
+      ]);
+
+      if (issueResult.rows.length === 0) {
+        await storage.close();
+        return {
+          content: [{ type: 'text' as const, text: `Issue ${key} not found.` }],
+        };
+      }
+
+      const issue = issueResult.rows[0] as {
+        issue_key: string; summary: string; status?: string; issue_type?: string;
+        assignee?: string; reporter?: string; created?: string; updated?: string; resolved?: string;
+      };
+
+      // Fetch reviews for found PRs
+      const prRows = prsResult.rows as {
+        number: number; title?: string; state?: string; author?: string;
+        created_at?: string; merged_at?: string; base_ref?: string;
+        additions?: number; deletions?: number; repo_full_name?: string;
+      }[];
+
+      const reviewsByPr = new Map<number, { reviewer?: string; state?: string; submitted_at?: string }[]>();
+      for (const pr of prRows) {
+        const reviewsResult = await storage.query(
+          `SELECT reviewer, state, submitted_at FROM pr_reviews WHERE repo_full_name = $1 AND pr_number = $2 ORDER BY submitted_at`,
+          [pr.repo_full_name, pr.number]
+        );
+        reviewsByPr.set(pr.number, reviewsResult.rows as { reviewer?: string; state?: string; submitted_at?: string }[]);
+      }
+
+      await storage.close();
+
+      // Build file map for commits
+      const filesByCommit = new Map<string, { file_path?: string; status?: string; additions?: number; deletions?: number }[]>();
+      for (const f of commitFilesResult.rows as { commit_hash: string; file_path?: string; status?: string; additions?: number; deletions?: number }[]) {
+        const arr = filesByCommit.get(f.commit_hash) ?? [];
+        arr.push(f);
+        filesByCommit.set(f.commit_hash, arr);
+      }
+
+      // Build timeline events
+      const events: TimelineEvent[] = [];
+
+      // Issue created
+      if (issue.created) {
+        events.push({ date: issue.created, type: 'created', text: 'Issue created' });
+      }
+
+      // Changelogs
+      for (const raw of changelogsResult.rows) {
+        const ch = raw as ChangelogRow;
+        if (ch.changed_at) {
+          events.push({
+            date: ch.changed_at,
+            type: 'changelog',
+            text: `${str(ch.author)} changed ${str(ch.field)}: "${str(ch.from_value)}" → "${str(ch.to_value)}"`,
+          });
+        }
+      }
+
+      // Commits
+      for (const raw of commitsResult.rows) {
+        const c = raw as { hash: string; message?: string; author?: string; committed_at?: string };
+        if (c.committed_at) {
+          const firstLine = (c.message ?? '').split('\n')[0];
+          events.push({
+            date: c.committed_at,
+            type: 'commit',
+            text: `Commit ${c.hash.substring(0, 7)} — "${firstLine}" (${str(c.author)})`,
+          });
+        }
+      }
+
+      // PRs opened + merged
+      for (const pr of prRows) {
+        if (pr.created_at) {
+          events.push({
+            date: pr.created_at,
+            type: 'pr_opened',
+            text: `PR #${String(pr.number)} opened — "${str(pr.title)}" (${str(pr.author)})`,
+          });
+        }
+        // Reviews
+        const reviews = reviewsByPr.get(pr.number) ?? [];
+        for (const r of reviews) {
+          if (r.submitted_at) {
+            events.push({
+              date: r.submitted_at,
+              type: 'pr_reviewed',
+              text: `PR #${String(pr.number)} reviewed — ${str(r.state)} (${str(r.reviewer)})`,
+            });
+          }
+        }
+        if (pr.merged_at) {
+          events.push({
+            date: pr.merged_at,
+            type: 'pr_merged',
+            text: `PR #${String(pr.number)} merged into ${str(pr.base_ref)}`,
+          });
+        }
+      }
+
+      // Sort chronologically
+      events.sort((a, b) => a.date.localeCompare(b.date));
+
+      // Format output
+      const sections: string[] = [];
+
+      sections.push(`=== ISSUE: ${key} ===`);
+      sections.push(`Summary: ${str(issue.summary)}`);
+      sections.push(`Status: ${str(issue.status)} | Type: ${str(issue.issue_type)} | Assignee: ${str(issue.assignee)}`);
+      sections.push(`Created: ${str(issue.created ?? '').substring(0, 10)} | Resolved: ${str(issue.resolved ?? '').substring(0, 10) || 'n/a'}`);
+      sections.push('');
+
+      // Timeline
+      sections.push(`--- TIMELINE (${String(events.length)} events) ---`);
+      for (const ev of events) {
+        sections.push(`[${ev.date.substring(0, 10)}] ${ev.text}`);
+      }
+      sections.push('');
+
+      // Commits summary
+      const commitRows = commitsResult.rows as { hash: string; message?: string; author?: string }[];
+      if (commitRows.length > 0) {
+        sections.push(`--- COMMITS (${String(commitRows.length)}) ---`);
+        for (const c of commitRows) {
+          const firstLine = (c.message ?? '').split('\n')[0];
+          const files = filesByCommit.get(c.hash) ?? [];
+          const adds = files.reduce((s, f) => s + (f.additions ?? 0), 0);
+          const dels = files.reduce((s, f) => s + (f.deletions ?? 0), 0);
+          sections.push(`${c.hash.substring(0, 7)} — ${firstLine} (+${String(adds)}/-${String(dels)}, ${String(files.length)} files)`);
+        }
+        sections.push('');
+      }
+
+      // PRs summary
+      if (prRows.length > 0) {
+        sections.push(`--- PULL REQUESTS (${String(prRows.length)}) ---`);
+        for (const pr of prRows) {
+          const reviews = reviewsByPr.get(pr.number) ?? [];
+          const approvals = reviews.filter((r) => r.state === 'APPROVED').map((r) => str(r.reviewer));
+          const reviewInfo = approvals.length > 0 ? ` (${approvals.join(', ')} approved)` : '';
+          sections.push(`#${String(pr.number)} — ${str(pr.title)} [${str(pr.state)}]${reviewInfo}`);
+        }
+        sections.push('');
+      }
+
+      return {
+        content: [{ type: 'text' as const, text: sections.join('\n') }],
+      };
+    } catch (err: unknown) {
+      return {
+        content: [{ type: 'text' as const, text: `Query failed: ${getErrorMessage(err)}` }],
+        isError: true,
+      };
+    }
+  }
+);
+
 // ─── Tool: query_releases ─────────────────────────────────────────────────────
 
 server.registerTool(
@@ -1276,6 +1493,112 @@ server.registerTool(
       };
     }
   }
+);
+
+// ─── Tool: semantic_search ────────────────────────────────────────────────────
+
+server.registerTool(
+  'semantic_search',
+  {
+    description: 'Semantic vector similarity search across issues. Uses AI embeddings to find issues by meaning, not just keywords. Requires embeddings generated first ("argustack embed").',
+    inputSchema: {
+      query: z.string().describe('Natural language search query (e.g. "authentication timeout problems")'),
+      limit: z.number().optional().describe('Max results (default: 10)'),
+      threshold: z.number().optional().describe('Minimum similarity score 0-1 (default: 0.5)'),
+    },
+  },
+  async ({ query, limit, threshold }) => {
+    const ws = loadWorkspace();
+    if (!ws.ok) {
+      return {
+        content: [{ type: 'text' as const, text: `Workspace not found: ${ws.reason}` }],
+        isError: true,
+      };
+    }
+
+    const { storage } = await createAdapters(ws.root);
+
+    try {
+      const apiKey = process.env['OPENAI_API_KEY'];
+      if (!apiKey) {
+        await storage.close();
+        return {
+          content: [{
+            type: 'text' as const,
+            text: 'OPENAI_API_KEY not configured. Add it to .env and run "argustack embed" first.',
+          }],
+          isError: true,
+        };
+      }
+
+      const { OpenAIEmbeddingProvider } = await import('../adapters/openai/index.js');
+      const embeddingProvider = new OpenAIEmbeddingProvider({ apiKey });
+
+      const vectors = await embeddingProvider.embed([query]);
+      const queryVector = vectors[0];
+
+      if (!queryVector) {
+        await storage.close();
+        return {
+          content: [{ type: 'text' as const, text: 'Failed to generate embedding for query.' }],
+          isError: true,
+        };
+      }
+
+      const results = await storage.semanticSearch(
+        queryVector,
+        limit ?? 10,
+        threshold ?? 0.5,
+      );
+
+      if (results.length === 0) {
+        await storage.close();
+        return {
+          content: [{
+            type: 'text' as const,
+            text: 'No similar issues found. Make sure embeddings are generated ("argustack embed").',
+          }],
+        };
+      }
+
+      const issueKeys = results.map((r) => r.issueKey);
+      const placeholders = issueKeys.map((_, i) => `$${String(i + 1)}`).join(',');
+      const issuesResult = await storage.query(
+        `SELECT issue_key, summary, status, assignee, issue_type FROM issues WHERE issue_key IN (${placeholders})`,
+        issueKeys,
+      );
+
+      await storage.close();
+
+      const issueMap = new Map<string, Record<string, unknown>>();
+      for (const row of issuesResult.rows) {
+        const r = row as { issue_key: string };
+        issueMap.set(r.issue_key, row);
+      }
+
+      const lines = results.map((r) => {
+        const issue = issueMap.get(r.issueKey) as IssueRow | undefined;
+        const sim = (r.similarity * 100).toFixed(1);
+        if (issue) {
+          return `${r.issueKey} [${str(issue.status)}] ${str(issue.summary)} (${sim}% match)`;
+        }
+        return `${r.issueKey} (${sim}% match)`;
+      });
+
+      return {
+        content: [{
+          type: 'text' as const,
+          text: [`Semantic search: "${query}" (${String(results.length)} results):`, '', ...lines].join('\n'),
+        }],
+      };
+    } catch (err: unknown) {
+      await storage.close();
+      return {
+        content: [{ type: 'text' as const, text: `Search failed: ${getErrorMessage(err)}` }],
+        isError: true,
+      };
+    }
+  },
 );
 
 // ─── Start ────────────────────────────────────────────────────────────────────

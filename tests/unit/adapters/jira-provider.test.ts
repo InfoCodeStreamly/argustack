@@ -86,7 +86,7 @@ describe('JiraProvider', () => {
       mockClient.projects.searchProjects.mockResolvedValue({
         values: [
           { key: TEST_IDS.projectKey, name: TEST_IDS.projectName, id: TEST_IDS.projectId },
-          { key: 'OTHER', name: 'Other Project', id: '10002' },
+          { key: TEST_IDS.projectKey2, name: TEST_IDS.projectName2, id: TEST_IDS.projectId2 },
         ],
       });
 
@@ -114,7 +114,7 @@ describe('JiraProvider', () => {
   describe('pullIssues', () => {
     it('builds JQL without since', async () => {
       mockClient.issueSearch.searchForIssuesUsingJqlEnhancedSearch.mockResolvedValue({
-        issues: [{ key: 'TEST-1' }],
+        issues: [{ key: TEST_IDS.issueKey }],
         nextPageToken: undefined,
       });
 
@@ -132,7 +132,7 @@ describe('JiraProvider', () => {
 
     it('builds JQL with since parameter', async () => {
       mockClient.issueSearch.searchForIssuesUsingJqlEnhancedSearch.mockResolvedValue({
-        issues: [{ key: 'TEST-1' }],
+        issues: [{ key: TEST_IDS.issueKey }],
         nextPageToken: undefined,
       });
 
@@ -149,11 +149,11 @@ describe('JiraProvider', () => {
     it('yields one batch per page', async () => {
       mockClient.issueSearch.searchForIssuesUsingJqlEnhancedSearch
         .mockResolvedValueOnce({
-          issues: [{ key: 'TEST-1' }, { key: 'TEST-2' }],
+          issues: [{ key: TEST_IDS.issueKey }, { key: TEST_IDS.issueKey2 }],
           nextPageToken: 'page2',
         })
         .mockResolvedValueOnce({
-          issues: [{ key: 'TEST-3' }],
+          issues: [{ key: TEST_IDS.issueKey3 }],
           nextPageToken: undefined,
         });
 
@@ -170,8 +170,8 @@ describe('JiraProvider', () => {
 
     it('passes nextPageToken for pagination', async () => {
       mockClient.issueSearch.searchForIssuesUsingJqlEnhancedSearch
-        .mockResolvedValueOnce({ issues: [{ key: 'TEST-1' }], nextPageToken: 'token-abc' })
-        .mockResolvedValueOnce({ issues: [{ key: 'TEST-2' }], nextPageToken: undefined });
+        .mockResolvedValueOnce({ issues: [{ key: TEST_IDS.issueKey }], nextPageToken: 'token-abc' })
+        .mockResolvedValueOnce({ issues: [{ key: TEST_IDS.issueKey2 }], nextPageToken: undefined });
 
       const provider = new JiraProvider(CREDS);
       const batches: unknown[] = [];
@@ -220,7 +220,7 @@ describe('JiraProvider', () => {
         await import('../../../src/adapters/jira/mapper.js');
 
       mockClient.issueSearch.searchForIssuesUsingJqlEnhancedSearch.mockResolvedValue({
-        issues: [{ key: 'TEST-1' }, { key: 'TEST-2' }],
+        issues: [{ key: TEST_IDS.issueKey }, { key: TEST_IDS.issueKey2 }],
         nextPageToken: undefined,
       });
 
@@ -238,7 +238,7 @@ describe('JiraProvider', () => {
 
     it('requests maxResults of 50', async () => {
       mockClient.issueSearch.searchForIssuesUsingJqlEnhancedSearch.mockResolvedValue({
-        issues: [{ key: 'TEST-1' }],
+        issues: [{ key: TEST_IDS.issueKey }],
         nextPageToken: undefined,
       });
 

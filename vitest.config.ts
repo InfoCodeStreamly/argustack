@@ -27,6 +27,12 @@ export default defineConfig({
           include: ['tests/mcp/**/*.test.ts'],
         },
       },
+      {
+        test: {
+          name: 'architecture',
+          include: ['tests/architecture/**/*.test.ts'],
+        },
+      },
     ],
 
     coverage: {

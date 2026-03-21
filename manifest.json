@@ -64,8 +64,16 @@
       "description": "Find all PRs mentioning a Jira issue key with review details"
     },
     {
+      "name": "issue_timeline",
+      "description": "Full cross-source timeline for an issue: Jira changelog + Git commits + GitHub PRs"
+    },
+    {
       "name": "query_releases",
       "description": "List GitHub releases for the repository"
+    },
+    {
+      "name": "semantic_search",
+      "description": "Semantic similarity search across issues using AI embeddings"
     }
   ],
   "compatibility": {

@@ -217,7 +217,7 @@ describe('PostgresStorage', () => {
       const storage = createStorage();
       const issue = createIssue({
         customFields: { customfield_123: 'value' },
-        rawJson: { key: 'TEST-1', fields: {} },
+        rawJson: { key: TEST_IDS.issueKey, fields: {} },
       });
       const batch = createBatch({ issues: [issue], comments: [], changelogs: [], worklogs: [], links: [] });
 
@@ -227,7 +227,7 @@ describe('PostgresStorage', () => {
       const params = getParams(inserts, 0);
       // customFields at index 22, rawJson at index 23
       expect(params[22]).toBe(JSON.stringify({ customfield_123: 'value' }));
-      expect(params[23]).toBe(JSON.stringify({ key: 'TEST-1', fields: {} }));
+      expect(params[23]).toBe(JSON.stringify({ key: TEST_IDS.issueKey, fields: {} }));
     });
 
     it('rolls back transaction on error', async () => {
@@ -294,7 +294,7 @@ describe('PostgresStorage', () => {
   describe('query', () => {
     it('executes raw SQL and returns rows', async () => {
       const storage = createStorage();
-      const mockRows = [{ issue_key: 'TEST-1', summary: 'Test' }];
+      const mockRows = [{ issue_key: TEST_IDS.issueKey, summary: 'Test' }];
       vi.mocked(mockPool.query).mockResolvedValueOnce({ rows: mockRows } as never);
 
       const result = await storage.query('SELECT * FROM issues WHERE project_key = $1', ['TEST']);

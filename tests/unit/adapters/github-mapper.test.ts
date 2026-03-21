@@ -7,18 +7,19 @@ import {
   mapRelease,
   extractPrIssueRefs,
 } from '../../../src/adapters/github/mapper.js';
+import { GITHUB_TEST_IDS } from '../../fixtures/shared/test-constants.js';
 
-const REPO = 'test-org/test-repo';
+const REPO = GITHUB_TEST_IDS.repoFullName;
 
 describe('GitHub Mapper', () => {
   describe('mapPullRequest', () => {
     it('maps basic PR fields', () => {
       const raw = {
-        number: 42,
+        number: GITHUB_TEST_IDS.prNumber,
         title: 'feat: login page',
         body: 'Implements login',
         state: 'open',
-        user: { login: 'johndoe' },
+        user: { login: GITHUB_TEST_IDS.prAuthor },
         head: { ref: 'feature/login' },
         base: { ref: 'main' },
         created_at: '2025-01-10T10:00:00Z',
@@ -27,7 +28,7 @@ describe('GitHub Mapper', () => {
         closed_at: null,
         merge_commit_sha: null,
         labels: [{ name: 'feature' }],
-        requested_reviewers: [{ login: 'janedoe' }],
+        requested_reviewers: [{ login: GITHUB_TEST_IDS.reviewer }],
         additions: 100,
         deletions: 10,
         changed_files: 5,
@@ -35,15 +36,15 @@ describe('GitHub Mapper', () => {
 
       const pr = mapPullRequest(raw, REPO);
 
-      expect(pr.number).toBe(42);
+      expect(pr.number).toBe(GITHUB_TEST_IDS.prNumber);
       expect(pr.repoFullName).toBe(REPO);
       expect(pr.title).toBe('feat: login page');
       expect(pr.state).toBe('open');
-      expect(pr.author).toBe('johndoe');
+      expect(pr.author).toBe(GITHUB_TEST_IDS.prAuthor);
       expect(pr.headRef).toBe('feature/login');
       expect(pr.baseRef).toBe('main');
       expect(pr.labels).toEqual(['feature']);
-      expect(pr.reviewers).toEqual(['janedoe']);
+      expect(pr.reviewers).toEqual([GITHUB_TEST_IDS.reviewer]);
       expect(pr.additions).toBe(100);
     });
 
@@ -92,18 +93,18 @@ describe('GitHub Mapper', () => {
   describe('mapReview', () => {
     it('maps review fields', () => {
       const raw = {
-        id: 1001,
+        id: GITHUB_TEST_IDS.reviewId,
         user: { login: 'reviewer' },
         state: 'APPROVED',
         body: 'LGTM',
         submitted_at: '2025-01-11T10:00:00Z',
       };
 
-      const review = mapReview(raw, 42, REPO);
+      const review = mapReview(raw, GITHUB_TEST_IDS.prNumber, REPO);
 
-      expect(review.prNumber).toBe(42);
+      expect(review.prNumber).toBe(GITHUB_TEST_IDS.prNumber);
       expect(review.repoFullName).toBe(REPO);
-      expect(review.reviewId).toBe(1001);
+      expect(review.reviewId).toBe(GITHUB_TEST_IDS.reviewId);
       expect(review.reviewer).toBe('reviewer');
       expect(review.state).toBe('APPROVED');
     });
@@ -112,7 +113,7 @@ describe('GitHub Mapper', () => {
   describe('mapReviewComment', () => {
     it('maps comment fields', () => {
       const raw = {
-        id: 2001,
+        id: GITHUB_TEST_IDS.commentId,
         user: { login: 'commenter' },
         body: 'Nit: rename',
         path: 'src/foo.ts',
@@ -121,9 +122,9 @@ describe('GitHub Mapper', () => {
         updated_at: '2025-01-11T10:00:00Z',
       };
 
-      const comment = mapReviewComment(raw, 42, REPO);
+      const comment = mapReviewComment(raw, GITHUB_TEST_IDS.prNumber, REPO);
 
-      expect(comment.commentId).toBe(2001);
+      expect(comment.commentId).toBe(GITHUB_TEST_IDS.commentId);
       expect(comment.path).toBe('src/foo.ts');
       expect(comment.line).toBe(10);
     });
@@ -138,7 +139,7 @@ describe('GitHub Mapper', () => {
         deletions: 0,
       };
 
-      const file = mapPrFile(raw, 42, REPO);
+      const file = mapPrFile(raw, GITHUB_TEST_IDS.prNumber, REPO);
 
       expect(file.filePath).toBe('src/login.ts');
       expect(file.status).toBe('added');
@@ -155,7 +156,7 @@ describe('GitHub Mapper', () => {
   describe('mapRelease', () => {
     it('maps release fields', () => {
       const raw = {
-        id: 3001,
+        id: GITHUB_TEST_IDS.releaseId,
         tag_name: 'v1.0.0',
         name: 'First release',
         body: 'Release notes',
@@ -176,20 +177,28 @@ describe('GitHub Mapper', () => {
 
   describe('extractPrIssueRefs', () => {
     it('extracts Jira keys from title and body', () => {
-      const refs = extractPrIssueRefs(42, REPO, 'PAP-123 fix', 'Also fixes PAP-456');
+      const refs = extractPrIssueRefs(
+        GITHUB_TEST_IDS.prNumber, REPO,
+        `${GITHUB_TEST_IDS.issueRefKey} fix`,
+        `Also fixes ${GITHUB_TEST_IDS.issueRefKey2}`,
+      );
       expect(refs).toHaveLength(2);
-      expect(refs.map((r) => r.issueKey)).toEqual(['PAP-123', 'PAP-456']);
+      expect(refs.map((r) => r.issueKey)).toEqual([GITHUB_TEST_IDS.issueRefKey, GITHUB_TEST_IDS.issueRefKey2]);
     });
 
     it('deduplicates keys', () => {
-      const refs = extractPrIssueRefs(1, REPO, 'PAP-123', 'PAP-123 again');
+      const refs = extractPrIssueRefs(
+        1, REPO,
+        GITHUB_TEST_IDS.issueRefKey,
+        `${GITHUB_TEST_IDS.issueRefKey} again`,
+      );
       expect(refs).toHaveLength(1);
     });
 
     it('handles null body', () => {
-      const refs = extractPrIssueRefs(1, REPO, 'PAP-100 title only', null);
+      const refs = extractPrIssueRefs(1, REPO, `${GITHUB_TEST_IDS.issueRefKey3} title only`, null);
       expect(refs).toHaveLength(1);
-      expect(refs[0]?.issueKey).toBe('PAP-100');
+      expect(refs[0]?.issueKey).toBe(GITHUB_TEST_IDS.issueRefKey3);
     });
 
     it('returns empty for no keys', () => {
