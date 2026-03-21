@@ -48,7 +48,7 @@ Argustack builds this knowledge base from your project's sources of truth:
 
 **Retrieval** — pulls all data from Jira, Git, and GitHub into local PostgreSQL with pgvector. Every field, every comment, every changelog entry, every commit with per-file diffs, every PR with reviews and approvals. Raw JSON preserved as-is. Nothing is filtered or lost.
 
-**Augmentation** — MCP server gives Claude Desktop / Claude Code direct access to your local database. Full-text search, filters, raw SQL, aggregate statistics, cross-reference between Jira issues, Git commits, and GitHub PRs — all without leaving your machine.
+**Augmentation** — MCP server gives Claude Desktop / Claude Code direct access to your local database. Full-text search, semantic search (pgvector embeddings), filters, raw SQL, aggregate statistics, cross-source timeline, cross-reference between Jira issues, Git commits, and GitHub PRs — all without leaving your machine.
 
 **Generation** — ask questions in natural language. Claude queries your local data and answers with full project context.
 
@@ -124,6 +124,7 @@ argustack sync -p PROJ               # pull specific project
 argustack sync --since 2025-01-01    # incremental pull (only new/updated)
 argustack sources                    # list configured sources
 argustack status                     # workspace info
+argustack embed                      # generate embeddings for semantic search
 argustack mcp install                # connect to Claude Desktop
 ```
 
@@ -198,11 +199,39 @@ When connected to Claude, these tools are available:
 | `issue_prs` | Cross-reference: find all PRs mentioning a Jira issue key with reviews |
 | `query_releases` | List releases with full-text search |
 
+### Cross-source tools
+
+| Tool | What it does |
+|------|-------------|
+| `issue_timeline` | Chronological timeline — changelogs + commits + PRs for one issue |
+| `semantic_search` | Find similar issues by meaning (pgvector embeddings) |
+
 ### System tools
 
 | Tool | What it does |
 |------|-------------|
 | `workspace_info` | Current workspace configuration |
+
+## Embeddings & Semantic Search
+
+**Embeddings** turn issue text into numerical vectors that capture meaning. Two issues about "login not working" and "SSO authentication fails" will have similar vectors — even though they share zero keywords.
+
+How it works:
+
+1. `argustack embed` sends each issue's `summary + description` to OpenAI API (`text-embedding-3-small` model)
+2. Returns a 1536-dimensional vector per issue, stored in PostgreSQL via pgvector
+3. `semantic_search` MCP tool embeds your question, then finds issues with the closest vectors using cosine similarity
+
+```bash
+# Generate embeddings for all issues (requires OPENAI_API_KEY in .env)
+argustack embed
+```
+
+After embedding, ask Claude: *"Find issues similar to payment timeout errors"* — it will search by meaning, not keywords.
+
+**Costs:** text-embedding-3-small costs ~$0.02 per 1M tokens. 10,000 issues ≈ $0.05-0.10.
+
+**Optional:** Embeddings require an OpenAI API key. All other features work without it.
 
 ## Multiple workspaces
 
@@ -237,6 +266,7 @@ GIT_REPO_PATH=/path/to/your/repo
 GITHUB_TOKEN=your-github-token-here
 GITHUB_OWNER=your-org
 GITHUB_REPO=your-repo
+# OPENAI_API_KEY=sk-...          # optional, for semantic search embeddings
 DB_HOST=localhost
 DB_PORT=5434
 DB_USER=argustack
@@ -279,9 +309,10 @@ DB_NAME=argustack
 - [x] Jira pull (all fields, comments, changelogs, worklogs, links)
 - [x] Git pull (commits, per-file diffs, issue cross-references)
 - [x] GitHub pull (PRs, reviews, comments, files, releases, Jira cross-references)
-- [x] MCP server for Claude Desktop / Claude Code (12 tools)
+- [x] MCP server for Claude Desktop / Claude Code (14 tools)
+- [x] Embeddings + semantic search (OpenAI text-embedding-3-small, pgvector)
+- [x] Cross-source timeline (issue_timeline: changelogs + commits + PRs)
 - [ ] Database adapter (schema, sample data)
-- [ ] Embeddings + semantic search
 - [ ] Cross-source analysis (Jira ticket vs actual code vs DB state)
 - [ ] CSV import (Jira export without API token)
 
