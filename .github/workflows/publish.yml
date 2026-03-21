@@ -5,7 +5,20 @@ on:
     branches: [main]
 
 jobs:
+  ci:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 20
+
+      - run: npm ci
+      - run: npm run ci
+
   publish:
+    needs: ci
     runs-on: ubuntu-latest
     permissions:
       contents: read
@@ -18,7 +31,25 @@ jobs:
           node-version: 20
           registry-url: https://registry.npmjs.org
 
-      - run: npm ci
-      - run: npm run ci
-      - run: npm run build
-      - run: npm publish --provenance --access public
+      - name: Check if version already published
+        id: check
+        run: |
+          LOCAL=$(node -p "require('./package.json').version")
+          REMOTE=$(npm view argustack version 2>/dev/null || echo "0.0.0")
+          echo "local=$LOCAL" >> "$GITHUB_OUTPUT"
+          echo "remote=$REMOTE" >> "$GITHUB_OUTPUT"
+          if [ "$LOCAL" != "$REMOTE" ]; then
+            echo "publish=true" >> "$GITHUB_OUTPUT"
+          else
+            echo "publish=false" >> "$GITHUB_OUTPUT"
+            echo "Version $LOCAL already published, skipping"
+          fi
+
+      - if: steps.check.outputs.publish == 'true'
+        run: npm ci
+
+      - if: steps.check.outputs.publish == 'true'
+        run: npm run build
+
+      - if: steps.check.outputs.publish == 'true'
+        run: npm publish --provenance --access public
