@@ -225,9 +225,9 @@ describe('PostgresStorage', () => {
 
       const inserts = filterCalls(mockClient.query, 'INSERT INTO issues');
       const params = getParams(inserts, 0);
-      // customFields at index 22, rawJson at index 23
-      expect(params[22]).toBe(JSON.stringify({ customfield_123: 'value' }));
-      expect(params[23]).toBe(JSON.stringify({ key: TEST_IDS.issueKey, fields: {} }));
+      // customFields at index 27, rawJson at index 28 (after assignee_id, reporter_id, original_estimate, remaining_estimate, time_spent)
+      expect(params[27]).toBe(JSON.stringify({ customfield_123: 'value' }));
+      expect(params[28]).toBe(JSON.stringify({ key: TEST_IDS.issueKey, fields: {} }));
     });
 
     it('rolls back transaction on error', async () => {

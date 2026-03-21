@@ -25,7 +25,6 @@ export function findWorkspaceRoot(startDir?: string): string | null {
 
     const parent = dirname(dir);
     if (parent === dir) {
-      // Reached filesystem root
       return null;
     }
     dir = parent;

@@ -271,7 +271,7 @@ When connected to Claude, these tools are available:
 |------|-------------|
 | `issue_timeline` | Chronological timeline — changelogs + commits + PRs for one issue |
 | `semantic_search` | Find similar issues by meaning (pgvector embeddings) |
-| `estimate` | Predict effort for new tasks — finds similar completed tasks, analyzes developer profiles, cycle/coding time, bug rate |
+| `estimate` | Predict how long a task will take for a specific developer — "without bugs" (pure dev time) and "with bugs" (real cost), personal coefficient from full history |
 
 ### System tools
 

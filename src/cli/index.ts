@@ -20,7 +20,6 @@ program
   .description('Project analysis platform — Jira + Git + DB')
   .version(version);
 
-// argustack init — interactive or with flags
 program
   .command('init')
   .description('Create a new Argustack workspace')
@@ -56,19 +55,14 @@ program
     }
   });
 
-// argustack source list / add / enable / disable
 registerSourceCommands(program);
 
-// argustack sync [type]
 registerSyncCommand(program);
 
-// argustack status
 registerStatusCommand(program);
 
-// argustack embed
 registerEmbedCommand(program);
 
-// argustack mcp install / uninstall
 const mcpCmd = program
   .command('mcp')
   .description('MCP server for Claude Desktop / Claude Code');

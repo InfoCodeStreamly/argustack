@@ -1,10 +1,7 @@
 import type { ISourceProvider } from '../core/ports/source-provider.js';
 import type { IStorage } from '../core/ports/storage.js';
 
-/** Intentional no-op for default progress callback */
-function noop(_message: string): void {
-  // intentionally empty — used as default onProgress
-}
+function noop(_message: string): void { /* intentional */ }
 
 export interface PullOptions {
   /** Specific project key, or null for all configured projects */
@@ -41,10 +38,8 @@ export class PullUseCase {
     const log = options.onProgress ?? noop;
     const results: PullResult[] = [];
 
-    // Initialize storage (create tables if needed)
     await this.storage.initialize();
 
-    // Determine which projects to pull
     let projectKeys: string[];
     if (options.projectKey) {
       projectKeys = [options.projectKey];
@@ -54,9 +49,6 @@ export class PullUseCase {
     }
 
     for (const projectKey of projectKeys) {
-      // Determine "since" — explicit or from last pull
-      // Subtract 1 minute overlap for auto-incremental to avoid missing issues
-      // (Jira API has minute-level precision; UPSERT makes re-pulls harmless)
       const lastUpdated = options.since ?? (await this.storage.getLastUpdated(projectKey));
       const since = lastUpdated && !options.since
         ? new Date(new Date(lastUpdated).getTime() - 60_000).toISOString()
@@ -68,9 +60,7 @@ export class PullUseCase {
       let total: number | null = null;
       try {
         total = await this.source.getIssueCount?.(projectKey, since ?? undefined) ?? null;
-      } catch {
-        // count unavailable — continue without percentages
-      }
+      } catch { /* count unavailable */ }
       log(`Pulling ${projectKey}${total !== null ? ` (${total} issues)` : ''}...`);
 
       const result: PullResult = {
@@ -82,7 +72,6 @@ export class PullUseCase {
         linksCount: 0,
       };
 
-      // Pull in batches (pages)
       for await (const batch of this.source.pullIssues(projectKey, since ?? undefined)) {
         await this.storage.saveBatch(batch);
 

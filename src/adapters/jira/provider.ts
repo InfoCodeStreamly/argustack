@@ -48,7 +48,6 @@ export class JiraProvider implements ISourceProvider {
   }
 
   async *pullIssues(projectKey: string, since?: string): AsyncGenerator<IssueBatch> {
-    // Build JQL
     let jql = `project = "${projectKey}" ORDER BY updated ASC`;
     if (since) {
       jql = `project = "${projectKey}" AND updated >= "${since}" ORDER BY updated ASC`;
@@ -57,7 +56,6 @@ export class JiraProvider implements ISourceProvider {
     let pageToken: string | undefined = undefined;
 
     do {
-      // jira.js v5: Enhanced Search with token-based pagination
       const searchParams: Parameters.SearchForIssuesUsingJqlEnhancedSearch = {
         jql,
         maxResults: PAGE_SIZE,
@@ -76,7 +74,6 @@ export class JiraProvider implements ISourceProvider {
         break;
       }
 
-      // Map each issue to core types
       const batch: IssueBatch = {
         issues: [],
         comments: [],
@@ -95,7 +92,6 @@ export class JiraProvider implements ISourceProvider {
 
       yield batch;
 
-      // Move to next page via token
       pageToken = response.nextPageToken ?? undefined;
     } while (pageToken);
   }

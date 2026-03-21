@@ -16,7 +16,9 @@ export interface Issue {
   priority: string | null;
   resolution: string | null;
   assignee: string | null;
+  assigneeId: string | null;
   reporter: string | null;
+  reporterId: string | null;
   created: string | null;
   updated: string | null;
   resolved: string | null;
@@ -27,6 +29,9 @@ export interface Issue {
   parentKey: string | null;
   sprint: string | null;
   storyPoints: number | null;
+  originalEstimate: number | null;
+  remainingEstimate: number | null;
+  timeSpent: number | null;
   customFields: Record<string, unknown>;
   /** Full raw response from the source (Jira API JSON, etc.) — stored as-is */
   rawJson: Record<string, unknown>;

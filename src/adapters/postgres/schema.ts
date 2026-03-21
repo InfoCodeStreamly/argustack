@@ -20,7 +20,9 @@ export async function ensureSchema(pool: pg.Pool): Promise<void> {
       priority TEXT,
       resolution VARCHAR(50),
       assignee VARCHAR(100),
+      assignee_id TEXT,
       reporter VARCHAR(100),
+      reporter_id TEXT,
       created TIMESTAMP,
       updated TIMESTAMP,
       resolved TIMESTAMP,
@@ -31,6 +33,9 @@ export async function ensureSchema(pool: pg.Pool): Promise<void> {
       parent_key TEXT,
       sprint VARCHAR(200),
       story_points NUMERIC,
+      original_estimate INTEGER,
+      remaining_estimate INTEGER,
+      time_spent INTEGER,
       custom_fields JSONB,
       raw_json JSONB,
       embedding vector(1536),
@@ -85,8 +90,6 @@ export async function ensureSchema(pool: pg.Pool): Promise<void> {
     )
   `);
 
-  // ─── Git tables ───────────────────────────────────────────────────────
-
   await pool.query(`
     CREATE TABLE IF NOT EXISTS commits (
       hash VARCHAR(40) PRIMARY KEY,
@@ -119,8 +122,6 @@ export async function ensureSchema(pool: pg.Pool): Promise<void> {
       PRIMARY KEY (commit_hash, issue_key)
     )
   `);
-
-  // ─── GitHub tables ──────────────────────────────────────────────────────
 
   await pool.query(`
     CREATE TABLE IF NOT EXISTS pull_requests (
@@ -217,7 +218,15 @@ export async function ensureSchema(pool: pg.Pool): Promise<void> {
     )
   `);
 
-  // ─── Indexes ──────────────────────────────────────────────────────────
+  await pool.query(`ALTER TABLE issues ADD COLUMN IF NOT EXISTS original_estimate INTEGER`);
+  await pool.query(`ALTER TABLE issues ADD COLUMN IF NOT EXISTS remaining_estimate INTEGER`);
+  await pool.query(`ALTER TABLE issues ADD COLUMN IF NOT EXISTS time_spent INTEGER`);
+  await pool.query(`ALTER TABLE issues ADD COLUMN IF NOT EXISTS assignee_id TEXT`);
+  await pool.query(`ALTER TABLE issues ADD COLUMN IF NOT EXISTS reporter_id TEXT`);
+  await pool.query(`ALTER TABLE issues ADD COLUMN IF NOT EXISTS search_vector tsvector`);
+  await pool.query(`ALTER TABLE commits ADD COLUMN IF NOT EXISTS search_vector tsvector`);
+  await pool.query(`ALTER TABLE pull_requests ADD COLUMN IF NOT EXISTS search_vector tsvector`);
+  await pool.query(`ALTER TABLE releases ADD COLUMN IF NOT EXISTS search_vector tsvector`);
 
   const indexes = [
     'CREATE INDEX IF NOT EXISTS idx_issues_project ON issues(project_key)',
@@ -234,7 +243,6 @@ export async function ensureSchema(pool: pg.Pool): Promise<void> {
     'CREATE INDEX IF NOT EXISTS idx_worklogs_key ON issue_worklogs(issue_key)',
     'CREATE INDEX IF NOT EXISTS idx_links_source ON issue_links(source_key)',
     'CREATE INDEX IF NOT EXISTS idx_links_target ON issue_links(target_key)',
-    // Git indexes
     'CREATE INDEX IF NOT EXISTS idx_commits_author ON commits(author)',
     'CREATE INDEX IF NOT EXISTS idx_commits_date ON commits(committed_at)',
     'CREATE INDEX IF NOT EXISTS idx_commits_repo ON commits(repo_path)',
@@ -242,7 +250,6 @@ export async function ensureSchema(pool: pg.Pool): Promise<void> {
     'CREATE INDEX IF NOT EXISTS idx_commit_files_hash ON commit_files(commit_hash)',
     'CREATE INDEX IF NOT EXISTS idx_commit_files_path ON commit_files(file_path)',
     'CREATE INDEX IF NOT EXISTS idx_commit_refs_issue ON commit_issue_refs(issue_key)',
-    // GitHub indexes
     'CREATE INDEX IF NOT EXISTS idx_prs_repo ON pull_requests(repo_full_name)',
     'CREATE INDEX IF NOT EXISTS idx_prs_state ON pull_requests(state)',
     'CREATE INDEX IF NOT EXISTS idx_prs_author ON pull_requests(author)',

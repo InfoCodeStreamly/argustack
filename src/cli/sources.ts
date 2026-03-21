@@ -39,7 +39,6 @@ export function registerSourceCommands(program: Command): void {
     .command('source')
     .description('Manage data sources');
 
-  // argustack source list
   sourceCmd
     .command('list')
     .description('Show configured data sources')
@@ -85,7 +84,6 @@ export function registerSourceCommands(program: Command): void {
       }
     });
 
-  // argustack source add <type>
   sourceCmd
     .command('add <type>')
     .description('Add a data source (jira, git, db)')
@@ -102,7 +100,6 @@ export function registerSourceCommands(program: Command): void {
       console.log('');
       console.log(chalk.bold(`  Adding ${SOURCE_META[source].label}...`));
 
-      // TODO: run source-specific interactive setup (reuse from init)
       console.log(chalk.dim(`  (Interactive setup — coming soon)`));
       console.log(chalk.dim(`  For now, edit .env manually.`));
 
@@ -113,7 +110,6 @@ export function registerSourceCommands(program: Command): void {
       console.log(chalk.dim(`  Sync data: ${chalk.cyan(`argustack sync ${source}`)}`));
     });
 
-  // argustack source enable <type>
   sourceCmd
     .command('enable <type>')
     .description('Re-enable a disabled source')
@@ -140,7 +136,6 @@ export function registerSourceCommands(program: Command): void {
       console.log(chalk.dim(`  Sync data: ${chalk.cyan(`argustack sync ${source}`)}`));
     });
 
-  // argustack source disable <type>
   sourceCmd
     .command('disable <type>')
     .description('Disable a source (keeps credentials)')

@@ -329,7 +329,6 @@ export function registerSyncCommand(program: Command): void {
           process.exit(1);
         }
 
-        // Determine which sources to sync
         let sourcesToSync: SourceType[];
 
         if (type) {
@@ -356,7 +355,6 @@ export function registerSyncCommand(program: Command): void {
 
         console.log('');
 
-        // Migration hint: GitHub token exists but 'github' source not enabled
         dotenv.config({ path: `${workspaceRoot}/.env`, quiet: true });
         const githubToken = process.env['GITHUB_TOKEN'];
         const githubEnabled = config.sources.github?.enabled;
@@ -365,7 +363,6 @@ export function registerSyncCommand(program: Command): void {
           console.log(chalk.dim(`    Enable: ${chalk.cyan('argustack source add github')}\n`));
         }
 
-        // Sync each source in order
         for (const source of sourcesToSync) {
           switch (source) {
             case 'jira': {

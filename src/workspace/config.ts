@@ -49,7 +49,6 @@ export function addSource(config: WorkspaceConfig, source: SourceType): Workspac
     addedAt: existing?.addedAt ?? new Date().toISOString(),
   };
 
-  // Add to order if not present
   if (!config.order.includes(source)) {
     config.order.push(source);
   }
@@ -64,14 +63,12 @@ export function addSource(config: WorkspaceConfig, source: SourceType): Workspac
 export function enableSource(config: WorkspaceConfig, source: SourceType): WorkspaceConfig {
   const existing = config.sources[source];
   if (!existing) {
-    // Never been added — delegate to addSource
     return addSource(config, source);
   }
 
   existing.enabled = true;
   delete existing.disabledAt;
 
-  // Re-add to order if not present
   if (!config.order.includes(source)) {
     config.order.push(source);
   }

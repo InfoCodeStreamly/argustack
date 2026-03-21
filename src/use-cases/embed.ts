@@ -1,9 +1,7 @@
 import type { IStorage } from '../core/ports/storage.js';
 import type { IEmbeddingProvider } from '../core/ports/embedding-provider.js';
 
-function noop(_message: string): void {
-  // intentionally empty
-}
+function noop(_message: string): void { /* intentional */ }
 
 export interface EmbedOptions {
   batchSize?: number;

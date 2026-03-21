@@ -35,7 +35,6 @@ export function registerStatusCommand(program: Command): void {
         console.log('');
         console.log(chalk.bold('  Sources:'));
 
-        // Try to get issue counts from DB if available
         const issueCounts = new Map<string, number>();
         let storageAvailable = false;
 
@@ -63,9 +62,7 @@ export function registerStatusCommand(program: Command): void {
             } finally {
               await storage.close();
             }
-          } catch {
-            // DB not available — skip counts
-          }
+          } catch { /* storage unavailable */ }
         }
 
         for (const source of ALL_SOURCES) {

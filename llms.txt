@@ -57,7 +57,7 @@ AI agents can run `argustack init --no-interactive` autonomously — no terminal
 **Git:** query_commits, issue_commits, commit_stats
 **GitHub:** query_prs, issue_prs, query_releases
 **Cross-source:** issue_timeline (changelogs + commits + PRs for one issue), semantic_search (pgvector embeddings)
-**Prediction:** estimate (predict effort for new tasks based on historical data — similar tasks, developer profiles, cycle/coding time, bug rate)
+**Prediction:** estimate (predict how long a task will take for a specific developer — two predictions: "without bugs" and "with bugs" real cost, based on similar tasks, personal coefficient from full history, and component familiarity)
 **System:** workspace_info
 
 ## Architecture
@@ -75,7 +75,7 @@ src/mcp/           — MCP server for Claude Desktop / Claude Code
 
 ## Database tables
 
-**Jira:** issues, issue_comments, issue_changelogs, issue_worklogs, issue_links
+**Jira:** issues (including original_estimate, time_spent, assignee_id, reporter_id), issue_comments, issue_changelogs, issue_worklogs, issue_links
 **Git:** commits, commit_files, commit_issue_refs
 **GitHub:** pull_requests, pr_reviews, pr_comments, pr_files, pr_issue_refs, releases
 

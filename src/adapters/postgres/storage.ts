@@ -28,22 +28,23 @@ export class PostgresStorage implements IStorage {
     try {
       await client.query('BEGIN');
 
-      // Upsert issues
       for (const issue of batch.issues) {
         await client.query(
           `INSERT INTO issues (
             issue_key, issue_id, project_key, summary, description,
             issue_type, status, status_category, priority, resolution,
-            assignee, reporter, created, updated, resolved,
+            assignee, assignee_id, reporter, reporter_id, created, updated, resolved,
             due_date, labels, components, fix_versions, parent_key,
-            sprint, story_points, custom_fields, raw_json, pulled_at,
+            sprint, story_points, original_estimate, remaining_estimate, time_spent,
+            custom_fields, raw_json, pulled_at,
             search_vector
           ) VALUES (
             $1, $2, $3, $4, $5,
             $6, $7, $8, $9, $10,
-            $11, $12, $13, $14, $15,
-            $16, $17, $18, $19, $20,
-            $21, $22, $23, $24, NOW(),
+            $11, $12, $13, $14, $15, $16, $17,
+            $18, $19, $20, $21, $22,
+            $23, $24, $25, $26, $27,
+            $28, $29, NOW(),
             to_tsvector('english', coalesce($4, '') || ' ' || coalesce($5, ''))
           )
           ON CONFLICT (issue_key) DO UPDATE SET
@@ -57,7 +58,9 @@ export class PostgresStorage implements IStorage {
             priority = EXCLUDED.priority,
             resolution = EXCLUDED.resolution,
             assignee = EXCLUDED.assignee,
+            assignee_id = EXCLUDED.assignee_id,
             reporter = EXCLUDED.reporter,
+            reporter_id = EXCLUDED.reporter_id,
             created = EXCLUDED.created,
             updated = EXCLUDED.updated,
             resolved = EXCLUDED.resolved,
@@ -68,6 +71,9 @@ export class PostgresStorage implements IStorage {
             parent_key = EXCLUDED.parent_key,
             sprint = EXCLUDED.sprint,
             story_points = EXCLUDED.story_points,
+            original_estimate = EXCLUDED.original_estimate,
+            remaining_estimate = EXCLUDED.remaining_estimate,
+            time_spent = EXCLUDED.time_spent,
             custom_fields = EXCLUDED.custom_fields,
             raw_json = EXCLUDED.raw_json,
             pulled_at = NOW(),
@@ -76,14 +82,14 @@ export class PostgresStorage implements IStorage {
           [
             issue.key, issue.id, issue.projectKey, issue.summary, issue.description,
             issue.issueType, issue.status, issue.statusCategory, issue.priority, issue.resolution,
-            issue.assignee, issue.reporter, issue.created, issue.updated, issue.resolved,
+            issue.assignee, issue.assigneeId, issue.reporter, issue.reporterId, issue.created, issue.updated, issue.resolved,
             issue.dueDate, issue.labels, issue.components, issue.fixVersions, issue.parentKey,
-            issue.sprint, issue.storyPoints, JSON.stringify(issue.customFields), JSON.stringify(issue.rawJson),
+            issue.sprint, issue.storyPoints, issue.originalEstimate, issue.remainingEstimate, issue.timeSpent,
+            JSON.stringify(issue.customFields), JSON.stringify(issue.rawJson),
           ]
         );
       }
 
-      // Delete old comments/changelogs/worklogs/links for these issues, then re-insert
       const issueKeys = batch.issues.map((i) => i.key);
       if (issueKeys.length > 0) {
         const keysParam = issueKeys.map((_, i) => `$${i + 1}`).join(',');
@@ -94,7 +100,6 @@ export class PostgresStorage implements IStorage {
         await client.query(`DELETE FROM issue_links WHERE source_key IN (${keysParam})`, issueKeys);
       }
 
-      // Insert comments
       for (const c of batch.comments) {
         await client.query(
           `INSERT INTO issue_comments (issue_key, comment_id, author, body, created, updated)
@@ -103,7 +108,6 @@ export class PostgresStorage implements IStorage {
         );
       }
 
-      // Insert changelogs
       for (const ch of batch.changelogs) {
         await client.query(
           `INSERT INTO issue_changelogs (issue_key, author, field, from_value, to_value, changed_at)
@@ -112,7 +116,6 @@ export class PostgresStorage implements IStorage {
         );
       }
 
-      // Insert worklogs
       for (const w of batch.worklogs) {
         await client.query(
           `INSERT INTO issue_worklogs (issue_key, author, time_spent, time_spent_seconds, comment, started)
@@ -121,7 +124,6 @@ export class PostgresStorage implements IStorage {
         );
       }
 
-      // Insert links
       for (const l of batch.links) {
         await client.query(
           `INSERT INTO issue_links (source_key, target_key, link_type, direction)
@@ -389,8 +391,6 @@ export class PostgresStorage implements IStorage {
     );
     return result.rows[0]?.last_updated ?? null;
   }
-
-  // ─── Embedding methods ──────────────────────────────────────────────────
 
   async getUnembeddedIssueKeys(limit: number): Promise<string[]> {
     interface KeyRow {

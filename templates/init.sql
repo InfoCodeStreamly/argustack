@@ -17,7 +17,9 @@ CREATE TABLE issues (
     priority TEXT,
     resolution VARCHAR(50),
     assignee VARCHAR(100),
+    assignee_id TEXT,
     reporter VARCHAR(100),
+    reporter_id TEXT,
     created TIMESTAMP,
     updated TIMESTAMP,
     resolved TIMESTAMP,
@@ -28,6 +30,9 @@ CREATE TABLE issues (
     parent_key TEXT,
     sprint VARCHAR(200),
     story_points NUMERIC,
+    original_estimate INTEGER,    -- seconds
+    remaining_estimate INTEGER,   -- seconds
+    time_spent INTEGER,           -- seconds (aggregated)
     custom_fields JSONB,          -- all custom fields as JSON
     raw_json JSONB,               -- full raw API response, as-is
     embedding vector(1536),       -- pgvector for semantic search

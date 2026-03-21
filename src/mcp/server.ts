@@ -25,8 +25,6 @@ import { SOURCE_META } from '../core/types/index.js';
 import type { ISourceProvider } from '../core/ports/source-provider.js';
 import type { IStorage } from '../core/ports/storage.js';
 
-// ─── Result row interfaces ───────────────────────────────────────────────────
-
 /** Row shape returned by the query_issues SELECT */
 interface IssueRow {
   issue_key?: string;
@@ -99,8 +97,6 @@ interface AssigneeCountRow extends CountRow {
   assignee?: string;
 }
 
-// ─── Helpers ──────────────────────────────────────────────────────────────────
-
 /** Extract error message from an unknown catch value */
 function getErrorMessage(err: unknown): string {
   if (err instanceof Error) {
@@ -123,7 +119,6 @@ function str(value: unknown): string {
   if (value instanceof Date) {
     return value.toISOString();
   }
-  // Objects, arrays, symbols, functions — use JSON for a meaningful representation
   return JSON.stringify(value);
 }
 
@@ -188,8 +183,6 @@ async function createAdapters(workspaceRoot: string): Promise<{
   return { source, storage };
 }
 
-// ─── Icon ────────────────────────────────────────────────────────────────────
-
 const mcpFilename = fileURLToPath(import.meta.url);
 const mcpPackageRoot = resolve(dirname(mcpFilename), '..', '..');
 
@@ -204,8 +197,6 @@ function loadIconDataUri(): string | null {
 
 const iconDataUri = loadIconDataUri();
 
-// ─── Server ───────────────────────────────────────────────────────────────────
-
 /** MCP server instance — exported for testing via InMemoryTransport */
 export const server = new McpServer({
   name: 'Argustack',
@@ -219,8 +210,6 @@ export const server = new McpServer({
     }],
   } : {}),
 });
-
-// ─── Tool: workspace_info ─────────────────────────────────────────────────────
 
 server.registerTool(
   'workspace_info',
@@ -258,8 +247,6 @@ server.registerTool(
     return { content: [{ type: 'text' as const, text }] };
   }
 );
-
-// ─── Tool: list_projects ──────────────────────────────────────────────────────
 
 server.registerTool(
   'list_projects',
@@ -302,8 +289,6 @@ server.registerTool(
     }
   }
 );
-
-// ─── Tool: pull_jira ──────────────────────────────────────────────────────────
 
 server.registerTool(
   'pull_jira',
@@ -372,8 +357,6 @@ server.registerTool(
   }
 );
 
-// ─── Tool: query_issues ───────────────────────────────────────────────────────
-
 server.registerTool(
   'query_issues',
   {
@@ -406,11 +389,9 @@ server.registerTool(
       let params: unknown[];
 
       if (sql) {
-        // Raw SQL mode — for power users / Claude
         sqlQuery = sql;
         params = [];
       } else {
-        // Build query from filters
         const conditions: string[] = [];
         params = [];
         let paramIdx = 1;
@@ -447,7 +428,6 @@ server.registerTool(
 
         const where = conditions.length > 0 ? `WHERE ${conditions.join(' AND ')}` : '';
 
-        // LIMIT is safe — maxResults is always a number from z.number() or default 50
         sqlQuery = `
           SELECT issue_key, summary, status, priority, assignee, issue_type,
                  project_key, created, updated
@@ -467,13 +447,11 @@ server.registerTool(
         };
       }
 
-      // Format results
       const lines = result.rows.map((row: Record<string, unknown>) => {
         const typed = row as unknown as IssueRow;
         if (typed.issue_key) {
           return `${typed.issue_key} [${str(typed.status) || '?'}] ${str(typed.summary)} (${str(typed.assignee) || 'unassigned'})`;
         }
-        // For raw SQL, just stringify the row
         return JSON.stringify(row);
       });
 
@@ -496,8 +474,6 @@ server.registerTool(
   }
 );
 
-// ─── Tool: get_issue ──────────────────────────────────────────────────────────
-
 server.registerTool(
   'get_issue',
   {
@@ -518,7 +494,6 @@ server.registerTool(
     const { storage } = await createAdapters(ws.root);
 
     try {
-      // Get issue
       const issueResult = await storage.query(
         `SELECT * FROM issues WHERE issue_key = $1`,
         [issueKey.toUpperCase()]
@@ -534,13 +509,11 @@ server.registerTool(
 
       const issue = issueResult.rows[0] as unknown as FullIssueRow;
 
-      // Get comments
       const commentsResult = await storage.query(
         `SELECT author, body, created FROM issue_comments WHERE issue_key = $1 ORDER BY created`,
         [issueKey.toUpperCase()]
       );
 
-      // Get changelogs
       const changelogsResult = await storage.query(
         `SELECT author, field, from_value, to_value, changed_at
          FROM issue_changelogs WHERE issue_key = $1 ORDER BY changed_at DESC LIMIT 20`,
@@ -549,7 +522,6 @@ server.registerTool(
 
       await storage.close();
 
-      // Format output
       const sections: string[] = [];
 
       sections.push(`# ${str(issue.issue_key)}: ${str(issue.summary)}`);
@@ -614,8 +586,6 @@ server.registerTool(
   }
 );
 
-// ─── Tool: issue_stats ────────────────────────────────────────────────────────
-
 server.registerTool(
   'issue_stats',
   {
@@ -636,7 +606,6 @@ server.registerTool(
     const { storage } = await createAdapters(ws.root);
 
     try {
-      // Use parameterized query to prevent SQL injection
       const filterClause = project ? `WHERE project_key = $1` : '';
       const filterParams: unknown[] = project ? [project.toUpperCase()] : [];
 
@@ -696,8 +665,6 @@ server.registerTool(
     }
   }
 );
-
-// ─── Tool: query_commits ──────────────────────────────────────────────────────
 
 /** Commit row from query */
 interface CommitRow {
@@ -834,8 +801,6 @@ server.registerTool(
   }
 );
 
-// ─── Tool: issue_commits ──────────────────────────────────────────────────────
-
 server.registerTool(
   'issue_commits',
   {
@@ -921,8 +886,6 @@ server.registerTool(
     }
   }
 );
-
-// ─── Tool: commit_stats ───────────────────────────────────────────────────────
 
 server.registerTool(
   'commit_stats',
@@ -1017,8 +980,6 @@ server.registerTool(
     }
   }
 );
-
-// ─── Tool: query_prs ──────────────────────────────────────────────────────────
 
 interface PrRow {
   number?: number;
@@ -1141,8 +1102,6 @@ server.registerTool(
   }
 );
 
-// ─── Tool: issue_prs ──────────────────────────────────────────────────────────
-
 server.registerTool(
   'issue_prs',
   {
@@ -1225,8 +1184,6 @@ server.registerTool(
   }
 );
 
-// ─── Tool: issue_timeline ─────────────────────────────────────────────────────
-
 interface TimelineEvent {
   date: string;
   type: 'created' | 'changelog' | 'commit' | 'pr_opened' | 'pr_reviewed' | 'pr_merged';
@@ -1254,7 +1211,6 @@ server.registerTool(
     const key = issueKey.toUpperCase();
 
     try {
-      // 5 parallel queries
       const [issueResult, changelogsResult, commitsResult, prsResult, commitFilesResult] = await Promise.all([
         storage.query(
           `SELECT issue_key, summary, status, issue_type, assignee, reporter, created, updated, resolved FROM issues WHERE issue_key = $1`,
@@ -1297,7 +1253,6 @@ server.registerTool(
         assignee?: string; reporter?: string; created?: string; updated?: string; resolved?: string;
       };
 
-      // Fetch reviews for found PRs
       const prRows = prsResult.rows as {
         number: number; title?: string; state?: string; author?: string;
         created_at?: string; merged_at?: string; base_ref?: string;
@@ -1315,7 +1270,6 @@ server.registerTool(
 
       await storage.close();
 
-      // Build file map for commits
       const filesByCommit = new Map<string, { file_path?: string; status?: string; additions?: number; deletions?: number }[]>();
       for (const f of commitFilesResult.rows as { commit_hash: string; file_path?: string; status?: string; additions?: number; deletions?: number }[]) {
         const arr = filesByCommit.get(f.commit_hash) ?? [];
@@ -1323,15 +1277,12 @@ server.registerTool(
         filesByCommit.set(f.commit_hash, arr);
       }
 
-      // Build timeline events
       const events: TimelineEvent[] = [];
 
-      // Issue created
       if (issue.created) {
         events.push({ date: issue.created, type: 'created', text: 'Issue created' });
       }
 
-      // Changelogs
       for (const raw of changelogsResult.rows) {
         const ch = raw as ChangelogRow;
         if (ch.changed_at) {
@@ -1343,7 +1294,6 @@ server.registerTool(
         }
       }
 
-      // Commits
       for (const raw of commitsResult.rows) {
         const c = raw as { hash: string; message?: string; author?: string; committed_at?: string };
         if (c.committed_at) {
@@ -1356,7 +1306,6 @@ server.registerTool(
         }
       }
 
-      // PRs opened + merged
       for (const pr of prRows) {
         if (pr.created_at) {
           events.push({
@@ -1365,7 +1314,6 @@ server.registerTool(
             text: `PR #${String(pr.number)} opened — "${str(pr.title)}" (${str(pr.author)})`,
           });
         }
-        // Reviews
         const reviews = reviewsByPr.get(pr.number) ?? [];
         for (const r of reviews) {
           if (r.submitted_at) {
@@ -1385,10 +1333,8 @@ server.registerTool(
         }
       }
 
-      // Sort chronologically
       events.sort((a, b) => a.date.localeCompare(b.date));
 
-      // Format output
       const sections: string[] = [];
 
       sections.push(`=== ISSUE: ${key} ===`);
@@ -1397,14 +1343,12 @@ server.registerTool(
       sections.push(`Created: ${str(issue.created ?? '').substring(0, 10)} | Resolved: ${str(issue.resolved ?? '').substring(0, 10) || 'n/a'}`);
       sections.push('');
 
-      // Timeline
       sections.push(`--- TIMELINE (${String(events.length)} events) ---`);
       for (const ev of events) {
         sections.push(`[${ev.date.substring(0, 10)}] ${ev.text}`);
       }
       sections.push('');
 
-      // Commits summary
       const commitRows = commitsResult.rows as { hash: string; message?: string; author?: string }[];
       if (commitRows.length > 0) {
         sections.push(`--- COMMITS (${String(commitRows.length)}) ---`);
@@ -1418,7 +1362,6 @@ server.registerTool(
         sections.push('');
       }
 
-      // PRs summary
       if (prRows.length > 0) {
         sections.push(`--- PULL REQUESTS (${String(prRows.length)}) ---`);
         for (const pr of prRows) {
@@ -1441,8 +1384,6 @@ server.registerTool(
     }
   }
 );
-
-// ─── Tool: query_releases ─────────────────────────────────────────────────────
 
 server.registerTool(
   'query_releases',
@@ -1517,8 +1458,6 @@ server.registerTool(
     }
   }
 );
-
-// ─── Tool: semantic_search ────────────────────────────────────────────────────
 
 server.registerTool(
   'semantic_search',
@@ -1624,8 +1563,6 @@ server.registerTool(
   },
 );
 
-// ─── Tool 15: estimate ────────────────────────────────────────────────────────
-
 interface EstimateSimilarRow {
   issue_key: string;
   summary: string;
@@ -1636,7 +1573,28 @@ interface EstimateSimilarRow {
   resolved: string | null;
   parent_key: string | null;
   story_points: number | null;
+  components: string[] | null;
+  labels: string[] | null;
+  original_estimate: number | null;
+  time_spent: number | null;
+  type_match: number;
+  component_overlap: number;
+  temporal_weight: number;
+  composite_score: number;
   rank: number;
+}
+
+interface FamiliarityRow {
+  component: string;
+  resolved_count: number;
+  avg_time_hours: number;
+  last_resolved: string;
+}
+
+interface SimilarTaskMetrics {
+  issueKey: string;
+  hours: number;
+  weight: number;
 }
 
 interface EstimateWorklogRow {
@@ -1660,26 +1618,79 @@ interface EstimateBugRow {
   summary: string;
   resolved: string | null;
   created: string;
+  bug_time_spent: number | null;
 }
 
 interface EstimateRawRow {
   issue_key: string;
-  original_estimate: string | null;
-  time_spent: string | null;
-  aggregate_time: string | null;
+  original_estimate: number | null;
+  time_spent: number | null;
+}
+
+interface DevCoefficientRow {
+  assignee: string;
+  task_count: string;
+  coeff_no_bugs: string;
+  coeff_with_bugs: string;
+  bug_ratio: string;
+  context_label: string;
+}
+
+function calculateFamiliarityFactor(
+  familiarityRows: FamiliarityRow[],
+  taskComponents: string[] | null | undefined,
+): { factor: number; explanation: string } {
+  if (!taskComponents || taskComponents.length === 0 || familiarityRows.length === 0) {
+    return { factor: 1.0, explanation: 'No component data' };
+  }
+
+  const matching = familiarityRows.filter(
+    (f) => taskComponents.some((c) => c.toLowerCase() === f.component.toLowerCase()),
+  );
+
+  if (matching.length === 0) {
+    return { factor: 1.0, explanation: 'No history in these components' };
+  }
+
+  const totalResolved = matching.reduce((sum, c) => sum + c.resolved_count, 0);
+  const factor = Math.max(0.6, Math.min(1.0, 1.0 - 0.08 * totalResolved));
+  const compNames = matching.map((c) => `${c.component}(${String(c.resolved_count)})`).join(', ');
+
+  return { factor, explanation: `${String(totalResolved)} resolved in ${compNames} — ×${factor.toFixed(2)}` };
+}
+
+function calculateBaseHours(metrics: SimilarTaskMetrics[]): { hours: number; method: string } {
+  if (metrics.length === 0) {
+    return { hours: 0, method: 'no data' };
+  }
+
+  const sorted = [...metrics].sort((a, b) => a.hours - b.hours);
+  const trimCount = metrics.length > 5 ? Math.max(1, Math.floor(metrics.length * 0.1)) : 0;
+  const trimmed = sorted.slice(trimCount, sorted.length - trimCount || undefined);
+
+  const totalWeight = trimmed.reduce((sum, m) => sum + m.weight, 0);
+  if (totalWeight === 0) {
+    const simple = trimmed.reduce((sum, m) => sum + m.hours, 0) / trimmed.length;
+    return { hours: simple, method: `simple average (${String(trimmed.length)}/${String(metrics.length)} tasks)` };
+  }
+
+  const weighted = trimmed.reduce((sum, m) => sum + m.hours * m.weight, 0) / totalWeight;
+  return { hours: weighted, method: `weighted trimmed mean (${String(trimmed.length)}/${String(metrics.length)} tasks)` };
 }
 
 server.registerTool(
   'estimate',
   {
-    description: 'Predict effort for a new task based on historical data. Finds similar completed tasks, analyzes cycle times, worklogs per developer, bug aftermath, estimate accuracy. Two key inputs: WHAT (task description) and WHO (developer).',
+    description: 'Predict how long a task will take for a specific developer. Returns TWO predictions: "without bugs" (pure development time) and "with bugs" (real cost including bug aftermath). Based on similar completed tasks, personal coefficient from full history, and component familiarity. Assignee is required — always specify who will do the task.',
     inputSchema: {
       description: z.string().describe('Description of the new task (e.g. "Stripe payment integration with subscriptions")'),
-      assignee: z.string().optional().describe('Developer name to predict for. If omitted, shows all developers who worked on similar tasks'),
+      assignee: z.string().describe('Developer name to predict for (e.g. "Dmitry Kislitsyn")'),
+      issue_type: z.string().optional().describe('Issue type: Bug, Task, Story — finds same-type analogs and uses type-specific coefficients'),
+      components: z.array(z.string()).optional().describe('Component names (e.g. ["LOC Draws", "Export"]) — finds tasks in same area and calculates familiarity'),
       limit: z.number().optional().describe('Number of similar tasks to analyze (default: 10)'),
     },
   },
-  async ({ description, assignee, limit }) => {
+  async ({ description, assignee, issue_type: issueTypeInput, components, limit }) => {
     const ws = loadWorkspace();
     if (!ws.ok) {
       return {
@@ -1691,18 +1702,56 @@ server.registerTool(
     const { storage } = await createAdapters(ws.root);
     try {
       const maxResults = limit ?? 10;
+      const issueType = issueTypeInput ?? null;
+      const comps = components && components.length > 0 ? components : null;
 
-      // 1. Find similar DONE issues via full-text search + status_category
       const similarResult = await storage.query(
-        `SELECT issue_key, summary, issue_type, status, assignee, created, resolved,
-                parent_key, story_points,
-                ts_rank(search_vector, plainto_tsquery('english', $1)) as rank
-         FROM issues
-         WHERE search_vector @@ plainto_tsquery('english', $1)
-           AND status_category = 'Done'
-         ORDER BY rank DESC
-         LIMIT $2`,
-        [description, maxResults],
+        `WITH text_matches AS (
+          SELECT issue_key, summary, issue_type, status, assignee, created, resolved,
+                 parent_key, story_points, components, labels, original_estimate, time_spent,
+                 ts_rank(search_vector, plainto_tsquery('english', $1)) as text_rank
+          FROM issues
+          WHERE search_vector @@ plainto_tsquery('english', $1)
+            AND status_category = 'Done'
+        ),
+        scored AS (
+          SELECT *,
+            CASE WHEN $3::text IS NOT NULL AND issue_type = $3 THEN 1.0 ELSE 0.0 END as type_match,
+            CASE WHEN $4::text[] IS NOT NULL AND array_length($4::text[], 1) > 0
+              THEN COALESCE((
+                SELECT COUNT(*)::float / array_length($4::text[], 1)
+                FROM unnest($4::text[]) q_comp
+                WHERE q_comp = ANY(components)
+              ), 0)
+              ELSE 0.0
+            END as component_overlap,
+            CASE WHEN resolved IS NOT NULL
+              THEN 1.0 / (1.0 + EXTRACT(EPOCH FROM (NOW() - resolved)) / (86400.0 * 365))
+              ELSE 0.5
+            END as temporal_weight,
+            (
+              LEAST(text_rank * 10, 1.0) * 0.3
+              + CASE WHEN $3::text IS NOT NULL AND issue_type = $3 THEN 0.25 ELSE 0.0 END
+              + CASE WHEN $4::text[] IS NOT NULL AND array_length($4::text[], 1) > 0
+                  THEN COALESCE((
+                    SELECT COUNT(*)::float / array_length($4::text[], 1)
+                    FROM unnest($4::text[]) q_comp
+                    WHERE q_comp = ANY(components)
+                  ), 0) * 0.35
+                  ELSE 0.0
+                END
+              + (CASE WHEN resolved IS NOT NULL
+                  THEN 1.0 / (1.0 + EXTRACT(EPOCH FROM (NOW() - resolved)) / (86400.0 * 365))
+                  ELSE 0.5
+                END) * 0.1
+            ) as composite_score
+          FROM text_matches
+        )
+        SELECT *, composite_score as rank
+        FROM scored
+        ORDER BY composite_score DESC
+        LIMIT $2`,
+        [description, maxResults, issueType, comps],
       );
 
       const similar = similarResult.rows as unknown as EstimateSimilarRow[];
@@ -1717,7 +1766,6 @@ server.registerTool(
       const issueKeys = similar.map((r) => r.issue_key);
       const keysParam = issueKeys.map((_, i) => `$${String(i + 1)}`).join(',');
 
-      // 2. Worklogs per developer per issue
       const worklogsResult = await storage.query(
         `SELECT issue_key, author, SUM(time_spent_seconds) as total_seconds
          FROM issue_worklogs
@@ -1727,7 +1775,6 @@ server.registerTool(
       );
       const worklogs = worklogsResult.rows as unknown as EstimateWorklogRow[];
 
-      // 3. Real developer — first assignee from changelogs (the person who started working)
       const devChangelogResult = await storage.query(
         `SELECT DISTINCT ON (issue_key) issue_key, to_value as dev_assignee
          FROM issue_changelogs
@@ -1744,15 +1791,14 @@ server.registerTool(
         realDevMap.set(d.issue_key, d.dev_assignee);
       }
 
-      // 4. Commits linked to these issues — with real coding time (first → last commit)
       const commitsResult = await storage.query(
         `SELECT r.issue_key,
                 COUNT(*) as commits,
                 STRING_AGG(DISTINCT c.author, ', ') as authors,
                 SUM(cf_agg.additions) as total_additions,
                 SUM(cf_agg.deletions) as total_deletions,
-                MIN(c.author_date) as first_commit,
-                MAX(c.author_date) as last_commit
+                MIN(c.committed_at) as first_commit,
+                MAX(c.committed_at) as last_commit
          FROM commit_issue_refs r
          JOIN commits c ON r.commit_hash = c.hash
          LEFT JOIN (
@@ -1765,20 +1811,20 @@ server.registerTool(
       );
       const commitData = commitsResult.rows as unknown as EstimateCommitRow[];
 
-      // 5. Related issues — children (subtasks, bugs) + linked issues
+      const notInParam = issueKeys.map((_, i) => `$${String(i + 1 + issueKeys.length)}`).join(',');
       const childrenResult = await storage.query(
-        `SELECT i.parent_key as related_to, i.issue_key as bug_key, i.summary, i.issue_type, i.resolved, i.created
+        `SELECT i.parent_key as related_to, i.issue_key as bug_key, i.summary, i.issue_type, i.resolved, i.created, i.time_spent as bug_time_spent
          FROM issues i
          WHERE i.parent_key IN (${keysParam})
-           AND i.issue_key NOT IN (${keysParam})`,
+           AND i.issue_key NOT IN (${notInParam})`,
         [...issueKeys, ...issueKeys],
       );
       const linkedResult = await storage.query(
-        `SELECT il.source_key as related_to, i.issue_key as bug_key, i.summary, i.issue_type, i.resolved, i.created
+        `SELECT il.source_key as related_to, i.issue_key as bug_key, i.summary, i.issue_type, i.resolved, i.created, i.time_spent as bug_time_spent
          FROM issue_links il
          JOIN issues i ON i.issue_key = il.target_key
          WHERE il.source_key IN (${keysParam})
-           AND i.issue_key NOT IN (${keysParam})`,
+           AND i.issue_key NOT IN (${notInParam})`,
         [...issueKeys, ...issueKeys],
       );
       const bugs = [
@@ -1786,28 +1832,117 @@ server.registerTool(
         ...(linkedResult.rows as unknown as (EstimateBugRow & { related_to: string; issue_type: string })[]),
       ];
 
-      // 6. Original estimates from raw_json
       const rawEstimates = await storage.query(
-        `SELECT issue_key,
-                raw_json->'fields'->>'timeoriginalestimate' as original_estimate,
-                raw_json->'fields'->>'timespent' as time_spent,
-                raw_json->'fields'->>'aggregatetimespent' as aggregate_time
+        `SELECT issue_key, original_estimate, time_spent
          FROM issues
          WHERE issue_key IN (${keysParam})`,
         issueKeys,
       );
       const estimates = rawEstimates.rows as unknown as EstimateRawRow[];
 
-      await storage.close();
+      let familiarity: { factor: number; explanation: string } = { factor: 1.0, explanation: 'No component data' };
+      if (assignee && comps) {
+        const familiarityResult = await storage.query(
+          `SELECT
+             unnest(components) as component,
+             COUNT(DISTINCT issue_key) as resolved_count,
+             AVG(time_spent::float / 3600) as avg_time_hours,
+             MAX(resolved)::text as last_resolved
+           FROM issues
+           WHERE assignee ILIKE $1
+             AND status_category = 'Done'
+             AND time_spent IS NOT NULL AND time_spent > 0
+             AND components IS NOT NULL AND array_length(components, 1) > 0
+           GROUP BY unnest(components)
+           ORDER BY resolved_count DESC`,
+          [`%${assignee}%`],
+        );
+        const familiarityRows = familiarityResult.rows as unknown as FamiliarityRow[];
+        familiarity = calculateFamiliarityFactor(familiarityRows, comps);
+      }
 
-      // ─── Build report ───
+      const coefficientResult = await storage.query(
+        `WITH base AS (
+          SELECT
+            parent.assignee,
+            parent.issue_type,
+            parent.issue_key,
+            parent.original_estimate,
+            parent.time_spent,
+            COALESCE(bug_agg.bug_time, 0) as bug_time
+          FROM issues parent
+          LEFT JOIN (
+            SELECT parent_ref, SUM(bug_ts) as bug_time
+            FROM (
+              SELECT i.parent_key as parent_ref, i.time_spent as bug_ts
+              FROM issues i
+              WHERE i.issue_type IN ('Bug', 'Sub-bug')
+                AND i.time_spent IS NOT NULL AND i.time_spent > 0
+              UNION ALL
+              SELECT il.source_key as parent_ref, i.time_spent as bug_ts
+              FROM issue_links il
+              JOIN issues i ON i.issue_key = il.target_key
+              WHERE i.issue_type IN ('Bug', 'Sub-bug')
+                AND i.time_spent IS NOT NULL AND i.time_spent > 0
+            ) bugs
+            GROUP BY parent_ref
+          ) bug_agg ON bug_agg.parent_ref = parent.issue_key
+          WHERE parent.status_category = 'Done'
+            AND parent.original_estimate IS NOT NULL AND parent.original_estimate > 0
+            AND parent.time_spent IS NOT NULL AND parent.time_spent > 0
+            AND parent.issue_type NOT IN ('Bug', 'Sub-bug')
+            AND CAST(parent.time_spent AS FLOAT) / parent.original_estimate < 5.0
+        ),
+        context_coeffs AS (
+          SELECT
+            assignee,
+            COUNT(DISTINCT issue_key)::text as task_count,
+            PERCENTILE_CONT(0.5) WITHIN GROUP (
+              ORDER BY CAST(time_spent AS FLOAT) / original_estimate
+            ) as coeff_no_bugs,
+            PERCENTILE_CONT(0.5) WITHIN GROUP (
+              ORDER BY CAST(time_spent + bug_time AS FLOAT) / original_estimate
+            ) as coeff_with_bugs,
+            AVG(CAST(bug_time AS FLOAT) / NULLIF(time_spent, 0)) as bug_ratio,
+            COALESCE($1, 'all types') as context_label
+          FROM base
+          WHERE ($1::text IS NULL OR issue_type = $1)
+          GROUP BY assignee
+          HAVING COUNT(DISTINCT issue_key) >= 3
+        ),
+        global_coeffs AS (
+          SELECT
+            assignee,
+            COUNT(DISTINCT issue_key)::text as task_count,
+            PERCENTILE_CONT(0.5) WITHIN GROUP (
+              ORDER BY CAST(time_spent AS FLOAT) / original_estimate
+            ) as coeff_no_bugs,
+            PERCENTILE_CONT(0.5) WITHIN GROUP (
+              ORDER BY CAST(time_spent + bug_time AS FLOAT) / original_estimate
+            ) as coeff_with_bugs,
+            AVG(CAST(bug_time AS FLOAT) / NULLIF(time_spent, 0)) as bug_ratio,
+            'all types (fallback)' as context_label
+          FROM base
+          GROUP BY assignee
+          HAVING COUNT(DISTINCT issue_key) >= 3
+        )
+        SELECT * FROM context_coeffs
+        UNION ALL
+        SELECT * FROM global_coeffs
+        WHERE assignee NOT IN (SELECT assignee FROM context_coeffs)`,
+        [issueType],
+      );
+      const coefficients = coefficientResult.rows as unknown as DevCoefficientRow[];
+
+      await storage.close();
 
       const sections: string[] = [];
       sections.push(`# Estimate Prediction`);
-      sections.push(`Query: "${description}"${assignee ? ` | Developer: ${assignee}` : ''}`);
-      sections.push(`Based on ${String(similar.length)} similar completed tasks\n`);
+      const metaParts = [assignee ? `Developer: ${assignee}` : '', issueType ? `Type: ${issueType}` : '', comps ? `Components: ${comps.join(', ')}` : ''].filter(Boolean);
+      sections.push(`Query: "${description}"${metaParts.length > 0 ? ` | ${metaParts.join(' | ')}` : ''}`);
+      sections.push(`Based on ${String(similar.length)} similar completed tasks`);
+      sections.push(`Scoring: text 30% + type ${issueType ? '25%' : '0%'} + component ${comps ? '35%' : '0%'} + recency 10%\n`);
 
-      // Index data by issue_key
       const worklogMap = new Map<string, EstimateWorklogRow[]>();
       for (const w of worklogs) {
         const arr = worklogMap.get(w.issue_key) ?? [];
@@ -1832,12 +1967,10 @@ server.registerTool(
         bugMap.set(b.related_to, arr);
       }
 
-      // ─── Per-issue breakdown ───
       sections.push('## Similar Tasks\n');
 
       let totalCycleHours = 0;
       let totalCodingHours = 0;
-      let totalWorklogHours = 0;
       let totalBugs = 0;
       let validCycleCount = 0;
       let validCodingCount = 0;
@@ -1858,7 +1991,6 @@ server.registerTool(
         const issueBugs = bugMap.get(issue.issue_key) ?? [];
         const issueEstimate = estimateMap.get(issue.issue_key);
 
-        // Real coding time from commits
         const codingHours = (issueCommits?.first_commit && issueCommits.last_commit)
           ? (new Date(issueCommits.last_commit).getTime() - new Date(issueCommits.first_commit).getTime()) / 3600000
           : null;
@@ -1868,11 +2000,8 @@ server.registerTool(
           validCodingCount++;
         }
 
-        const worklogHours = issueWorklogs.reduce((sum, w) => sum + Number(w.total_seconds), 0) / 3600;
-        totalWorklogHours += worklogHours;
         totalBugs += issueBugs.length;
 
-        // Track developer stats — priority: changelog assignee → worklogs → commits → current assignee
         const realDev = realDevMap.get(issue.issue_key);
         const devName = realDev ?? (issueWorklogs.length > 0 ? issueWorklogs[0]?.author : null) ?? issueCommits?.authors ?? issue.assignee ?? 'unknown';
         if (devName) {
@@ -1885,15 +2014,32 @@ server.registerTool(
           developerStats.set(devName, stats);
         }
 
-        const originalEst = issueEstimate?.original_estimate ? `${String(Math.round(Number(issueEstimate.original_estimate) / 3600))}h est` : '';
-        const actualTime = issueEstimate?.time_spent ? `${String(Math.round(Number(issueEstimate.time_spent) / 3600))}h actual` : '';
+        const estH = issueEstimate?.original_estimate ? issueEstimate.original_estimate / 3600 : null;
+        const actualH = issueEstimate?.time_spent ? issueEstimate.time_spent / 3600 : null;
+        const bugTimeH = issueBugs
+          .filter((b) => b.bug_time_spent !== null)
+          .reduce((sum, b) => sum + (b.bug_time_spent ?? 0), 0) / 3600;
+        const realCostH = (actualH ?? 0) + bugTimeH;
+        const taskCoeff = estH && estH > 0 && actualH ? actualH / estH : null;
+        const taskCoeffBugs = estH && estH > 0 ? realCostH / estH : null;
+
         const cycleStr = cycleHours !== null ? `${cycleHours.toFixed(1)}h cycle` : 'open';
         const codingStr = codingHours !== null && codingHours > 0 ? ` | ${codingHours.toFixed(1)}h coding` : '';
 
+        const scoreStr = `score: ${issue.composite_score.toFixed(2)}`;
+        const matchParts = [issue.type_match > 0 ? 'type' : '', issue.component_overlap > 0 ? `comp:${(issue.component_overlap * 100).toFixed(0)}%` : ''].filter(Boolean);
+        const matchStr = matchParts.length > 0 ? ` [${matchParts.join(', ')}]` : '';
+
         sections.push(`### ${issue.issue_key}: ${issue.summary}`);
-        sections.push(`Type: ${issue.issue_type} | Dev: ${devName} | ${cycleStr}${codingStr}`);
-        if (originalEst || actualTime) {
-          sections.push(`Estimate: ${[originalEst, actualTime].filter(Boolean).join(' → ')}`);
+        sections.push(`Type: ${issue.issue_type} | Dev: ${devName} | ${cycleStr}${codingStr} | ${scoreStr}${matchStr}`);
+        if (estH !== null || actualH !== null) {
+          const estStr = estH !== null ? `${Math.round(estH)}h est` : '';
+          const actStr = actualH !== null ? `${Math.round(actualH)}h actual` : '';
+          const coeffStr = taskCoeff !== null ? ` (×${taskCoeff.toFixed(2)})` : '';
+          sections.push(`Estimate: ${[estStr, actStr].filter(Boolean).join(' → ')}${coeffStr}`);
+        }
+        if (bugTimeH > 0) {
+          sections.push(`Bug aftermath: ${bugTimeH.toFixed(1)}h → real cost: ${realCostH.toFixed(1)}h (×${taskCoeffBugs?.toFixed(2) ?? '?'})`);
         }
         if (issueCommits) {
           sections.push(`Code: ${issueCommits.commits} commits, +${issueCommits.total_additions}/-${issueCommits.total_deletions} lines (${issueCommits.authors})`);
@@ -1903,33 +2049,52 @@ server.registerTool(
           sections.push(`Worklogs:\n${wlLines.join('\n')}`);
         }
         if (issueBugs.length > 0) {
-          const bugLines = issueBugs.map((b) => `  ${b.bug_key} [${b.issue_type}] ${b.summary}`);
+          const bugLines = issueBugs.map((b) => {
+            const bTimeStr = b.bug_time_spent ? ` [${(b.bug_time_spent / 3600).toFixed(1)}h]` : '';
+            return `  ${b.bug_key} [${b.issue_type}]${bTimeStr} ${b.summary}`;
+          });
           sections.push(`Related issues (${String(issueBugs.length)}):\n${bugLines.join('\n')}`);
         }
         sections.push('');
       }
 
-      // ─── Aggregate prediction ───
-      sections.push('## Prediction\n');
+      const taskMetrics: SimilarTaskMetrics[] = [];
+      for (const issue of similar) {
+        const issueWorklogs = worklogMap.get(issue.issue_key) ?? [];
+        const issueCommits = commitMap.get(issue.issue_key);
+        const issueEstimate = estimateMap.get(issue.issue_key);
+
+        const codingHours = (issueCommits?.first_commit && issueCommits.last_commit)
+          ? (new Date(issueCommits.last_commit).getTime() - new Date(issueCommits.first_commit).getTime()) / 3600000
+          : null;
+        const worklogHours = issueWorklogs.reduce((sum, w) => sum + Number(w.total_seconds), 0) / 3600;
+        const actualH = issueEstimate?.time_spent ? issueEstimate.time_spent / 3600 : null;
+        const cycleH = issue.resolved
+          ? (new Date(issue.resolved).getTime() - new Date(issue.created).getTime()) / 3600000
+          : null;
+
+        const hours = actualH ?? (codingHours && codingHours > 0 ? codingHours : null) ?? (worklogHours > 0 ? worklogHours : null) ?? cycleH;
+        if (hours !== null && hours > 0) {
+          taskMetrics.push({ issueKey: issue.issue_key, hours, weight: issue.temporal_weight });
+        }
+      }
+
+      const base = calculateBaseHours(taskMetrics);
+
+      sections.push('## Similar Tasks Summary\n');
 
       const avgCycle = validCycleCount > 0 ? totalCycleHours / validCycleCount : 0;
       const avgCoding = validCodingCount > 0 ? totalCodingHours / validCodingCount : 0;
       const avgBugs = similar.length > 0 ? totalBugs / similar.length : 0;
 
-      // Best effort time: coding > worklogs > cycle
-      const bestTimeSource = avgCoding > 0 ? { label: 'coding time (commits)', hours: avgCoding }
-        : totalWorklogHours > 0 ? { label: 'logged time (worklogs)', hours: totalWorklogHours / similar.length }
-        : { label: 'cycle time (created→resolved)', hours: avgCycle };
-
-      sections.push(`Average ${bestTimeSource.label}: ${bestTimeSource.hours.toFixed(1)}h (${(bestTimeSource.hours / 8).toFixed(1)} working days)`);
+      sections.push(`Base hours: ${base.hours.toFixed(1)}h (${base.method})`);
       if (avgCoding > 0 && avgCycle > 0) {
-        sections.push(`Cycle time (includes waiting/review): ${avgCycle.toFixed(1)}h — coding was ${((avgCoding / avgCycle) * 100).toFixed(0)}% of it`);
+        sections.push(`Cycle time: ${avgCycle.toFixed(1)}h — coding was ${((avgCoding / avgCycle) * 100).toFixed(0)}% of it`);
       }
       sections.push(`Bug rate: ${avgBugs.toFixed(1)} bugs per task`);
 
-      // ─── Developer breakdown ───
       if (developerStats.size > 0) {
-        sections.push('\n## Developer Profiles\n');
+        sections.push('\n## Developer Profiles (similar tasks)\n');
         for (const [dev, stats] of developerStats) {
           if (assignee && !dev.toLowerCase().includes(assignee.toLowerCase())) {
             continue;
@@ -1942,13 +2107,57 @@ server.registerTool(
         }
       }
 
-      // ─── Final estimate ───
-      sections.push('\n## Recommended Estimate\n');
-      const bufferMultiplier = 1.3;
-      const predictedHours = bestTimeSource.hours * bufferMultiplier;
-      sections.push(`Base: ${bestTimeSource.hours.toFixed(0)}h + 30% buffer = **${predictedHours.toFixed(0)}h (${(predictedHours / 8).toFixed(1)} working days)**`);
+      if (familiarity.factor < 1.0) {
+        sections.push(`\n## Developer Familiarity\n`);
+        sections.push(`${assignee}: ${familiarity.explanation}`);
+      }
+
+      if (coefficients.length > 0) {
+        sections.push('\n## Developer Coefficients\n');
+        const relevantCoeffs = assignee
+          ? coefficients.filter((c) => c.assignee.toLowerCase().includes(assignee.toLowerCase()))
+          : coefficients;
+        for (const c of relevantCoeffs) {
+          const noBugs = Number(c.coeff_no_bugs).toFixed(2);
+          const withBugs = Number(c.coeff_with_bugs).toFixed(2);
+          const ratio = (Number(c.bug_ratio) * 100).toFixed(0);
+          sections.push(`**${c.assignee}**: ×${noBugs} without bugs, ×${withBugs} with bugs (${c.task_count} tasks, bug overhead ${ratio}%, ${c.context_label}, median, outliers excluded)`);
+        }
+      }
+
+      sections.push('\n## Prediction\n');
+
+      const contextCoeffs = coefficients.filter((c) => c.context_label !== 'all types (fallback)');
+      const globalCoeffs = coefficients.filter((c) => c.context_label === 'all types (fallback)');
+
+      const baseHours = base.hours;
+
+      const buildDevPrediction = (dev: DevCoefficientRow, label: string): string[] => {
+        const noBugs = Number(dev.coeff_no_bugs);
+        const withBugs = Number(dev.coeff_with_bugs);
+        const predNoBugs = baseHours * noBugs;
+        const predWithBugs = baseHours * withBugs;
+        const overhead = noBugs > 0 ? ((withBugs - noBugs) / noBugs * 100).toFixed(0) : '0';
+        const lines: string[] = [];
+        lines.push(`### ${dev.assignee} ${label}`);
+        lines.push(`Without bugs: ${baseHours.toFixed(1)}h ×${noBugs.toFixed(2)} = **${predNoBugs.toFixed(1)}h** (${(predNoBugs / 8).toFixed(1)}d)`);
+        lines.push(`With bugs: ${baseHours.toFixed(1)}h ×${withBugs.toFixed(2)} = **${predWithBugs.toFixed(1)}h** (${(predWithBugs / 8).toFixed(1)}d) — bug overhead +${overhead}%`);
+        lines.push(`Based on ${dev.task_count} completed tasks, ${dev.context_label}\n`);
+        return lines;
+      };
+
+      const devCtx = contextCoeffs.find((c) => c.assignee.toLowerCase().includes(assignee.toLowerCase()));
+      const devGlob = globalCoeffs.find((c) => c.assignee.toLowerCase().includes(assignee.toLowerCase()));
+      const dev = devCtx ?? devGlob;
+      if (dev) {
+        sections.push(...buildDevPrediction(dev, ''));
+      } else {
+        sections.push(`No coefficient data for "${assignee}". Need ≥3 completed tasks with estimates.`);
+        sections.push(`${baseHours.toFixed(1)}h based on similar tasks (no personal coefficient)\n`);
+      }
+
       if (avgBugs > 0.5) {
-        sections.push(`⚠ High bug rate (${avgBugs.toFixed(1)}/task) — consider additional buffer`);
+        sections.push(`High bug rate (${avgBugs.toFixed(1)}/task) among similar tasks`);
       }
 
       return {
@@ -1964,16 +2173,12 @@ server.registerTool(
   },
 );
 
-// ─── Start ────────────────────────────────────────────────────────────────────
-
 export async function startMcpServer(): Promise<void> {
   const transport = new StdioServerTransport();
   await server.connect(transport);
-  // IMPORTANT: use console.error, not console.log — stdout is for JSON-RPC
   console.error('Argustack MCP server running on stdio');
 }
 
-// Allow direct execution: node dist/mcp/server.js
 const isDirectRun =
   typeof process !== 'undefined' &&
   process.argv[1] &&

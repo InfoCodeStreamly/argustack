@@ -1,5 +1,5 @@
 import { input, confirm, password, checkbox } from '@inquirer/prompts';
-import { mkdirSync, writeFileSync, copyFileSync, existsSync } from 'node:fs';
+import { mkdirSync, writeFileSync, copyFileSync, existsSync, readdirSync } from 'node:fs';
 import { execSync, spawn } from 'node:child_process';
 import { join, resolve } from 'node:path';
 import { fileURLToPath } from 'node:url';
@@ -20,8 +20,6 @@ function getTemplatesDir(): string {
   }
   return templatesDir;
 }
-
-// ─── Types ───────────────────────────────────────────────────────────────────
 
 interface JiraSetupResult {
   jiraUrl: string;
@@ -92,8 +90,6 @@ function extractJiraBaseUrl(raw: string): string {
   }
 }
 
-// ─── Jira connection test (shared between interactive and non-interactive) ───
-
 async function testJiraConnection(
   url: string, email: string, token: string,
 ): Promise<string[]> {
@@ -105,8 +101,6 @@ async function testJiraConnection(
   const result = await client.projects.searchProjects({ maxResults: 200 });
   return result.values.map((p) => p.key);
 }
-
-// ─── Interactive source setup ────────────────────────────────────────────────
 
 async function setupJiraInteractive(): Promise<JiraSetupResult | null> {
   console.log('');
@@ -565,7 +559,36 @@ async function setupCsvInteractive(): Promise<CsvSetupResult> {
   console.log(chalk.bold('  Jira CSV Import setup'));
   console.log(chalk.dim('  Import issues from a Jira CSV export file.\n'));
 
-  const csvFilePath = await input({
+  const cwd = process.cwd();
+  const csvFiles = readdirSync(cwd).filter((f) => f.toLowerCase().endsWith('.csv'));
+
+  let csvFilePath: string;
+
+  if (csvFiles.length > 0) {
+    const { select } = await import('@inquirer/prompts');
+    const MANUAL_ENTRY = '__manual__';
+    const selected = await select<string>({
+      message: csvFiles.length === 1
+        ? `Found CSV file in current directory:`
+        : `Found ${csvFiles.length} CSV files in current directory:`,
+      choices: [
+        ...csvFiles.map((f) => ({ value: join(cwd, f), name: f })),
+        { value: MANUAL_ENTRY, name: 'Enter path manually…' },
+      ],
+    });
+    csvFilePath = selected === MANUAL_ENTRY ? await promptCsvPath() : selected;
+  } else {
+    csvFilePath = await promptCsvPath();
+  }
+
+  const resolved = resolve(csvFilePath);
+  console.log(chalk.green(`  CSV file: ${resolved}`));
+
+  return { csvFilePath: resolved };
+}
+
+async function promptCsvPath(): Promise<string> {
+  const raw = await input({
     message: 'Path to Jira CSV file:',
     validate: (val): string | true => {
       if (!val.trim()) {
@@ -574,11 +597,7 @@ async function setupCsvInteractive(): Promise<CsvSetupResult> {
       return true;
     },
   });
-
-  const resolved = resolve(csvFilePath.replace(/^~/, process.env['HOME'] ?? '~'));
-  console.log(chalk.green(`  CSV file: ${resolved}`));
-
-  return { csvFilePath: resolved };
+  return resolve(raw.replace(/^~/, process.env['HOME'] ?? '~'));
 }
 
 async function setupDbInteractive(): Promise<DbSetupResult | null> {
@@ -607,8 +626,6 @@ async function setupDbInteractive(): Promise<DbSetupResult | null> {
 
   return { targetDbHost, targetDbPort, targetDbUser, targetDbPassword, targetDbName };
 }
-
-// ─── Non-interactive source setup (from flags) ──────────────────────────────
 
 async function setupJiraFromFlags(flags: InitFlags): Promise<JiraSetupResult | null> {
   if (!flags.jiraUrl || !flags.jiraEmail || !flags.jiraToken) {
@@ -682,8 +699,6 @@ function setupCsvFromFlags(flags: InitFlags): CsvSetupResult | null {
   }
   return { csvFilePath: flags.csvFile };
 }
-
-// ─── .env generation ─────────────────────────────────────────────────────────
 
 function generateEnv(
   jira: JiraSetupResult | null,
@@ -759,8 +774,6 @@ function generateEnv(
   return lines.join('\n') + '\n';
 }
 
-// ─── docker-compose generation ───────────────────────────────────────────────
-
 function generateDockerCompose(dbPort: number, pgwebPort: number): string {
   return `services:
   db:
@@ -798,8 +811,6 @@ volumes:
 `;
 }
 
-// ─── Create workspace (shared logic) ─────────────────────────────────────────
-
 function createWorkspaceFiles(
   workspaceDir: string,
   jira: JiraSetupResult | null,
@@ -812,13 +823,11 @@ function createWorkspaceFiles(
 ): void {
   const templatesDir = getTemplatesDir();
 
-  // Directories
   mkdirSync(workspaceDir, { recursive: true });
   mkdirSync(join(workspaceDir, '.argustack'), { recursive: true });
   mkdirSync(join(workspaceDir, 'db'), { recursive: true });
   mkdirSync(join(workspaceDir, 'data'), { recursive: true });
 
-  // Config
   let config = createEmptyConfig();
   if (jira) {
     config = addSource(config, 'jira');
@@ -837,19 +846,14 @@ function createWorkspaceFiles(
   }
   writeConfig(workspaceDir, config);
 
-  // .env
   writeFileSync(join(workspaceDir, '.env'), generateEnv(jira, git, github, csv, db, dbPort));
 
-  // docker-compose.yml
   writeFileSync(join(workspaceDir, 'docker-compose.yml'), generateDockerCompose(dbPort, pgwebPort));
 
-  // init.sql
   copyFileSync(join(templatesDir, 'init.sql'), join(workspaceDir, 'db', 'init.sql'));
 
-  // .gitignore
   copyFileSync(join(templatesDir, 'gitignore'), join(workspaceDir, '.gitignore'));
 
-  // .mcp.json — Claude Code auto-discovers MCP servers from this file
   try {
     const serverPath = resolveServerPath();
     const mcpConfig = {
@@ -864,12 +868,8 @@ function createWorkspaceFiles(
       join(workspaceDir, '.mcp.json'),
       JSON.stringify(mcpConfig, null, 2) + '\n',
     );
-  } catch {
-    // Server not built yet — skip .mcp.json, user can run `argustack mcp install` later
-  }
+  } catch { /* optional file, ignore */ }
 }
-
-// ─── Summary output ──────────────────────────────────────────────────────────
 
 function printSummary(
   workspaceDir: string,
@@ -926,29 +926,23 @@ function printSummary(
   console.log('');
 }
 
-// ─── Non-interactive init ────────────────────────────────────────────────────
-
 async function runInitNonInteractive(flags: InitFlags): Promise<void> {
   console.log(chalk.bold('\n  Argustack — non-interactive setup\n'));
 
-  // Workspace dir
   const workspaceDir = resolve(
     (flags.dir ?? process.cwd()).replace(/^~/, process.env['HOME'] ?? '~')
   );
 
-  // Parse sources
   const selectedSources: SourceType[] = flags.source
     ? (flags.source.split(',').map((s) => s.trim().toLowerCase()) as SourceType[])
     : [];
 
-  // Validate source names
   for (const s of selectedSources) {
     if (!ALL_SOURCES.includes(s)) {
       throw new Error(`Unknown source: ${s}. Available: ${ALL_SOURCES.join(', ')}`);
     }
   }
 
-  // Setup each source from flags
   let jiraResult: JiraSetupResult | null = null;
   let gitResult: GitSetupResult | null = null;
   let githubResult: GitHubSetupResult | null = null;
@@ -978,7 +972,6 @@ async function runInitNonInteractive(flags: InitFlags): Promise<void> {
   const dbPort = parseInt(flags.dbPort ?? '5434', 10);
   const pgwebPort = parseInt(flags.pgwebPort ?? '8086', 10);
 
-  // Create workspace
   const spinner = ora('Creating workspace...').start();
   try {
     createWorkspaceFiles(workspaceDir, jiraResult, gitResult, githubResult, csvResult, dbResult, dbPort, pgwebPort);
@@ -991,14 +984,11 @@ async function runInitNonInteractive(flags: InitFlags): Promise<void> {
   printSummary(workspaceDir, jiraResult, gitResult, githubResult, csvResult, dbResult, pgwebPort, false);
 }
 
-// ─── Interactive init ────────────────────────────────────────────────────────
-
 async function runInitInteractive(flags: InitFlags): Promise<void> {
   console.log('');
   console.log(chalk.bold('  Argustack — workspace setup'));
   console.log(chalk.dim('  Cross-reference Jira + Git + DB to analyze your project.\n'));
 
-  // 1. Where to create?
   const targetDir = await input({
     message: 'Workspace directory:',
     default: flags.dir ?? process.cwd(),
@@ -1021,7 +1011,6 @@ async function runInitInteractive(flags: InitFlags): Promise<void> {
     }
   }
 
-  // 2. Which sources?
   console.log('');
   const selectedSources = await checkbox<SourceType>({
     message: 'Which sources do you have access to?',
@@ -1049,7 +1038,6 @@ async function runInitInteractive(flags: InitFlags): Promise<void> {
     }
   }
 
-  // 3. Collect credentials for each selected source
   let jiraResult: JiraSetupResult | null = null;
   let gitResult: GitSetupResult | null = null;
   let githubResult: GitHubSetupResult | null = null;
@@ -1066,7 +1054,6 @@ async function runInitInteractive(flags: InitFlags): Promise<void> {
     }
   }
 
-  // 4. Argustack internal DB ports
   console.log('');
   console.log(chalk.dim('  Argustack internal database (Docker):'));
 
@@ -1095,7 +1082,6 @@ async function runInitInteractive(flags: InitFlags): Promise<void> {
   const dbPort = parseInt(dbPortStr, 10);
   const pgwebPort = parseInt(pgwebPortStr, 10);
 
-  // 5. Create workspace
   const spinner = ora('Creating workspace...').start();
   try {
     createWorkspaceFiles(workspaceDir, jiraResult, gitResult, githubResult, csvResult, dbResult, dbPort, pgwebPort);
@@ -1106,7 +1092,6 @@ async function runInitInteractive(flags: InitFlags): Promise<void> {
     return;
   }
 
-  // 6. Offer to start DB + sync automatically
   const autoStart = await confirm({
     message: 'Start database and sync now?',
     default: true,
@@ -1132,7 +1117,6 @@ async function startAndSync(workspaceDir: string, hasJira: boolean, hasGit: bool
     return;
   }
 
-  // Wait for PostgreSQL to be ready
   const spinnerWait = ora('Waiting for PostgreSQL...').start();
   const maxWait = 30;
   for (let i = 0; i < maxWait; i++) {
@@ -1206,10 +1190,7 @@ async function startAndSync(workspaceDir: string, hasJira: boolean, hasGit: bool
   console.log('');
 }
 
-// ─── Main entry point ────────────────────────────────────────────────────────
-
 export async function runInit(flags: InitFlags = {}): Promise<void> {
-  // --no-interactive sets flags.interactive to false
   if (flags.interactive === false) {
     await runInitNonInteractive(flags);
   } else {
