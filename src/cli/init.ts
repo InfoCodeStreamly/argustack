@@ -1,10 +1,10 @@
 import { input, confirm, password, checkbox } from '@inquirer/prompts';
 import { mkdirSync, writeFileSync, copyFileSync, existsSync } from 'node:fs';
-import { execSync } from 'node:child_process';
+import { execSync, spawn } from 'node:child_process';
 import { join, resolve } from 'node:path';
 import { fileURLToPath } from 'node:url';
 import chalk from 'chalk';
-import ora from 'ora';
+import ora, { type Ora } from 'ora';
 import { isWorkspace } from '../workspace/resolver.js';
 import { createEmptyConfig, addSource, writeConfig } from '../workspace/config.js';
 import { resolveServerPath } from './mcp-install.js';
@@ -31,10 +31,15 @@ interface JiraSetupResult {
 }
 
 interface GitSetupResult {
-  gitRepoPath: string;
-  githubToken?: string | undefined;
-  githubOwner?: string | undefined;
-  githubRepo?: string | undefined;
+  gitRepoPaths: string[];
+  githubToken?: string;
+  githubRepos?: string[];
+}
+
+interface GitHubSetupResult {
+  githubToken: string;
+  githubOwner: string;
+  githubRepo: string;
 }
 
 interface DbSetupResult {
@@ -48,7 +53,7 @@ interface DbSetupResult {
 /** CLI flags passed from commander */
 export interface InitFlags {
   dir?: string;
-  source?: string;          // comma-separated: "jira,git,db"
+  source?: string;          // comma-separated: "jira,git,github,db"
   jiraUrl?: string;
   jiraEmail?: string;
   jiraToken?: string;
@@ -180,110 +185,310 @@ async function setupJiraInteractive(): Promise<JiraSetupResult | null> {
     break;
   }
 
-  const projectsInput = await input({
-    message: 'Projects to pull (comma-separated, or "all"):',
-    default: availableProjects.length > 0 ? 'all' : '',
+  const jiraProjects = await checkbox<string>({
+    message: 'Select projects to pull:',
+    choices: availableProjects.map((key) => ({
+      value: key,
+      name: key,
+    })),
   });
 
-  const jiraProjects =
-    projectsInput.trim().toLowerCase() === 'all'
-      ? availableProjects
-      : projectsInput.split(',').map((p) => p.trim().toUpperCase());
+  if (jiraProjects.length === 0) {
+    console.log(chalk.yellow('  No projects selected.'));
+    return null;
+  }
 
   return { jiraUrl, jiraEmail, jiraToken, jiraProjects };
+}
+
+function gitCloneWithProgress(url: string, targetPath: string, spinner: Ora): Promise<void> {
+  return new Promise<void>((res, rej) => {
+    const proc = spawn('git', ['clone', '--progress', url, targetPath], {
+      stdio: ['pipe', 'pipe', 'pipe'],
+      cwd: process.env['HOME'],
+    });
+
+    const repoName = url.split('/').pop()?.replace(/\.git$/, '') ?? 'repo';
+
+    proc.stderr.on('data', (data: Buffer) => {
+      const line = data.toString().trim();
+      const match = /(\w[\w\s]+?):\s+(\d+)%\s+\((\d+)\/(\d+)\)/.exec(line);
+      if (match) {
+        const [, phase, pct] = match;
+        spinner.text = `Cloning ${repoName}: ${phase?.trim()} ${pct}%`;
+      }
+    });
+
+    proc.on('close', (code) => {
+      if (code === 0) {
+        res();
+      } else {
+        rej(new Error(`git clone exited with code ${String(code)}`));
+      }
+    });
+
+    proc.on('error', rej);
+  });
+}
+
+async function collectGitRepoLocal(): Promise<string | null> {
+  const rawPath = await input({
+    message: 'Path to local repo:',
+    validate: (val): string | true => {
+      const trimmed = val.trim();
+      if (!trimmed) {
+        return 'Path is required';
+      }
+      const resolved = resolve(trimmed.replace(/^~/, process.env['HOME'] ?? '~'));
+      if (!existsSync(join(resolved, '.git'))) {
+        return `Not a git repository: ${resolved} (no .git/ directory)`;
+      }
+      return true;
+    },
+  });
+  return resolve(rawPath.trim().replace(/^~/, process.env['HOME'] ?? '~'));
+}
+
+async function collectGitRepoGithub(): Promise<{ paths: string[]; token: string; repos: string[] }> {
+  const githubToken = await password({
+    message: 'GitHub token (PAT):',
+    mask: '*',
+    validate: (val): string | true => {
+      if (!val.trim()) {
+        return 'Token is required';
+      }
+      return true;
+    },
+  });
+
+  const spinner = ora('Fetching accessible repositories...').start();
+  let repos: { full_name: string; clone_url: string; isPrivate: boolean; description: string | null }[];
+
+  try {
+    const { Octokit } = await import('octokit');
+    const octokit = new Octokit({ auth: githubToken.trim() });
+    const result = await octokit.rest.repos.listForAuthenticatedUser({
+      per_page: 100,
+      sort: 'updated',
+      direction: 'desc',
+    });
+    repos = result.data.map((r) => ({
+      full_name: r.full_name,
+      clone_url: r.clone_url,
+      isPrivate: r.private,
+      description: r.description,
+    }));
+    spinner.succeed(`Found ${repos.length} repositories`);
+  } catch (err: unknown) {
+    spinner.fail('Failed to fetch repositories');
+    console.log(chalk.red(`  Error: ${err instanceof Error ? err.message : String(err)}`));
+    return { paths: [], token: githubToken.trim(), repos: [] };
+  }
+
+  if (repos.length === 0) {
+    console.log(chalk.yellow('  No repositories accessible with this token.'));
+    return { paths: [], token: githubToken.trim(), repos: [] };
+  }
+
+  const selectedRepos = await checkbox<{ cloneUrl: string; fullName: string }>({
+    message: 'Select repositories to clone:',
+    choices: repos.map((r) => ({
+      value: { cloneUrl: r.clone_url, fullName: r.full_name },
+      name: `${r.full_name} ${r.isPrivate ? '(private)' : '(public)'}`,
+      ...(r.description ? { description: r.description } : {}),
+    })),
+  });
+
+  if (selectedRepos.length === 0) {
+    console.log(chalk.yellow('  No repositories selected.'));
+    return { paths: [], token: githubToken.trim(), repos: [] };
+  }
+
+  const clonedPaths: string[] = [];
+  const clonedRepos: string[] = [];
+  for (const { cloneUrl, fullName } of selectedRepos) {
+    const repoName = cloneUrl.split('/').pop()?.replace(/\.git$/, '') ?? 'repo';
+    const defaultPath = resolve(repoName);
+    const cloneDir = await input({
+      message: `Clone ${repoName} into directory:`,
+      default: defaultPath,
+    });
+
+    const targetPath = resolve(cloneDir.trim().replace(/^~/, process.env['HOME'] ?? '~'));
+    const cloneSpinner = ora(`Cloning ${repoName}...`).start();
+
+    try {
+      await gitCloneWithProgress(cloneUrl, targetPath, cloneSpinner);
+      cloneSpinner.succeed(`Cloned to ${targetPath}`);
+      clonedPaths.push(targetPath);
+      clonedRepos.push(fullName);
+    } catch (err: unknown) {
+      cloneSpinner.fail(`Failed to clone ${repoName}`);
+      console.log(chalk.red(`  Error: ${err instanceof Error ? err.message : String(err)}`));
+    }
+  }
+
+  return { paths: clonedPaths, token: githubToken.trim(), repos: clonedRepos };
+}
+
+async function collectGitRepoUrl(): Promise<string | null> {
+  const repoUrl = await input({
+    message: 'Repository URL (HTTPS):',
+    validate: (val): string | true => {
+      const trimmed = val.trim();
+      if (!trimmed) {
+        return 'URL is required';
+      }
+      if (!trimmed.startsWith('https://') && !trimmed.startsWith('git@')) {
+        return 'Must start with https:// or git@';
+      }
+      return true;
+    },
+  });
+
+  const defaultDir = repoUrl.trim().split('/').pop()?.replace(/\.git$/, '') ?? 'repo';
+  const defaultPath = resolve(defaultDir);
+  const cloneDir = await input({
+    message: 'Clone into directory:',
+    default: defaultPath,
+  });
+
+  const targetPath = resolve(cloneDir.trim().replace(/^~/, process.env['HOME'] ?? '~'));
+  const spinner = ora(`Cloning ${repoUrl.trim()}...`).start();
+
+  try {
+    await gitCloneWithProgress(repoUrl.trim(), targetPath, spinner);
+    spinner.succeed(`Cloned to ${targetPath}`);
+    return targetPath;
+  } catch (err: unknown) {
+    spinner.fail('Clone failed');
+    console.log(chalk.red(`  Error: ${err instanceof Error ? err.message : String(err)}`));
+    console.log(chalk.dim('  Check URL and network. Make sure git is installed.'));
+    return null;
+  }
 }
 
 async function setupGitInteractive(): Promise<GitSetupResult | null> {
   console.log('');
   console.log(chalk.bold('  Git setup'));
-  console.log(chalk.dim('  Connect to a Git repository.\n'));
+  console.log(chalk.dim('  Connect to Git repositories.\n'));
 
   const { select } = await import('@inquirer/prompts');
+  const gitRepoPaths: string[] = [];
+  let savedGithubToken: string | undefined;
+  const savedGithubRepos: string[] = [];
 
-  const mode = await select<'local' | 'clone'>({
-    message: 'Where is your Git repository?',
-    choices: [
-      { value: 'local' as const, name: 'Local path — already cloned on this machine' },
-      { value: 'clone' as const, name: 'Clone from URL — download from GitHub/GitLab/etc.' },
-    ],
-  });
-
-  let gitRepoPath: string;
-
-  if (mode === 'local') {
-    gitRepoPath = await input({
-      message: 'Path to local repo:',
-      validate: (val): string | true => {
-        const trimmed = val.trim();
-        if (!trimmed) {
-          return 'Path is required';
-        }
-        const resolved = resolve(trimmed.replace(/^~/, process.env['HOME'] ?? '~'));
-        if (!existsSync(join(resolved, '.git'))) {
-          return `Not a git repository: ${resolved} (no .git/ directory)`;
-        }
-        return true;
-      },
-    });
-    gitRepoPath = resolve(gitRepoPath.trim().replace(/^~/, process.env['HOME'] ?? '~'));
-  } else {
-    const repoUrl = await input({
-      message: 'Repository URL (HTTPS):',
-      validate: (val): string | true => {
-        const trimmed = val.trim();
-        if (!trimmed) {
-          return 'URL is required';
-        }
-        if (!trimmed.startsWith('https://') && !trimmed.startsWith('git@')) {
-          return 'Must start with https:// or git@';
-        }
-        return true;
-      },
+  let addMore = true;
+  while (addMore) {
+    const mode = await select<'local' | 'github' | 'clone'>({
+      message: gitRepoPaths.length === 0
+        ? 'Where is your Git repository?'
+        : 'Add another Git repository:',
+      choices: [
+        {
+          value: 'local' as const,
+          name: 'Local path',
+          description:
+            'The repo is already downloaded to your computer. ' +
+            'You just point to the folder where it lives (e.g. ~/projects/my-app). ' +
+            'Nothing is downloaded — Argustack reads commit history directly from disk',
+        },
+        {
+          value: 'github' as const,
+          name: 'Clone from GitHub',
+          description:
+            'You have a GitHub account with access to the repo. ' +
+            'Enter your GitHub token — Argustack will show all repos you have access to, ' +
+            'you pick the ones you need, and they download automatically',
+        },
+        {
+          value: 'clone' as const,
+          name: 'Clone from URL',
+          description:
+            'You have a direct link to the repo (from GitHub, GitLab, Bitbucket, or any git server). ' +
+            'Paste the URL and Argustack will download the repo for you. ' +
+            'Use this if your repo is not on GitHub or you prefer to paste the link manually',
+        },
+      ],
     });
 
-    const defaultDir = repoUrl.trim().split('/').pop()?.replace(/\.git$/, '') ?? 'repo';
-    const cloneDir = await input({
-      message: 'Clone into directory:',
-      default: defaultDir,
-    });
-
-    const targetPath = resolve(cloneDir.trim());
-    const spinner = ora(`Cloning ${repoUrl.trim()}...`).start();
-
-    try {
-      execSync(`git clone ${repoUrl.trim()} ${targetPath}`, { stdio: 'pipe' });
-      spinner.succeed(`Cloned to ${targetPath}`);
-      gitRepoPath = targetPath;
-    } catch (err: unknown) {
-      spinner.fail('Clone failed');
-      console.log(chalk.red(`  Error: ${err instanceof Error ? err.message : String(err)}`));
-      console.log(chalk.dim('  Check URL and network. Make sure git is installed.'));
-
-      const retry = await confirm({ message: 'Try again?', default: true });
-      if (retry) {
-        return setupGitInteractive();
+    if (mode === 'local') {
+      const path = await collectGitRepoLocal();
+      if (path) {
+        gitRepoPaths.push(path);
       }
+    } else if (mode === 'github') {
+      const result = await collectGitRepoGithub();
+      gitRepoPaths.push(...result.paths);
+      savedGithubToken = result.token;
+      savedGithubRepos.push(...result.repos);
+    } else {
+      const path = await collectGitRepoUrl();
+      if (path) {
+        gitRepoPaths.push(path);
+      }
+    }
 
-      const skip = await confirm({ message: 'Skip Git for now?', default: false });
+    if (gitRepoPaths.length === 0) {
+      const skip = await confirm({ message: 'Skip Git for now?', default: true });
       if (skip) {
         return null;
       }
-      return setupGitInteractive();
+      continue;
     }
+
+    addMore = await confirm({ message: 'Add another Git repository?', default: false });
   }
 
-  console.log(chalk.green(`  Git source configured: ${gitRepoPath}`));
+  if (gitRepoPaths.length === 0) {
+    return null;
+  }
 
-  // GitHub API (optional)
-  const hasGithub = await confirm({
-    message: 'Connect to GitHub API? (PRs, reviews, releases)',
-    default: false,
-  });
+  for (const p of gitRepoPaths) {
+    console.log(chalk.green(`  Git source configured: ${p}`));
+  }
 
-  if (hasGithub) {
+  return {
+    gitRepoPaths,
+    ...(savedGithubToken ? { githubToken: savedGithubToken } : {}),
+    ...(savedGithubRepos.length > 0 ? { githubRepos: savedGithubRepos } : {}),
+  };
+}
+
+async function setupGithubInteractive(
+  existingToken?: string,
+  existingRepos?: string[],
+): Promise<GitHubSetupResult | null> {
+  console.log('');
+  console.log(chalk.bold('  GitHub setup'));
+  console.log(chalk.dim('  Connect to GitHub API for PRs, reviews, and releases.\n'));
+
+  if (existingToken && existingRepos && existingRepos.length > 0) {
+    const repoToUse = existingRepos[0] ?? '';
+    const [owner = '', repo = ''] = repoToUse.split('/');
+
+    if (existingRepos.length === 1) {
+      console.log(chalk.green(`  Auto-configured from Git step: ${repoToUse}`));
+    } else {
+      console.log(chalk.dim(`  Repos from Git step: ${existingRepos.join(', ')}`));
+      console.log(chalk.green(`  Using first repo for GitHub PRs: ${repoToUse}`));
+    }
+
+    return {
+      githubToken: existingToken.trim(),
+      githubOwner: owner,
+      githubRepo: repo,
+    };
+  }
+
+  let githubToken: string;
+
+  if (existingToken) {
+    console.log(chalk.green('  Using GitHub token from Git clone step.'));
+    githubToken = existingToken;
+  } else {
     console.log(chalk.dim('  Generate token: Settings → Developer settings → Personal access tokens'));
-
-    const githubToken = await password({
+    githubToken = await password({
       message: 'GitHub token (PAT):',
       mask: '*',
       validate: (val): string | true => {
@@ -293,53 +498,61 @@ async function setupGitInteractive(): Promise<GitSetupResult | null> {
         return true;
       },
     });
-
-    const githubOwner = await input({
-      message: 'Repository owner (org or user):',
-      validate: (val): string | true => {
-        if (!val.trim()) {
-          return 'Owner is required';
-        }
-        return true;
-      },
-    });
-
-    const githubRepo = await input({
-      message: 'Repository name:',
-      validate: (val): string | true => {
-        if (!val.trim()) {
-          return 'Repo name is required';
-        }
-        return true;
-      },
-    });
-
-    // Test connection
-    const spinner = ora('Testing GitHub connection...').start();
-    try {
-      const { Octokit } = await import('octokit');
-      const octokit = new Octokit({ auth: githubToken.trim() });
-      const { data: repo } = await octokit.rest.repos.get({
-        owner: githubOwner.trim(),
-        repo: githubRepo.trim(),
-      });
-      spinner.succeed(`Connected! ${repo.full_name} (${repo.private ? 'private' : 'public'})`);
-    } catch (err: unknown) {
-      spinner.fail('GitHub connection failed');
-      console.log(chalk.red(`  Error: ${err instanceof Error ? err.message : String(err)}`));
-      console.log(chalk.dim('  PRs/reviews won\'t be synced. You can add GitHub token to .env later.'));
-      return { gitRepoPath };
-    }
-
-    return {
-      gitRepoPath,
-      githubToken: githubToken.trim(),
-      githubOwner: githubOwner.trim(),
-      githubRepo: githubRepo.trim(),
-    };
   }
 
-  return { gitRepoPath };
+  const spinner = ora('Fetching accessible repositories...').start();
+  let repos: { full_name: string; isPrivate: boolean; description: string | null }[];
+
+  try {
+    const { Octokit } = await import('octokit');
+    const octokit = new Octokit({ auth: githubToken.trim() });
+    const result = await octokit.rest.repos.listForAuthenticatedUser({
+      per_page: 100,
+      sort: 'updated',
+      direction: 'desc',
+    });
+    repos = result.data.map((r) => ({
+      full_name: r.full_name,
+      isPrivate: r.private,
+      description: r.description,
+    }));
+    spinner.succeed(`Found ${repos.length} accessible repositories`);
+  } catch (err: unknown) {
+    spinner.fail('Failed to fetch repositories');
+    console.log(chalk.red(`  Error: ${err instanceof Error ? err.message : String(err)}`));
+    console.log(chalk.dim('  You can add GitHub token to .env later.'));
+
+    const skip = await confirm({ message: 'Skip GitHub for now?', default: true });
+    if (skip) {
+      return null;
+    }
+    return setupGithubInteractive(existingToken);
+  }
+
+  if (repos.length === 0) {
+    console.log(chalk.yellow('  No repositories accessible with this token.'));
+    console.log(chalk.dim('  Make sure the token has access to at least one repository.'));
+    return null;
+  }
+
+  const { select } = await import('@inquirer/prompts');
+  const selectedRepo = await select<string>({
+    message: 'Select repository:',
+    choices: repos.map((r) => ({
+      value: r.full_name,
+      name: `${r.full_name} ${r.isPrivate ? '(private)' : '(public)'}`,
+      ...(r.description ? { description: r.description } : {}),
+    })),
+  });
+
+  const [owner = '', repo = ''] = selectedRepo.split('/');
+  console.log(chalk.green(`  GitHub configured: ${selectedRepo}`));
+
+  return {
+    githubToken: githubToken.trim(),
+    githubOwner: owner,
+    githubRepo: repo,
+  };
 }
 
 async function setupDbInteractive(): Promise<DbSetupResult | null> {
@@ -409,8 +622,15 @@ function setupGitFromFlags(flags: InitFlags): GitSetupResult | null {
   if (!flags.gitRepo) {
     throw new Error('Git requires: --git-repo');
   }
+  const paths = flags.gitRepo.split(',').map((p) => p.trim()).filter(Boolean);
+  return { gitRepoPaths: paths };
+}
+
+function setupGithubFromFlags(flags: InitFlags): GitHubSetupResult | null {
+  if (!flags.githubToken || !flags.githubOwner || !flags.githubRepo) {
+    throw new Error('GitHub requires: --github-token, --github-owner, --github-repo');
+  }
   return {
-    gitRepoPath: flags.gitRepo,
     githubToken: flags.githubToken,
     githubOwner: flags.githubOwner,
     githubRepo: flags.githubRepo,
@@ -435,6 +655,7 @@ function setupDbFromFlags(flags: InitFlags): DbSetupResult | null {
 function generateEnv(
   jira: JiraSetupResult | null,
   git: GitSetupResult | null,
+  github: GitHubSetupResult | null,
   db: DbSetupResult | null,
   argustackDbPort: number,
 ): string {
@@ -454,16 +675,19 @@ function generateEnv(
   if (git) {
     lines.push(
       '# === Git ===',
-      `GIT_REPO_PATH=${git.gitRepoPath}`,
+      `GIT_REPO_PATHS=${git.gitRepoPaths.join(',')}`,
+      '',
     );
-    if (git.githubToken && git.githubOwner && git.githubRepo) {
-      lines.push(
-        `GITHUB_TOKEN=${git.githubToken}`,
-        `GITHUB_OWNER=${git.githubOwner}`,
-        `GITHUB_REPO=${git.githubRepo}`,
-      );
-    }
-    lines.push('');
+  }
+
+  if (github) {
+    lines.push(
+      '# === GitHub ===',
+      `GITHUB_TOKEN=${github.githubToken}`,
+      `GITHUB_OWNER=${github.githubOwner}`,
+      `GITHUB_REPO=${github.githubRepo}`,
+      '',
+    );
   }
 
   if (db) {
@@ -538,6 +762,7 @@ function createWorkspaceFiles(
   workspaceDir: string,
   jira: JiraSetupResult | null,
   git: GitSetupResult | null,
+  github: GitHubSetupResult | null,
   db: DbSetupResult | null,
   dbPort: number,
   pgwebPort: number,
@@ -558,13 +783,16 @@ function createWorkspaceFiles(
   if (git) {
     config = addSource(config, 'git');
   }
+  if (github) {
+    config = addSource(config, 'github');
+  }
   if (db) {
     config = addSource(config, 'db');
   }
   writeConfig(workspaceDir, config);
 
   // .env
-  writeFileSync(join(workspaceDir, '.env'), generateEnv(jira, git, db, dbPort));
+  writeFileSync(join(workspaceDir, '.env'), generateEnv(jira, git, github, db, dbPort));
 
   // docker-compose.yml
   writeFileSync(join(workspaceDir, 'docker-compose.yml'), generateDockerCompose(dbPort, pgwebPort));
@@ -601,6 +829,7 @@ function printSummary(
   workspaceDir: string,
   jira: JiraSetupResult | null,
   git: GitSetupResult | null,
+  github: GitHubSetupResult | null,
   db: DbSetupResult | null,
   pgwebPort: number,
   willAutoStart: boolean,
@@ -614,12 +843,17 @@ function printSummary(
     console.log(`    ${chalk.green('✓')} Jira — ${jira.jiraUrl}`);
   }
   if (git) {
-    console.log(`    ${chalk.green('✓')} Git — ${git.gitRepoPath}`);
+    for (const p of git.gitRepoPaths) {
+      console.log(`    ${chalk.green('✓')} Git — ${p}`);
+    }
+  }
+  if (github) {
+    console.log(`    ${chalk.green('✓')} GitHub — ${github.githubOwner}/${github.githubRepo}`);
   }
   if (db) {
     console.log(`    ${chalk.green('✓')} Database — ${db.targetDbHost}:${db.targetDbPort}`);
   }
-  if (!jira && !git && !db) {
+  if (!jira && !git && !github && !db) {
     console.log(`    ${chalk.yellow('—')} None yet. Use ${chalk.cyan('argustack source add <type>')}`);
   }
 
@@ -667,6 +901,7 @@ async function runInitNonInteractive(flags: InitFlags): Promise<void> {
   // Setup each source from flags
   let jiraResult: JiraSetupResult | null = null;
   let gitResult: GitSetupResult | null = null;
+  let githubResult: GitHubSetupResult | null = null;
   let dbResult: DbSetupResult | null = null;
 
   for (const source of selectedSources) {
@@ -676,6 +911,9 @@ async function runInitNonInteractive(flags: InitFlags): Promise<void> {
         break;
       case 'git':
         gitResult = setupGitFromFlags(flags);
+        break;
+      case 'github':
+        githubResult = setupGithubFromFlags(flags);
         break;
       case 'db':
         dbResult = setupDbFromFlags(flags);
@@ -689,14 +927,14 @@ async function runInitNonInteractive(flags: InitFlags): Promise<void> {
   // Create workspace
   const spinner = ora('Creating workspace...').start();
   try {
-    createWorkspaceFiles(workspaceDir, jiraResult, gitResult, dbResult, dbPort, pgwebPort);
+    createWorkspaceFiles(workspaceDir, jiraResult, gitResult, githubResult, dbResult, dbPort, pgwebPort);
     spinner.succeed('Workspace created!');
   } catch (err: unknown) {
     spinner.fail('Failed');
     throw err;
   }
 
-  printSummary(workspaceDir, jiraResult, gitResult, dbResult, pgwebPort, false);
+  printSummary(workspaceDir, jiraResult, gitResult, githubResult, dbResult, pgwebPort, false);
 }
 
 // ─── Interactive init ────────────────────────────────────────────────────────
@@ -735,7 +973,8 @@ async function runInitInteractive(flags: InitFlags): Promise<void> {
     message: 'Which sources do you have access to?',
     choices: ALL_SOURCES.map((s) => ({
       value: s,
-      name: `${SOURCE_META[s].label} — ${SOURCE_META[s].description}`,
+      name: SOURCE_META[s].label,
+      description: SOURCE_META[s].description,
     })),
   });
 
@@ -743,6 +982,7 @@ async function runInitInteractive(flags: InitFlags): Promise<void> {
     console.log(chalk.yellow('\n  No sources selected. You can add them later with:'));
     console.log(chalk.cyan('  argustack source add jira'));
     console.log(chalk.cyan('  argustack source add git'));
+    console.log(chalk.cyan('  argustack source add github'));
     console.log(chalk.cyan('  argustack source add db'));
 
     const continueAnyway = await confirm({
@@ -758,13 +998,15 @@ async function runInitInteractive(flags: InitFlags): Promise<void> {
   // 3. Collect credentials for each selected source
   let jiraResult: JiraSetupResult | null = null;
   let gitResult: GitSetupResult | null = null;
+  let githubResult: GitHubSetupResult | null = null;
   let dbResult: DbSetupResult | null = null;
 
   for (const source of selectedSources) {
     switch (source) {
-      case 'jira': jiraResult = await setupJiraInteractive(); break;
-      case 'git':  gitResult = await setupGitInteractive(); break;
-      case 'db':   dbResult = await setupDbInteractive(); break;
+      case 'jira':   jiraResult = await setupJiraInteractive(); break;
+      case 'git':    gitResult = await setupGitInteractive(); break;
+      case 'github': githubResult = await setupGithubInteractive(gitResult?.githubToken, gitResult?.githubRepos); break;
+      case 'db':     dbResult = await setupDbInteractive(); break;
     }
   }
 
@@ -800,7 +1042,7 @@ async function runInitInteractive(flags: InitFlags): Promise<void> {
   // 5. Create workspace
   const spinner = ora('Creating workspace...').start();
   try {
-    createWorkspaceFiles(workspaceDir, jiraResult, gitResult, dbResult, dbPort, pgwebPort);
+    createWorkspaceFiles(workspaceDir, jiraResult, gitResult, githubResult, dbResult, dbPort, pgwebPort);
     spinner.succeed('Workspace created!');
   } catch (err: unknown) {
     spinner.fail('Failed to create workspace');
@@ -814,14 +1056,14 @@ async function runInitInteractive(flags: InitFlags): Promise<void> {
     default: true,
   });
 
-  printSummary(workspaceDir, jiraResult, gitResult, dbResult, pgwebPort, autoStart);
+  printSummary(workspaceDir, jiraResult, gitResult, githubResult, dbResult, pgwebPort, autoStart);
 
   if (autoStart) {
-    await startAndSync(workspaceDir, jiraResult !== null, gitResult !== null, pgwebPort);
+    await startAndSync(workspaceDir, jiraResult !== null, gitResult !== null, githubResult !== null, pgwebPort);
   }
 }
 
-async function startAndSync(workspaceDir: string, hasJira: boolean, hasGit: boolean, pgwebPort: number): Promise<void> {
+async function startAndSync(workspaceDir: string, hasJira: boolean, hasGit: boolean, hasGithub: boolean, pgwebPort: number): Promise<void> {
   const spinnerDb = ora('Starting Docker containers...').start();
   try {
     execSync('docker compose up -d', { cwd: workspaceDir, stdio: 'pipe' });
@@ -874,6 +1116,17 @@ async function startAndSync(workspaceDir: string, hasJira: boolean, hasGit: bool
     } catch (err: unknown) {
       console.log(chalk.red(`  Git sync failed: ${err instanceof Error ? err.message : String(err)}`));
       console.log(chalk.dim(`  Try manually: cd ${workspaceDir} && argustack sync git`));
+    }
+  }
+
+  if (hasGithub) {
+    console.log('');
+    try {
+      const { syncGithubFromInit } = await import('./sync.js');
+      await syncGithubFromInit(workspaceDir);
+    } catch (err: unknown) {
+      console.log(chalk.red(`  GitHub sync failed: ${err instanceof Error ? err.message : String(err)}`));
+      console.log(chalk.dim(`  Try manually: cd ${workspaceDir} && argustack sync github`));
     }
   }
 

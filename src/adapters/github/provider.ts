@@ -27,6 +27,18 @@ export class GitHubProvider implements IGitHubProvider {
     this.repoFullName = `${creds.owner}/${creds.repo}`;
   }
 
+  async getPrCount(since?: Date): Promise<number> {
+    let q = `repo:${this.owner}/${this.repo} is:pr`;
+    if (since) {
+      q += ` updated:>=${since.toISOString().slice(0, 10)}`;
+    }
+    const result = await this.octokit.rest.search.issuesAndPullRequests({
+      q,
+      per_page: 1,
+    });
+    return result.data.total_count;
+  }
+
   async *pullPullRequests(since?: Date): AsyncGenerator<GitHubBatch> {
     const batch: GitHubBatch = {
       pullRequests: [],

@@ -3,7 +3,7 @@
  * Stored in .argustack/config.json
  */
 
-export type SourceType = 'jira' | 'git' | 'db';
+export type SourceType = 'jira' | 'git' | 'github' | 'db';
 
 export interface SourceConfig {
   enabled: boolean;
@@ -25,16 +25,32 @@ export interface WorkspaceConfig {
 export const SOURCE_META: Record<SourceType, { label: string; description: string }> = {
   jira: {
     label: 'Jira',
-    description: 'Issues, bugs, tasks — what was planned',
+    description:
+      'Connects to your Jira, you pick which projects. Downloads every issue with all fields (including custom), ' +
+      'every comment, worklog (time spent), changelog (who changed what field and when), links between issues. ' +
+      'Stored in local PostgreSQL. Ask: who works on what, how long tasks take, what gets blocked, sprint velocity, team workload',
   },
   git: {
-    label: 'Git',
-    description: 'Commits, branches, PRs — what was built',
+    label: 'Git — commits & code history',
+    description:
+      'Downloads COMMIT HISTORY — who wrote what code, when, which files changed, how many lines. ' +
+      'Reads from a repo folder on your machine or clones from GitHub. No API token needed for local repos. ' +
+      'Links commits to Jira tasks (PAP-123 in commit message). ' +
+      'This is DIFFERENT from GitHub below — Git gives you commits, GitHub gives you PRs and reviews. ' +
+      'If your code is on GitHub, select BOTH Git and GitHub for full picture',
+  },
+  github: {
+    label: 'GitHub — pull requests & reviews',
+    description:
+      'Downloads PR HISTORY via GitHub API — who opened PRs, who reviewed, who approved/rejected, review comments. ' +
+      'Also downloads releases with tags. Requires a GitHub token (read-only). ' +
+      'This is DIFFERENT from Git above — GitHub gives you PRs and reviews, Git gives you commits. ' +
+      'If your code is on GitHub, select BOTH Git and GitHub for full picture',
   },
   db: {
-    label: 'Database',
-    description: 'Tables, data — what actually exists',
+    label: 'Project Database',
+    description: 'Coming soon — not available yet',
   },
 };
 
-export const ALL_SOURCES: SourceType[] = ['jira', 'git', 'db'];
+export const ALL_SOURCES: SourceType[] = ['jira', 'git', 'github', 'db'];

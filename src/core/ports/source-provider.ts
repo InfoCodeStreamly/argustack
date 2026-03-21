@@ -21,4 +21,10 @@ export interface ISourceProvider {
    * @param since - Only issues updated after this date (incremental pull)
    */
   pullIssues(projectKey: string, since?: string): AsyncGenerator<IssueBatch>;
+
+  /**
+   * Get total issue count for progress reporting.
+   * Optional — providers that don't support this simply won't show percentages.
+   */
+  getIssueCount?(projectKey: string, since?: string): Promise<number>;
 }

@@ -38,6 +38,15 @@ export class JiraProvider implements ISourceProvider {
     }));
   }
 
+  async getIssueCount(projectKey: string, since?: string): Promise<number> {
+    let jql = `project = "${projectKey}"`;
+    if (since) {
+      jql += ` AND updated >= "${since}"`;
+    }
+    const result = await this.client.issueSearch.countIssues({ jql });
+    return result.count ?? 0;
+  }
+
   async *pullIssues(projectKey: string, since?: string): AsyncGenerator<IssueBatch> {
     // Build JQL
     let jql = `project = "${projectKey}" ORDER BY updated ASC`;

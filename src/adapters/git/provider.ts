@@ -29,6 +29,26 @@ export class GitProvider implements IGitProvider {
 
   constructor(private readonly repoPath: string) {}
 
+  async getCommitCount(since?: Date): Promise<number> {
+    const repo = await openRepository(this.repoPath);
+    const revwalk = repo.revwalk().pushHead();
+    let count = 0;
+
+    let sha = revwalk.next();
+    while (sha !== null) {
+      if (since) {
+        const commitDate = repo.getCommit(sha).time();
+        if (commitDate < since) {
+          break;
+        }
+      }
+      count++;
+      sha = revwalk.next();
+    }
+
+    return count;
+  }
+
   async *pullCommits(since?: Date): AsyncGenerator<CommitBatch> {
     const repo = await openRepository(this.repoPath);
     const revwalk = repo.revwalk().pushHead();
