@@ -6,6 +6,10 @@
   "bin": {
     "argustack": "dist/cli/index.js"
   },
+  "files": [
+    "dist/",
+    "templates/"
+  ],
   "scripts": {
     "build": "tsc",
     "dev": "tsx src/cli/index.ts",
@@ -22,6 +26,7 @@
     "test:arch": "vitest run --project architecture",
     "check": "npm run typecheck && npm run lint",
     "ci": "npm run check && npm test",
+    "prepublishOnly": "npm run ci && npm run build",
     "build:mcpb": "npm run build && bash scripts/build-mcpb.sh",
     "prepare": "husky"
   },
