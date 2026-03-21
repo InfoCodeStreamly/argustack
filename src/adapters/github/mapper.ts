@@ -147,7 +147,8 @@ export function extractPrIssueRefs(
   while ((match = pattern.exec(text)) !== null) {
     const key = match[1];
     if (key) {
-      keys.add(key.toUpperCase());
+      const [prefix, num] = key.toUpperCase().split('-');
+      keys.add(`${prefix}-${String(Number(num))}`);
     }
   }
 

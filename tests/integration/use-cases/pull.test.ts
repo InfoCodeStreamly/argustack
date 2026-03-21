@@ -130,6 +130,33 @@ describe('PullUseCase', () => {
     expect(messages.some((m) => m.includes(TEST_IDS.projectKey))).toBe(true);
   });
 
+  it('shows percentage when issue count available', async () => {
+    const messages: string[] = [];
+    source.seedProjects([createProject()]);
+    source.seedBatches(TEST_IDS.projectKey, [createBatch()]);
+
+    await useCase.execute({ onProgress: (msg) => messages.push(msg) });
+
+    expect(messages.some((m) => m.includes('1/1 issues (100%)'))).toBe(true);
+    expect(messages.some((m) => m.includes('(1 issues)'))).toBe(true);
+  });
+
+  it('shows count without percentage when issue count unavailable', async () => {
+    // Create a provider without getIssueCount
+    const bareSource = new FakeSourceProvider();
+    bareSource.getIssueCount = undefined as unknown as typeof bareSource.getIssueCount;
+    const bareUseCase = new PullUseCase(bareSource, storage);
+
+    bareSource.seedProjects([createProject()]);
+    bareSource.seedBatches(TEST_IDS.projectKey, [createBatch()]);
+
+    const messages: string[] = [];
+    await bareUseCase.execute({ onProgress: (msg) => messages.push(msg) });
+
+    expect(messages.some((m) => m.includes('1 issues...'))).toBe(true);
+    expect(messages.some((m) => m.includes('%'))).toBe(false);
+  });
+
   it('returns empty results for empty project', async () => {
     source.seedProjects([createProject()]);
     source.seedBatches(TEST_IDS.projectKey, [createEmptyBatch()]);

@@ -100,4 +100,34 @@ describe('PullGitHubUseCase', () => {
     expect(messages.length).toBeGreaterThan(0);
     expect(messages.some((m) => m.includes('PRs'))).toBe(true);
   });
+
+  it('shows percentage when PR count available', async () => {
+    github.seedBatches([createGitHubBatch()]);
+    github.seedReleases([]);
+
+    const messages: string[] = [];
+    await useCase.execute(repoFullName, {
+      onProgress: (msg) => messages.push(msg),
+    });
+
+    expect(messages.some((m) => m.includes('1/1 PRs (100%)'))).toBe(true);
+    expect(messages.some((m) => m.includes('(1 total)'))).toBe(true);
+  });
+
+  it('shows count without percentage when PR count unavailable', async () => {
+    const bareGithub = new FakeGitHubProvider();
+    bareGithub.getPrCount = undefined as unknown as typeof bareGithub.getPrCount;
+    const bareUseCase = new PullGitHubUseCase(bareGithub, storage);
+
+    bareGithub.seedBatches([createGitHubBatch()]);
+    bareGithub.seedReleases([]);
+
+    const messages: string[] = [];
+    await bareUseCase.execute(repoFullName, {
+      onProgress: (msg) => messages.push(msg),
+    });
+
+    expect(messages.some((m) => m.includes('1 PRs...'))).toBe(true);
+    expect(messages.some((m) => m.includes('%'))).toBe(false);
+  });
 });

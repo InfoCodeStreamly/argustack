@@ -16,9 +16,25 @@ All data stays on localhost in PostgreSQL (Docker). Nothing leaves your machine.
 
 ## How users interact
 
+Two modes — interactive (human) and non-interactive (AI agents, CI/CD):
+
 ```bash
-npm i -g argustack        # install
-argustack init             # interactive setup — pick sources, enter credentials
+npm i -g argustack
+
+# Interactive — prompts guide you through setup
+argustack init
+
+# Non-interactive — all values via CLI flags, no prompts
+argustack init --no-interactive \
+  --dir ~/project --source jira,git,github \
+  --jira-url "https://team.atlassian.net" \
+  --jira-email "user@co.com" --jira-token "ATATT3x..." \
+  --jira-projects PAP,MKT \
+  --git-repo /path/to/repo \
+  --github-token "github_pat_..." --github-owner org --github-repo repo
+
+# Then:
+docker compose up -d       # start database
 argustack sync             # pull all data from configured sources
 argustack sync jira        # pull specific source
 argustack sync github      # pull GitHub PRs/reviews/releases separately
@@ -26,15 +42,20 @@ argustack embed            # generate OpenAI embeddings for semantic search
 argustack mcp install      # connect to Claude Desktop as MCP server
 ```
 
-After sync, users open Claude Desktop or Claude Code and ask questions in natural language.
-Claude queries the local database via 14 MCP tools and answers with full project context.
+Non-interactive flags: `--no-interactive`, `--dir`, `--source`, `--jira-url`, `--jira-email`, `--jira-token`, `--jira-projects`, `--git-repo`, `--github-token`, `--github-owner`, `--github-repo`, `--db-port`, `--pgweb-port`.
 
-## MCP Tools (14 total)
+After sync, users open Claude Desktop or Claude Code and ask questions in natural language.
+Claude queries the local database via 15 MCP tools and answers with full project context.
+
+AI agents can run `argustack init --no-interactive` autonomously — no terminal interaction needed.
+
+## MCP Tools (15 total)
 
 **Jira:** query_issues, get_issue, issue_stats, pull_jira, list_projects
 **Git:** query_commits, issue_commits, commit_stats
 **GitHub:** query_prs, issue_prs, query_releases
 **Cross-source:** issue_timeline (changelogs + commits + PRs for one issue), semantic_search (pgvector embeddings)
+**Prediction:** estimate (predict effort for new tasks based on historical data — similar tasks, developer profiles, cycle/coding time, bug rate)
 **System:** workspace_info
 
 ## Architecture

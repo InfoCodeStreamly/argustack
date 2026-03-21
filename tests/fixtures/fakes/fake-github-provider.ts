@@ -37,6 +37,11 @@ export class FakeGitHubProvider implements IGitHubProvider {
     this._releases = [...releases];
   }
 
+  getPrCount(_since?: Date): Promise<number> {
+    const total = this._batches.reduce((sum, b) => sum + b.pullRequests.length, 0);
+    return Promise.resolve(total);
+  }
+
   clear(): void {
     this._batches = [];
     this._releases = [];

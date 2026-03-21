@@ -38,6 +38,11 @@ export class FakeSourceProvider implements ISourceProvider {
     this._batches.set(projectKey, batches);
   }
 
+  getIssueCount(projectKey: string, _since?: string): Promise<number> {
+    const total = this._batches.get(projectKey)?.reduce((sum, b) => sum + b.issues.length, 0) ?? 0;
+    return Promise.resolve(total);
+  }
+
   clear(): void {
     this._projects = [];
     this._batches.clear();

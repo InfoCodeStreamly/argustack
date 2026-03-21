@@ -66,15 +66,11 @@ npm i -g argustack
 argustack init
 ```
 
-That's it. The interactive setup will:
+Argustack supports **two modes** of initialization:
 
-1. Ask which sources you have (Jira, Git, GitHub, Database)
-2. Collect credentials and test connections
-3. For Git — choose local path, clone from GitHub (multi-select repos), or clone from URL
-4. For GitHub — auto-configured if you cloned from GitHub in the previous step, or enter a Personal Access Token (see [GitHub token setup](#github-token-setup))
-5. Create a workspace with Docker config
-6. Start PostgreSQL + pgweb automatically
-7. Pull all your data
+#### Interactive mode (default)
+
+Run `argustack init` and follow the prompts:
 
 ```
 ? Workspace directory: ~/projects/my-team
@@ -95,21 +91,78 @@ Testing connection... Connected! Found 3 projects: MKT, BRAND, WEB
 Fetching repositories... Found 12 repos.
 
 ? Repositories to clone: ✔ your-org/frontend  ✔ your-org/backend
-? GitHub source: Auto-configured from clone step (your-org/frontend, your-org/backend)
+? GitHub source: Auto-configured from clone step
 
 ? Start database and sync now? Yes
 
 ✔ Database running!
-✔ PostgreSQL ready!
 ✔ Jira sync complete!
   MKT: 506 issues (150/506 ████░░░░ 30% → 506/506 done)
-  BRAND: 89 issues, 12 comments, 203 changelogs
 ✔ Git sync complete!
   your-org/frontend: 735 commits (400/735 ██████░░ 54% → 735/735 done)
-  your-org/backend: 412 commits, 2103 files, 58 issue refs
 ✔ GitHub sync complete!
   66 PRs (30/66 ██████░░ 45% → 66/66 done), 124 reviews, 3 releases
 ```
+
+The interactive setup will:
+
+1. Ask which sources you have (Jira, Git, GitHub, Database)
+2. Collect credentials and test connections
+3. For Git — choose local path, clone from GitHub (multi-select repos), or clone from URL
+4. For GitHub — auto-configured if you cloned from GitHub in the previous step, or enter a Personal Access Token (see [GitHub token setup](#github-token-setup))
+5. Create a workspace with Docker config
+6. Start PostgreSQL + pgweb automatically
+7. Pull all your data
+
+#### Non-interactive mode (for AI agents and CI/CD)
+
+Pass `--no-interactive` with all values as CLI flags — no prompts, no terminal needed:
+
+```bash
+argustack init \
+  --no-interactive \
+  --dir ~/projects/my-team \
+  --source jira,git,github \
+  --jira-url "https://your-team.atlassian.net" \
+  --jira-email "you@company.com" \
+  --jira-token "ATATT3x..." \
+  --jira-projects PAP,MKT \
+  --git-repo /path/to/repo1,/path/to/repo2 \
+  --github-token "github_pat_..." \
+  --github-owner your-org \
+  --github-repo your-repo
+```
+
+Then start the database and sync:
+
+```bash
+cd ~/projects/my-team
+docker compose up -d
+argustack sync
+```
+
+All available flags:
+
+| Flag | Description |
+|------|-------------|
+| `--no-interactive` | Run without prompts — all values from flags |
+| `-d, --dir <path>` | Workspace directory (default: current) |
+| `-s, --source <list>` | Comma-separated: `jira,git,github,db` |
+| `--jira-url <url>` | Jira instance URL |
+| `--jira-email <email>` | Jira user email |
+| `--jira-token <token>` | Jira API token |
+| `--jira-projects <keys>` | Comma-separated project keys, or `all` |
+| `--git-repo <paths>` | Git repo paths, comma-separated |
+| `--github-token <token>` | GitHub Personal Access Token |
+| `--github-owner <owner>` | GitHub repo owner |
+| `--github-repo <repo>` | GitHub repo name |
+| `--db-port <port>` | Argustack PostgreSQL port (default: `5434`) |
+| `--pgweb-port <port>` | pgweb UI port (default: `8086`) |
+
+This mode is ideal for:
+- **AI agents** — a project manager tells their AI agent "set up argustack" and it runs everything autonomously
+- **CI/CD pipelines** — automated workspace provisioning
+- **Scripted setups** — reproducible environment creation
 
 Browse your data at [localhost:8086](http://localhost:8086) — pgweb UI for running SQL queries and exploring tables in your browser.
 
@@ -124,7 +177,8 @@ Adds Argustack as an MCP server to Claude Desktop. Now you can ask Claude questi
 ## Commands
 
 ```bash
-argustack init                       # create workspace (interactive)
+argustack init                       # create workspace (interactive prompts)
+argustack init --no-interactive ...  # create workspace from CLI flags (no prompts)
 argustack sync                       # pull data from all configured sources
 argustack sync jira                  # pull Jira only
 argustack sync git                   # pull Git commits only
@@ -214,6 +268,7 @@ When connected to Claude, these tools are available:
 |------|-------------|
 | `issue_timeline` | Chronological timeline — changelogs + commits + PRs for one issue |
 | `semantic_search` | Find similar issues by meaning (pgvector embeddings) |
+| `estimate` | Predict effort for new tasks — finds similar completed tasks, analyzes developer profiles, cycle/coding time, bug rate |
 
 ### System tools
 
@@ -361,7 +416,7 @@ DB_NAME=argustack
 - [x] Jira pull (all fields, comments, changelogs, worklogs, links)
 - [x] Git pull (commits, per-file diffs, issue cross-references)
 - [x] GitHub pull (PRs, reviews, comments, files, releases, Jira cross-references)
-- [x] MCP server for Claude Desktop / Claude Code (14 tools)
+- [x] MCP server for Claude Desktop / Claude Code (15 tools)
 - [x] Embeddings + semantic search (OpenAI text-embedding-3-small, pgvector)
 - [x] Cross-source timeline (issue_timeline: changelogs + commits + PRs)
 - [x] Multi-repo Git support (multiple repos per workspace, `GIT_REPO_PATHS`)

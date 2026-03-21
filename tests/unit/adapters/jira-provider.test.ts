@@ -49,7 +49,10 @@ const CREDS = { host: 'https://test.atlassian.net', email: 'test@test.com', apiT
 
 let mockClient: {
   projects: { searchProjects: ReturnType<typeof vi.fn> };
-  issueSearch: { searchForIssuesUsingJqlEnhancedSearch: ReturnType<typeof vi.fn> };
+  issueSearch: {
+    searchForIssuesUsingJqlEnhancedSearch: ReturnType<typeof vi.fn>;
+    countIssues: ReturnType<typeof vi.fn>;
+  };
 };
 
 beforeEach(async () => {
@@ -57,7 +60,10 @@ beforeEach(async () => {
 
   mockClient = {
     projects: { searchProjects: vi.fn() },
-    issueSearch: { searchForIssuesUsingJqlEnhancedSearch: vi.fn() },
+    issueSearch: {
+      searchForIssuesUsingJqlEnhancedSearch: vi.fn(),
+      countIssues: vi.fn(),
+    },
   };
 
   const clientModule = await import('../../../src/adapters/jira/client.js');
@@ -236,7 +242,7 @@ describe('JiraProvider', () => {
       expect(mapJiraLinks).toHaveBeenCalledTimes(2);
     });
 
-    it('requests maxResults of 50', async () => {
+    it('requests maxResults of 50 per page', async () => {
       mockClient.issueSearch.searchForIssuesUsingJqlEnhancedSearch.mockResolvedValue({
         issues: [{ key: TEST_IDS.issueKey }],
         nextPageToken: undefined,
@@ -249,6 +255,38 @@ describe('JiraProvider', () => {
 
       const call = mockClient.issueSearch.searchForIssuesUsingJqlEnhancedSearch.mock.calls[0]?.[0] as Record<string, unknown>;
       expect(call['maxResults']).toBe(50);
+    });
+  });
+
+  describe('getIssueCount', () => {
+    it('returns count from Jira countIssues API', async () => {
+      mockClient.issueSearch.countIssues.mockResolvedValue({ count: 42 });
+
+      const provider = new JiraProvider(CREDS);
+      const count = await provider.getIssueCount(TEST_IDS.projectKey);
+
+      expect(count).toBe(42);
+      const call = mockClient.issueSearch.countIssues.mock.calls[0]?.[0] as Record<string, unknown>;
+      expect(call['jql']).toBe(`project = "${TEST_IDS.projectKey}"`);
+    });
+
+    it('includes since in JQL when provided', async () => {
+      mockClient.issueSearch.countIssues.mockResolvedValue({ count: 10 });
+
+      const provider = new JiraProvider(CREDS);
+      await provider.getIssueCount(TEST_IDS.projectKey, '2025-01-01');
+
+      const call = mockClient.issueSearch.countIssues.mock.calls[0]?.[0] as Record<string, unknown>;
+      expect(call['jql']).toBe(`project = "${TEST_IDS.projectKey}" AND updated >= "2025-01-01"`);
+    });
+
+    it('returns 0 when count is undefined', async () => {
+      mockClient.issueSearch.countIssues.mockResolvedValue({});
+
+      const provider = new JiraProvider(CREDS);
+      const count = await provider.getIssueCount(TEST_IDS.projectKey);
+
+      expect(count).toBe(0);
     });
   });
 });
