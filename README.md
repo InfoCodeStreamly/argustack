@@ -68,39 +68,47 @@ argustack init
 
 That's it. The interactive setup will:
 
-1. Ask which sources you have (Jira, Git, Database)
+1. Ask which sources you have (Jira, Git, GitHub, Database)
 2. Collect credentials and test connections
-3. For Git — choose local path or clone from URL
-4. Optionally connect to GitHub API (PRs, reviews, releases)
+3. For Git — choose local path, clone from GitHub (multi-select repos), or clone from URL
+4. For GitHub — auto-configured if you cloned from GitHub in the previous step, or enter a Personal Access Token (see [GitHub token setup](#github-token-setup))
 5. Create a workspace with Docker config
 6. Start PostgreSQL + pgweb automatically
 7. Pull all your data
 
 ```
 ? Workspace directory: ~/projects/my-team
-? Sources: Jira, Git
+? Sources: ✔ Jira — issues, comments, changelogs
+           ✔ Git — commits, diffs, authors
+           ✔ GitHub — PRs, reviews, releases
 ? Jira URL: https://your-team.atlassian.net
 ? Email: you@company.com
 ? API Token: ****
 
 Testing connection... Connected! Found 3 projects: MKT, BRAND, WEB
 
-? Projects to pull [all]: MKT, BRAND
+? Projects to pull: ✔ MKT  ✔ BRAND
 ? Where is your Git repository?
-  ● Local path — already cloned on this machine
-? Path to local repo: ~/projects/my-team-repo
+  ● Clone from GitHub — select repos using your token
+? GitHub token (PAT): ****
+
+Fetching repositories... Found 12 repos.
+
+? Repositories to clone: ✔ your-org/frontend  ✔ your-org/backend
+? GitHub source: Auto-configured from clone step (your-org/frontend, your-org/backend)
 
 ? Start database and sync now? Yes
 
 ✔ Database running!
 ✔ PostgreSQL ready!
 ✔ Jira sync complete!
-  MKT: 1205 issues, 340 comments, 4521 changelogs
+  MKT: 506 issues (150/506 ████░░░░ 30% → 506/506 done)
   BRAND: 89 issues, 12 comments, 203 changelogs
 ✔ Git sync complete!
-  142 commits, 876 files, 23 issue refs
+  your-org/frontend: 735 commits (400/735 ██████░░ 54% → 735/735 done)
+  your-org/backend: 412 commits, 2103 files, 58 issue refs
 ✔ GitHub sync complete!
-  87 PRs, 124 reviews, 3 releases
+  66 PRs (30/66 ██████░░ 45% → 66/66 done), 124 reviews, 3 releases
 ```
 
 Browse your data at [localhost:8086](http://localhost:8086) — pgweb UI for running SQL queries and exploring tables in your browser.
@@ -119,8 +127,9 @@ Adds Argustack as an MCP server to Claude Desktop. Now you can ask Claude questi
 argustack init                       # create workspace (interactive)
 argustack sync                       # pull data from all configured sources
 argustack sync jira                  # pull Jira only
-argustack sync git                   # pull Git only
-argustack sync -p PROJ               # pull specific project
+argustack sync git                   # pull Git commits only
+argustack sync github                # pull GitHub PRs, reviews, releases
+argustack sync -p PROJ               # pull specific Jira project
 argustack sync --since 2025-01-01    # incremental pull (only new/updated)
 argustack sources                    # list configured sources
 argustack status                     # workspace info
@@ -156,7 +165,7 @@ Commit messages mentioning issue keys like `PAP-123` or `PROJ-45` are automatica
 
 ### GitHub tables
 
-If you connect a GitHub token during `argustack init`, PRs and releases are pulled alongside commits:
+Select "GitHub" during `argustack init` or add later with `argustack source add github`:
 
 | Table | Content |
 |-------|---------|
@@ -187,9 +196,9 @@ When connected to Claude, these tools are available:
 
 | Tool | What it does |
 |------|-------------|
-| `query_commits` | Search commits by text, author, date, file path, or raw SQL |
-| `issue_commits` | Cross-reference: find all commits mentioning a Jira issue key |
-| `commit_stats` | Aggregate stats — top authors, most changed files, linked issues |
+| `query_commits` | Search commits by text, author, date, file path, or raw SQL. Optional `repo_path` filter for multi-repo workspaces |
+| `issue_commits` | Cross-reference: find all commits mentioning a Jira issue key. Optional `repo_path` filter |
+| `commit_stats` | Aggregate stats — top authors, most changed files, linked issues. Optional `repo_path` filter |
 
 ### GitHub tools
 
@@ -233,6 +242,39 @@ After embedding, ask Claude: *"Find issues similar to payment timeout errors"* �
 
 **Optional:** Embeddings require an OpenAI API key. All other features work without it.
 
+## GitHub token setup
+
+Argustack only reads data from GitHub — it never writes anything. You need a **fine-grained Personal Access Token** with read-only permissions.
+
+1. Go to [github.com/settings/personal-access-tokens/new](https://github.com/settings/personal-access-tokens/new)
+2. **Token name** — anything (e.g. `argustack`)
+3. **Description** — optional, can leave empty
+4. **Resource owner** — your account, or the organization that owns the repo
+5. **Expiration** — "No expiration" recommended. Token is read-only and stays in your local `.env`
+6. **Repository access** — pick one:
+   - **Only select repositories** (recommended) — pick specific repos, max 50
+   - **All repositories** — all your current and future repos
+   - **Public repositories** — read-only access to public repos only
+5. **Permissions** → Repository permissions (3 total):
+
+| Permission | Access | Why |
+|---|---|---|
+| **Contents** | Read-only | Releases, downloads, tags |
+| **Metadata** | Read-only | Repository info (auto-selected, required) |
+| **Pull requests** | Read-only | PRs, reviews, comments, files |
+
+7. Click "Generate token" and copy it
+
+During `argustack init`, select "GitHub" as a source and paste the token when asked. Or add to `.env` manually:
+
+```bash
+GITHUB_TOKEN=github_pat_...
+GITHUB_OWNER=your-org
+GITHUB_REPO=your-repo
+```
+
+Then run `argustack source add github` and `argustack sync github`.
+
 ## Multiple workspaces
 
 Each data source = separate workspace (like git repos):
@@ -258,20 +300,30 @@ When you run `argustack init`, it creates a `.env` file in your workspace with y
 
 ```bash
 # .env — YOUR file, on YOUR machine, never uploaded anywhere
+
+# === Jira ===
 JIRA_URL=https://your-team.atlassian.net
 JIRA_EMAIL=you@company.com
 JIRA_API_TOKEN=your-api-token-here
 JIRA_PROJECTS=PROJ,OTHER
-GIT_REPO_PATH=/path/to/your/repo
-GITHUB_TOKEN=your-github-token-here
+
+# === Git ===
+GIT_REPO_PATHS=/path/to/repo1,/path/to/repo2
+
+# === GitHub ===
+GITHUB_TOKEN=github_pat_...
 GITHUB_OWNER=your-org
 GITHUB_REPO=your-repo
-# OPENAI_API_KEY=sk-...          # optional, for semantic search embeddings
+
+# === Argustack internal PostgreSQL (match docker-compose.yml) ===
 DB_HOST=localhost
 DB_PORT=5434
 DB_USER=argustack
-DB_PASSWORD=your-db-password
+DB_PASSWORD=argustack_local
 DB_NAME=argustack
+
+# === OpenAI embeddings (optional, for semantic search) ===
+# OPENAI_API_KEY=sk-...
 ```
 
 **Where credentials go:**
@@ -312,6 +364,8 @@ DB_NAME=argustack
 - [x] MCP server for Claude Desktop / Claude Code (14 tools)
 - [x] Embeddings + semantic search (OpenAI text-embedding-3-small, pgvector)
 - [x] Cross-source timeline (issue_timeline: changelogs + commits + PRs)
+- [x] Multi-repo Git support (multiple repos per workspace, `GIT_REPO_PATHS`)
+- [x] Progress indicators during sync (e.g. `150/506 issues (30%)`)
 - [ ] Database adapter (schema, sample data)
 - [ ] Cross-source analysis (Jira ticket vs actual code vs DB state)
 - [ ] CSV import (Jira export without API token)

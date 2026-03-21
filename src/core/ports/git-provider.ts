@@ -25,4 +25,10 @@ export interface IGitProvider {
 
   /** List all tags */
   getTags(): Promise<GitRef[]>;
+
+  /**
+   * Get total commit count for progress reporting.
+   * Optional — providers that don't support this simply won't show percentages.
+   */
+  getCommitCount?(since?: Date): Promise<number>;
 }

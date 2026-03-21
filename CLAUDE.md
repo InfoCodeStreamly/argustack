@@ -2,20 +2,25 @@
 
 ## What is this
 
-Argustack — standalone open-source CLI tool for project analysis. Cross-references three sources of truth:
+Argustack — standalone open-source CLI tool for project analysis. Cross-references sources of truth:
 - **Jira** — what was planned (issues, bugs, tasks)
-- **Git** — what was actually implemented (code, commits)
-- **DB** — what factually exists in the data
+- **Git** — what was coded (commits, diffs, authors)
+- **GitHub** — what was reviewed (PRs, approvals, releases)
+- **DB** — what factually exists in production (coming soon)
 
-Currently building **Component 1: Jira Pull** — downloads everything from any Jira instance into local PostgreSQL.
+Downloads everything into local PostgreSQL, then gives Claude direct access via MCP server (14 tools).
 
 ## Tech Stack
 
 - **TypeScript / Node.js** — CLI + core logic
 - **Commander.js** — CLI framework with subcommands
 - **jira.js** (`Version3Client`) — typed Jira REST API client
+- **Octokit** — GitHub REST API (PRs, reviews, releases)
+- **es-git** — native Git bindings (N-API, libgit2)
 - **@inquirer/prompts** — interactive CLI prompts (init)
 - **PostgreSQL 16 + pgvector** — local DB (Docker), vector search
+- **OpenAI** — text-embedding-3-small for semantic search (optional)
+- **MCP SDK** — Claude Desktop / Claude Code integration
 - **dotenv** — configuration via `.env`
 - **ora / chalk** — CLI UX (spinners, colors)
 
@@ -28,16 +33,23 @@ src/
 ├── core/                          ← CORE: types + interfaces (zero dependencies)
 │   ├── types/
 │   │   ├── issue.ts                  Issue, Comment, Changelog, Worklog, Link, IssueBatch
+│   │   ├── pull-request.ts           PullRequest, Review, PullRequestFile, GitHubBatch
+│   │   ├── commit.ts                 Commit, CommitFile, CommitIssueRef, CommitBatch
 │   │   ├── project.ts                Project
-│   │   ├── config.ts                 WorkspaceConfig, SourceConfig
+│   │   ├── config.ts                 WorkspaceConfig, SourceConfig, SourceType
 │   │   └── index.ts                  re-exports
 │   └── ports/
 │       ├── source-provider.ts        ISourceProvider — where data comes from
+│       ├── git-provider.ts           IGitProvider — Git-specific (extends ISourceProvider)
+│       ├── github-provider.ts        IGitHubProvider — GitHub-specific (extends ISourceProvider)
 │       ├── storage.ts                IStorage — where data is stored
 │       └── index.ts                  re-exports
 │
 ├── use-cases/                     ← LOGIC: orchestration (depends only on core/)
-│   └── pull.ts                       PullUseCase: source.pullIssues() → storage.saveBatch()
+│   ├── pull.ts                       PullUseCase: Jira → PostgreSQL
+│   ├── pull-git.ts                   PullGitUseCase: Git → PostgreSQL
+│   ├── pull-github.ts                PullGitHubUseCase: GitHub → PostgreSQL
+│   └── embed.ts                      EmbedUseCase: issues → OpenAI → pgvector
 │
 ├── adapters/                      ← IMPLEMENTATIONS: implements core/ports
 │   ├── jira/                         JiraProvider implements ISourceProvider
@@ -45,6 +57,15 @@ src/
 │   │   ├── mapper.ts                    Raw Jira JSON → core types
 │   │   ├── provider.ts                  Paginated pull, fields=*all, expand=changelog
 │   │   └── index.ts                     re-exports
+│   ├── git/                          GitProvider — reads local repos
+│   │   ├── provider.ts                  es-git walker, commit + diff extraction
+│   │   └── index.ts                     re-exports
+│   ├── github/                       GitHubProvider — REST API via Octokit
+│   │   ├── provider.ts                  PRs, reviews, comments, files, releases
+│   │   ├── mapper.ts                    Raw GitHub JSON → core types
+│   │   └── index.ts                     re-exports
+│   ├── openai/                       OpenAI embeddings adapter
+│   │   └── embedding.ts                 text-embedding-3-small, batched
 │   └── postgres/                     PostgresStorage implements IStorage
 │       ├── connection.ts                pg Pool
 │       ├── schema.ts                    CREATE TABLE + indexes (idempotent)
@@ -56,12 +77,13 @@ src/
 │   └── resolver.ts                   find .argustack/ walking up from cwd
 │
 ├── mcp/                           ← MCP SERVER: Claude Desktop integration
-│   └── server.ts                     McpServer with tools (query, pull, stats)
+│   └── server.ts                     McpServer with 14 tools
 │
 └── cli/                           ← ENTRY POINT: commands, UX, wiring
     ├── index.ts                      Commander.js setup, registers all commands
     ├── init.ts                       argustack init (interactive workspace setup)
-    ├── sync.ts                       argustack sync (wires adapters → use case)
+    ├── sync.ts                       argustack sync (jira, git, github — separate functions)
+    ├── embed.ts                      argustack embed (generate embeddings)
     ├── sources.ts                    argustack sources (list configured sources)
     ├── status.ts                     argustack status (workspace status)
     └── mcp-install.ts                argustack mcp install (Claude Desktop config)
@@ -73,19 +95,30 @@ src/
 - **use-cases/** depends only on core/ interfaces — doesn't know about Jira, PostgreSQL, or CLI
 - **adapters/** implement core/ interfaces — each adapter is replaceable independently
 - **cli/** is the composition root — creates adapters, injects them into use cases
-- **AsyncGenerator** for `pullIssues()` — memory-efficient streaming of large datasets (100k+ issues)
+- **AsyncGenerator** for `pullIssues()`, `pullCommits()`, `pullPullRequests()` — memory-efficient streaming of large datasets
+- **GitHub is a separate SourceType** from Git — Git reads local repo, GitHub connects to API
+- **Multi-repo Git** — `sync.ts` loops over multiple `GIT_REPO_PATHS`, one `GitProvider` per repo, shared storage. Backwards compatible with legacy `GIT_REPO_PATH`
+- **Progress reporting** — ports expose optional `getIssueCount()`, `getCommitCount()`, `getPrCount()` for showing `150/506 issues (30%)` during sync
 
 ### Data Flow
 
 ```
 CLI (sync.ts)
-  → creates JiraProvider (adapter)
+  → creates Provider (adapter)
   → creates PostgresStorage (adapter)
-  → creates PullUseCase(source, storage)
-  → PullUseCase.execute()
-       → source.pullIssues()     ← AsyncGenerator yields IssueBatch pages
+  → creates UseCase(provider, storage)
+  → UseCase.execute()
+       → provider.pull*()        ← AsyncGenerator yields batches
        → storage.saveBatch()     ← UPSERT into PostgreSQL
 ```
+
+## Source Types
+
+```typescript
+type SourceType = 'jira' | 'git' | 'github' | 'db';
+```
+
+Each source is independent — own adapter, own use case, own sync command, own setup in init.
 
 ## Workspace Concept
 
@@ -93,15 +126,16 @@ Argustack uses a workspace pattern like git. Each workspace is a directory with 
 
 - `argustack init` creates a workspace: `.argustack/`, `.env`, `docker-compose.yml`, `db/init.sql`
 - CLI finds workspace by walking up from cwd looking for `.argustack/`
-- Each workspace has its own PostgreSQL instance (Docker) and its own Jira credentials
+- Each workspace has its own PostgreSQL instance (Docker) and its own credentials
 
 ## Key Principles
 
 - **Download ALL fields** — `fields=*all`, every single field Jira returns, even if there are thousands of custom fields
-- **Store as-is** — field names preserved exactly as Jira returns them, no renaming, no mapping
-- **raw_json JSONB** — full original API response stored in `raw_json` column, nothing filtered or lost
+- **Store as-is** — field names preserved exactly as returned, no renaming, no mapping
+- **raw_json JSONB** — full original API response stored, nothing filtered or lost
+- **Cross-reference** — commit messages and PR titles mentioning `PAP-123` are linked to Jira issues
 - **Zero configuration** — install, init, pull. No field mapping, no schema customization
-- **Universal** — works with any Jira instance, any custom field setup
+- **Universal** — works with any Jira instance, any Git repo, any GitHub repo
 
 ## Database
 
@@ -112,30 +146,52 @@ Argustack uses a workspace pattern like git. Each workspace is a directory with 
 - Template in `templates/init.sql` for initial workspace setup
 
 ### Tables
+
 | Table | Purpose |
 |-------|---------|
-| `issues` | Main table — standard fields + `custom_fields` JSONB + `raw_json` JSONB + `embedding` vector |
+| `issues` | Jira issues — standard fields + `custom_fields` JSONB + `raw_json` JSONB + `embedding` vector |
 | `issue_comments` | Comments per issue |
 | `issue_changelogs` | Field change history |
 | `issue_worklogs` | Time tracking entries |
 | `issue_links` | Issue-to-issue links |
+| `commits` | Git commits — hash, message, author, date, search vector |
+| `commit_files` | Per-file changes — path, status, additions, deletions |
+| `commit_issue_refs` | Cross-reference: commit ↔ Jira issue |
+| `pull_requests` | GitHub PRs — state, author, reviewers, merge info, search vector |
+| `pr_reviews` | Review approvals and change requests |
+| `pr_comments` | Inline review comments with file paths |
+| `pr_files` | Per-file changes in each PR |
+| `pr_issue_refs` | Cross-reference: PR ↔ Jira issue |
+| `releases` | GitHub releases with tags and notes |
 
 ## Configuration
 
 `.env` file in workspace root (created by `argustack init`):
 ```bash
+# === Jira ===
 JIRA_URL=https://instance.atlassian.net
 JIRA_EMAIL=user@email.com
 JIRA_API_TOKEN=token
 JIRA_PROJECTS=PROJ,OTHER
+
+# === Git (comma-separated for multiple repos) ===
+GIT_REPO_PATHS=/path/to/repo1,/path/to/repo2
+
+# === GitHub ===
+GITHUB_TOKEN=ghp_...
+GITHUB_OWNER=org-or-user
+GITHUB_REPO=repo-name
+
+# === Argustack internal PostgreSQL ===
 DB_HOST=localhost
 DB_PORT=5434
 DB_USER=argustack
 DB_PASSWORD=argustack_local
 DB_NAME=argustack
-```
 
-DB credentials are defaults matching `docker-compose.yml` — no need to change.
+# === OpenAI embeddings (optional) ===
+# OPENAI_API_KEY=sk-...
+```
 
 ## Development
 
@@ -150,9 +206,13 @@ npm start -- sync                # run compiled version
 
 ```bash
 argustack init                   # create workspace (interactive)
-argustack sync                   # pull all issues from configured sources
-argustack sync -p PROJ           # pull specific project
+argustack sync                   # pull all enabled sources
+argustack sync jira              # pull Jira only
+argustack sync git               # pull Git only
+argustack sync github            # pull GitHub only (PRs, reviews, releases)
+argustack sync -p PROJ           # pull specific Jira project
 argustack sync --since 2025-01-01  # incremental pull
+argustack embed                  # generate embeddings for semantic search
 argustack sources                # list configured sources
 argustack status                 # workspace status
 argustack mcp install            # install MCP server into Claude Desktop
@@ -161,10 +221,11 @@ argustack mcp install            # install MCP server into Claude Desktop
 ## Testing
 
 ```bash
-npm test                         # all tests (unit + integration + MCP)
+npm test                         # all tests (unit + integration + MCP + architecture)
 npm run test:unit                # unit only
 npm run test:integration         # integration only
 npm run test:mcp                 # MCP server only
+npm run test:arch                # architecture tests (SSOT validator)
 npm run test:watch               # watch mode
 npm run test:coverage            # with coverage
 npm run ci                       # typecheck + lint + all tests
@@ -183,6 +244,7 @@ npm run check                    # typecheck + lint (no tests)
 - **Husky pre-commit hooks** — branch-aware (strict on `main`, flexible on `staging`/`feature/*`)
 - **lint-staged** — ESLint on staged `.ts` files
 - **Pre-commit runs**: lint-staged → TypeScript check → unit tests
+- **Architecture tests** — SSOT validator (no hardcoded IDs), no eslint-disable
 
 ## Code Conventions
 
@@ -191,12 +253,15 @@ npm run check                    # typecheck + lint (no tests)
 - File extensions in imports: `import { foo } from './bar.js'`
 - Async/await throughout
 - No hardcoded field names or project-specific logic
+- No eslint-disable — fix root cause with proper types
 - Dependency Inversion: depend on interfaces (core/ports), not implementations
 
 ## References
 
 | File | Purpose |
 |------|---------|
+| `llms.txt` | LLM-friendly project summary |
+| `AGENTS.md` | AI coding agent guide |
 | `.claude/rules/policies.md` | Git flow, commits, TSDoc, code comments |
 | `.claude/rules/tests.md` | SSOT fixtures, Vitest, test strategy by layer |
 | `.claude/rules/workflows.md` | Explore → Plan → Code → Commit |

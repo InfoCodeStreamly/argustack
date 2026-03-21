@@ -46,7 +46,13 @@ export class PullGitHubUseCase {
       log(`  Incremental pull: PRs updated since ${since.toISOString()}`);
     }
 
-    log(`Pulling PRs from ${repoFullName}...`);
+    let total: number | null = null;
+    try {
+      total = await this.github.getPrCount?.(since) ?? null;
+    } catch {
+      // count unavailable — continue without percentages
+    }
+    log(`Pulling PRs from ${repoFullName}${total !== null ? ` (${total} total)` : ''}...`);
 
     const result: PullGitHubResult = {
       repoFullName,
@@ -67,7 +73,12 @@ export class PullGitHubUseCase {
       result.filesCount += batch.files.length;
       result.issueRefsCount += batch.issueRefs.length;
 
-      log(`  ${result.prsCount} PRs...`);
+      if (total !== null && total > 0) {
+        const pct = Math.min(100, Math.round(result.prsCount / total * 100));
+        log(`  ${result.prsCount}/${total} PRs (${pct}%)`);
+      } else {
+        log(`  ${result.prsCount} PRs...`);
+      }
     }
 
     log(`Pulling releases from ${repoFullName}...`);

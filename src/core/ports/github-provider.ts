@@ -24,4 +24,10 @@ export interface IGitHubProvider {
    * Pull releases from the repository.
    */
   pullReleases(): Promise<Release[]>;
+
+  /**
+   * Get total PR count for progress reporting.
+   * Optional — providers that don't support this simply won't show percentages.
+   */
+  getPrCount?(since?: Date): Promise<number>;
 }

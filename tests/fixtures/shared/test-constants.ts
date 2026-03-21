@@ -12,6 +12,10 @@ import type {
   IssueBatch,
   Project,
   WorkspaceConfig,
+  Commit,
+  CommitFile,
+  CommitIssueRef,
+  CommitBatch,
   PullRequest,
   PullRequestReview,
   PullRequestComment,
@@ -162,6 +166,67 @@ export function createEmptyBatch(): IssueBatch {
     changelogs: [],
     worklogs: [],
     links: [],
+  };
+}
+
+// ─── Git IDs ─────────────────────────────────────────────────────────
+
+export const GIT_TEST_IDS = {
+  repoPath: '/test/repo',
+  repoPath2: '/test/repo2',
+  commitHash: 'abc1234567890abcdef1234567890abcdef123456',
+  commitHash2: 'def4567890abcdef1234567890abcdef456789ab',
+  commitAuthor: 'John Doe',
+  commitEmail: 'john@example.com',
+  issueRefKey: 'TEST-1',
+} as const;
+
+// ─── Factory: Commit ─────────────────────────────────────────────────
+
+export function createCommit(overrides?: Partial<Commit>): Commit {
+  return {
+    hash: GIT_TEST_IDS.commitHash,
+    message: `feat: implement login ${GIT_TEST_IDS.issueRefKey}`,
+    author: GIT_TEST_IDS.commitAuthor,
+    email: GIT_TEST_IDS.commitEmail,
+    committedAt: '2025-01-15T10:00:00.000Z',
+    parents: [],
+    repoPath: GIT_TEST_IDS.repoPath,
+    ...overrides,
+  };
+}
+
+// ─── Factory: CommitFile ─────────────────────────────────────────────
+
+export function createCommitFile(overrides?: Partial<CommitFile>): CommitFile {
+  return {
+    commitHash: GIT_TEST_IDS.commitHash,
+    filePath: 'src/login.ts',
+    status: 'added',
+    additions: 50,
+    deletions: 0,
+    ...overrides,
+  };
+}
+
+// ─── Factory: CommitIssueRef ─────────────────────────────────────────
+
+export function createCommitIssueRef(overrides?: Partial<CommitIssueRef>): CommitIssueRef {
+  return {
+    commitHash: GIT_TEST_IDS.commitHash,
+    issueKey: GIT_TEST_IDS.issueRefKey,
+    ...overrides,
+  };
+}
+
+// ─── Factory: CommitBatch ────────────────────────────────────────────
+
+export function createCommitBatch(overrides?: Partial<CommitBatch>): CommitBatch {
+  return {
+    commits: [createCommit()],
+    files: [createCommitFile()],
+    issueRefs: [createCommitIssueRef()],
+    ...overrides,
   };
 }
 

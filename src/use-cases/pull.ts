@@ -54,8 +54,6 @@ export class PullUseCase {
     }
 
     for (const projectKey of projectKeys) {
-      log(`Pulling ${projectKey} from ${this.source.name}...`);
-
       // Determine "since" — explicit or from last pull
       // Subtract 1 minute overlap for auto-incremental to avoid missing issues
       // (Jira API has minute-level precision; UPSERT makes re-pulls harmless)
@@ -66,6 +64,14 @@ export class PullUseCase {
       if (since) {
         log(`  Incremental pull: issues updated since ${since}`);
       }
+
+      let total: number | null = null;
+      try {
+        total = await this.source.getIssueCount?.(projectKey, since ?? undefined) ?? null;
+      } catch {
+        // count unavailable — continue without percentages
+      }
+      log(`Pulling ${projectKey}${total !== null ? ` (${total} issues)` : ''}...`);
 
       const result: PullResult = {
         projectKey,
@@ -86,7 +92,12 @@ export class PullUseCase {
         result.worklogsCount += batch.worklogs.length;
         result.linksCount += batch.links.length;
 
-        log(`  ${result.issuesCount} issues...`);
+        if (total !== null && total > 0) {
+          const pct = Math.min(100, Math.round(result.issuesCount / total * 100));
+          log(`  ${projectKey}: ${result.issuesCount}/${total} issues (${pct}%)`);
+        } else {
+          log(`  ${result.issuesCount} issues...`);
+        }
       }
 
       log(`  Done: ${result.issuesCount} issues, ${result.commentsCount} comments`);

@@ -13,10 +13,10 @@ Change Issue type → Update 1 file → done ✅
 ```
 
 **SSOT Rules:**
-1. Factory functions for all test data — `createIssue()`, `createBatch()`, etc.
+1. Factory functions for all test data — `createIssue()`, `createBatch()`, `createCommit()`, `createCommitBatch()`, `createPullRequest()`, `createGitHubBatch()`, etc.
 2. Centralized in `fixtures/` — NEVER inline test data
 3. Export functions, not objects — `createIssue()` not `testIssue`
-4. All IDs in `TEST_IDS` constant
+4. All IDs in constants — `TEST_IDS` (Jira), `GIT_TEST_IDS` (Git), `GITHUB_TEST_IDS` (GitHub)
 
 ---
 

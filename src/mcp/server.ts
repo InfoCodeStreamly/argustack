@@ -716,11 +716,12 @@ server.registerTool(
       since: z.string().optional().describe('Commits after this date (YYYY-MM-DD)'),
       until: z.string().optional().describe('Commits before this date (YYYY-MM-DD)'),
       file_path: z.string().optional().describe('Filter by changed file path (e.g. "src/auth/login.ts")'),
+      repo_path: z.string().optional().describe('Filter by repository path (substring match)'),
       limit: z.number().optional().describe('Max results (default: 50)'),
       sql: z.string().optional().describe('Raw SQL query. Tables: commits, commit_files, commit_issue_refs'),
     },
   },
-  async ({ search, author, since, until, file_path: filePath, limit, sql }) => {
+  async ({ search, author, since, until, file_path: filePath, repo_path: repoPath, limit, sql }) => {
     const ws = loadWorkspace();
     if (!ws.ok) {
       return {
@@ -773,6 +774,12 @@ server.registerTool(
           needJoin = true;
           conditions.push(`cf.file_path ILIKE $${String(paramIdx)}`);
           params.push(`%${filePath}%`);
+          paramIdx++;
+        }
+
+        if (repoPath) {
+          conditions.push(`c.repo_path ILIKE $${String(paramIdx)}`);
+          params.push(`%${repoPath}%`);
           paramIdx++;
         }
 
@@ -832,9 +839,10 @@ server.registerTool(
     description: 'Cross-reference: find all Git commits that mention a Jira issue key. Shows what code was actually changed for a ticket.',
     inputSchema: {
       issue_key: z.string().describe('Issue key (e.g. "PAP-123")'),
+      repo_path: z.string().optional().describe('Filter by repository path (substring match)'),
     },
   },
-  async ({ issue_key: issueKey }) => {
+  async ({ issue_key: issueKey, repo_path: repoPath }) => {
     const ws = loadWorkspace();
     if (!ws.ok) {
       return {
@@ -846,13 +854,19 @@ server.registerTool(
     const { storage } = await createAdapters(ws.root);
 
     try {
+      const repoFilter = repoPath ? `AND c.repo_path ILIKE $2` : '';
+      const commitsParams: unknown[] = [issueKey.toUpperCase()];
+      if (repoPath) {
+        commitsParams.push(`%${repoPath}%`);
+      }
+
       const commitsResult = await storage.query(
-        `SELECT c.hash, c.message, c.author, c.committed_at
+        `SELECT c.hash, c.message, c.author, c.committed_at, c.repo_path
          FROM commits c
          JOIN commit_issue_refs r ON c.hash = r.commit_hash
-         WHERE r.issue_key = $1
+         WHERE r.issue_key = $1 ${repoFilter}
          ORDER BY c.committed_at DESC`,
-        [issueKey.toUpperCase()]
+        commitsParams
       );
 
       if (commitsResult.rows.length === 0) {
@@ -914,9 +928,10 @@ server.registerTool(
     inputSchema: {
       since: z.string().optional().describe('Stats from this date (YYYY-MM-DD)'),
       author: z.string().optional().describe('Filter stats by author name'),
+      repo_path: z.string().optional().describe('Filter by repository path (substring match)'),
     },
   },
-  async ({ since, author }) => {
+  async ({ since, author, repo_path: repoPath }) => {
     const ws = loadWorkspace();
     if (!ws.ok) {
       return {
@@ -942,6 +957,11 @@ server.registerTool(
         params.push(`%${author}%`);
         paramIdx++;
       }
+      if (repoPath) {
+        conditions.push(`repo_path ILIKE $${String(paramIdx)}`);
+        params.push(`%${repoPath}%`);
+        paramIdx++;
+      }
 
       const where = conditions.length > 0 ? `WHERE ${conditions.join(' AND ')}` : '';
 
@@ -952,7 +972,7 @@ server.registerTool(
           `SELECT cf.file_path, COUNT(*) as changes
            FROM commit_files cf
            JOIN commits c ON cf.commit_hash = c.hash
-           ${where ? where.replace(/committed_at/g, 'c.committed_at').replace(/author/g, 'c.author') : ''}
+           ${where ? where.replace(/committed_at/g, 'c.committed_at').replace(/author/g, 'c.author').replace(/repo_path/g, 'c.repo_path') : ''}
            GROUP BY cf.file_path ORDER BY changes DESC LIMIT 15`,
           params
         ),

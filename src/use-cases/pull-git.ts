@@ -43,7 +43,14 @@ export class PullGitUseCase {
       log(`  Incremental pull: commits since ${since.toISOString()}`);
     }
 
-    log(`Pulling commits from ${repoPath}...`);
+    let total: number | null = null;
+    try {
+      total = await this.git.getCommitCount?.(since) ?? null;
+    } catch {
+      // count unavailable — continue without percentages
+    }
+    const repoName = repoPath.split('/').pop() ?? repoPath;
+    log(`Pulling commits from ${repoName}${total !== null ? ` (${total} total)` : ''}...`);
 
     const result: PullGitResult = {
       repoPath,
@@ -59,7 +66,12 @@ export class PullGitUseCase {
       result.filesCount += batch.files.length;
       result.issueRefsCount += batch.issueRefs.length;
 
-      log(`  ${result.commitsCount} commits...`);
+      if (total !== null && total > 0) {
+        const pct = Math.min(100, Math.round(result.commitsCount / total * 100));
+        log(`  ${repoName}: ${result.commitsCount}/${total} commits (${pct}%)`);
+      } else {
+        log(`  ${result.commitsCount} commits...`);
+      }
     }
 
     log(`  Done: ${result.commitsCount} commits, ${result.filesCount} files, ${result.issueRefsCount} issue refs`);

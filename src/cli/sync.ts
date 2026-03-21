@@ -115,6 +115,8 @@ async function syncJira(
 
 /**
  * Sync Git data → PostgreSQL.
+ * Supports multiple repos via GIT_REPO_PATHS (comma-separated).
+ * Falls back to GIT_REPO_PATH for backwards compatibility.
  */
 async function syncGit(
   workspaceRoot: string,
@@ -122,66 +124,104 @@ async function syncGit(
 ): Promise<void> {
   dotenv.config({ path: `${workspaceRoot}/.env`, quiet: true });
 
-  const gitRepoPath = process.env['GIT_REPO_PATH'];
+  const rawPaths = process.env['GIT_REPO_PATHS'] ?? process.env['GIT_REPO_PATH'];
 
-  if (!gitRepoPath) {
-    console.log(chalk.red('  Missing Git repo path in .env'));
-    console.log(chalk.dim('  Required: GIT_REPO_PATH'));
+  if (!rawPaths) {
+    console.log(chalk.red('  Missing Git repo paths in .env'));
+    console.log(chalk.dim('  Required: GIT_REPO_PATHS'));
     process.exit(1);
   }
 
-  const git = new GitProvider(gitRepoPath);
+  const repoPaths = rawPaths.split(',').map((p) => p.trim()).filter(Boolean);
+
+  if (repoPaths.length === 0) {
+    console.log(chalk.red('  No Git repo paths configured in .env'));
+    process.exit(1);
+  }
+
   const storage = createStorage(workspaceRoot);
   const spinner = ora('Syncing Git...').start();
 
   try {
-    const pullGit = new PullGitUseCase(git, storage);
     const since = options.since ? new Date(options.since) : undefined;
 
-    const result = await pullGit.execute(gitRepoPath, {
+    for (const repoPath of repoPaths) {
+      const repoName = repoPath.split('/').pop() ?? repoPath;
+      spinner.text = `Syncing Git: ${repoName}...`;
+
+      try {
+        const git = new GitProvider(repoPath);
+        const pullGit = new PullGitUseCase(git, storage);
+
+        const result = await pullGit.execute(repoPath, {
+          ...(since ? { since } : {}),
+          onProgress: (msg) => { spinner.text = msg; },
+        });
+
+        console.log(
+          chalk.green(
+            `  ✓ ${repoName}: ${String(result.commitsCount)} commits, ${String(result.filesCount)} files, ${String(result.issueRefsCount)} issue refs`,
+          ),
+        );
+      } catch (err: unknown) {
+        console.log(
+          chalk.red(`  ✗ ${repoName}: ${err instanceof Error ? err.message : String(err)}`),
+        );
+      }
+    }
+
+    spinner.succeed('Git sync complete!');
+    console.log('');
+  } finally {
+    await storage.close();
+  }
+}
+
+/**
+ * Sync GitHub data → PostgreSQL.
+ */
+async function syncGithub(
+  workspaceRoot: string,
+  options: { since?: string },
+): Promise<void> {
+  dotenv.config({ path: `${workspaceRoot}/.env`, quiet: true });
+
+  const githubToken = process.env['GITHUB_TOKEN'];
+  const githubOwner = process.env['GITHUB_OWNER'];
+  const githubRepo = process.env['GITHUB_REPO'];
+
+  if (!githubToken || !githubOwner || !githubRepo) {
+    console.log(chalk.red('  Missing GitHub credentials in .env'));
+    console.log(chalk.dim('  Required: GITHUB_TOKEN, GITHUB_OWNER, GITHUB_REPO'));
+    process.exit(1);
+  }
+
+  const github = new GitHubProvider({
+    token: githubToken,
+    owner: githubOwner,
+    repo: githubRepo,
+  });
+
+  const storage = createStorage(workspaceRoot);
+  const spinner = ora('Syncing GitHub PRs...').start();
+
+  try {
+    const pullGithub = new PullGitHubUseCase(github, storage);
+    const repoFullName = `${githubOwner}/${githubRepo}`;
+    const since = options.since ? new Date(options.since) : undefined;
+
+    const result = await pullGithub.execute(repoFullName, {
       ...(since ? { since } : {}),
       onProgress: (msg) => { spinner.text = msg; },
     });
 
-    spinner.succeed('Git sync complete!');
+    spinner.succeed('GitHub sync complete!');
     console.log('');
     console.log(
       chalk.green(
-        `  ${result.commitsCount} commits, ${result.filesCount} files, ${result.issueRefsCount} issue refs`,
+        `  ${result.prsCount} PRs, ${result.reviewsCount} reviews, ${result.releasesCount} releases`,
       ),
     );
-
-    // GitHub API — PRs, reviews, releases (optional, requires GITHUB_TOKEN)
-    const githubToken = process.env['GITHUB_TOKEN'];
-    const githubOwner = process.env['GITHUB_OWNER'];
-    const githubRepo = process.env['GITHUB_REPO'];
-
-    if (githubToken && githubOwner && githubRepo) {
-      spinner.start('Syncing GitHub PRs...');
-
-      const github = new GitHubProvider({
-        token: githubToken,
-        owner: githubOwner,
-        repo: githubRepo,
-      });
-
-      const pullGithub = new PullGitHubUseCase(github, storage);
-      const repoFullName = `${githubOwner}/${githubRepo}`;
-      const ghSince = options.since ? new Date(options.since) : undefined;
-
-      const ghResult = await pullGithub.execute(repoFullName, {
-        ...(ghSince ? { since: ghSince } : {}),
-        onProgress: (msg) => { spinner.text = msg; },
-      });
-
-      spinner.succeed('GitHub sync complete!');
-      console.log(
-        chalk.green(
-          `  ${ghResult.prsCount} PRs, ${ghResult.reviewsCount} reviews, ${ghResult.releasesCount} releases`,
-        ),
-      );
-    }
-
     console.log('');
   } finally {
     await storage.close();
@@ -199,6 +239,10 @@ export async function syncJiraFromInit(workspaceRoot: string): Promise<void> {
 
 export async function syncGitFromInit(workspaceRoot: string): Promise<void> {
   await syncGit(workspaceRoot, { since: '1970-01-01' });
+}
+
+export async function syncGithubFromInit(workspaceRoot: string): Promise<void> {
+  await syncGithub(workspaceRoot, { since: '1970-01-01' });
 }
 
 /**
@@ -253,6 +297,15 @@ export function registerSyncCommand(program: Command): void {
 
         console.log('');
 
+        // Migration hint: GitHub token exists but 'github' source not enabled
+        dotenv.config({ path: `${workspaceRoot}/.env`, quiet: true });
+        const githubToken = process.env['GITHUB_TOKEN'];
+        const githubEnabled = config.sources.github?.enabled;
+        if (githubToken && !githubEnabled && !type) {
+          console.log(chalk.yellow('  ⚠ GitHub token found in .env but "github" source is not enabled.'));
+          console.log(chalk.dim(`    Enable: ${chalk.cyan('argustack source add github')}\n`));
+        }
+
         // Sync each source in order
         for (const source of sourcesToSync) {
           switch (source) {
@@ -262,6 +315,10 @@ export function registerSyncCommand(program: Command): void {
             }
             case 'git': {
               await syncGit(workspaceRoot, options);
+              break;
+            }
+            case 'github': {
+              await syncGithub(workspaceRoot, options);
               break;
             }
             case 'db': {

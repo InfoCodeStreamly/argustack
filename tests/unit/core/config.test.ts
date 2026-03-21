@@ -31,6 +31,15 @@ describe('workspace config functions', () => {
       expect(result.order).toContain('jira');
     });
 
+    it('adds github as a new source', () => {
+      const config = createWorkspaceConfig();
+      const result = addSource(config, 'github');
+
+      expect(result.sources.github?.enabled).toBe(true);
+      expect(result.sources.github?.addedAt).toBeDefined();
+      expect(result.order).toContain('github');
+    });
+
     it('does not duplicate source in order', () => {
       const config = createWorkspaceConfig({ order: ['jira'] });
       config.sources.jira = { enabled: true, addedAt: '2025-01-01T00:00:00.000Z' };
@@ -103,6 +112,14 @@ describe('workspace config functions', () => {
       config.sources.db = { enabled: true, addedAt: '2025-01-01T00:00:00.000Z' };
 
       expect(getEnabledSources(config)).toEqual(['jira', 'db']);
+    });
+
+    it('returns github in enabled sources', () => {
+      const config = createWorkspaceConfig({ order: ['jira', 'github'] });
+      config.sources.jira = { enabled: true, addedAt: '2025-01-01T00:00:00.000Z' };
+      config.sources.github = { enabled: true, addedAt: '2025-01-01T00:00:00.000Z' };
+
+      expect(getEnabledSources(config)).toEqual(['jira', 'github']);
     });
 
     it('returns empty array when no sources', () => {
