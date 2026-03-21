@@ -1,9 +1,7 @@
 import type { IGitProvider } from '../core/ports/git-provider.js';
 import type { IStorage } from '../core/ports/storage.js';
 
-function noop(_message: string): void {
-  // intentionally empty — used as default onProgress
-}
+function noop(_message: string): void { /* intentional */ }
 
 export interface PullGitOptions {
   since?: Date;
@@ -46,9 +44,7 @@ export class PullGitUseCase {
     let total: number | null = null;
     try {
       total = await this.git.getCommitCount?.(since) ?? null;
-    } catch {
-      // count unavailable — continue without percentages
-    }
+    } catch { /* count unavailable */ }
     const repoName = repoPath.split('/').pop() ?? repoPath;
     log(`Pulling commits from ${repoName}${total !== null ? ` (${total} total)` : ''}...`);
 

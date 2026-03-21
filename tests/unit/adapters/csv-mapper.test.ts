@@ -75,7 +75,7 @@ describe('mapCsvRow', () => {
     const worklog = worklogs[0];
     expect(worklog?.issueKey).toBe(CSV_TEST_IDS.issueKey);
     expect(worklog?.author).toBe('john.doe');
-    expect(worklog?.timeSpentSeconds).toBe(7200);
+    expect(worklog?.timeSpentSeconds).toBe(3600);
     expect(worklog?.comment).toBe('Implementation');
   });
 

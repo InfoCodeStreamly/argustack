@@ -1,9 +1,7 @@
 import type { IGitHubProvider } from '../core/ports/github-provider.js';
 import type { IStorage } from '../core/ports/storage.js';
 
-function noop(_message: string): void {
-  // intentionally empty — used as default onProgress
-}
+function noop(_message: string): void { /* intentional */ }
 
 export interface PullGitHubOptions {
   since?: Date;
@@ -49,9 +47,7 @@ export class PullGitHubUseCase {
     let total: number | null = null;
     try {
       total = await this.github.getPrCount?.(since) ?? null;
-    } catch {
-      // count unavailable — continue without percentages
-    }
+    } catch { /* count unavailable */ }
     log(`Pulling PRs from ${repoFullName}${total !== null ? ` (${total} total)` : ''}...`);
 
     const result: PullGitHubResult = {

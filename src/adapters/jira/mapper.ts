@@ -17,7 +17,6 @@ type NullableFields = {
   [K in keyof Version3Models.Fields]: Version3Models.Fields[K] | null;
 };
 
-// ADF node structure (Atlassian Document Format)
 interface AdfNode {
   readonly type: string;
   readonly text?: string;
@@ -31,12 +30,12 @@ interface AdfNode {
 export function mapJiraIssue(raw: JiraIssue): Issue {
   const fields: NullableFields = raw.fields;
 
-  // Separate standard fields from custom fields
   const standardFieldKeys = new Set([
     'summary', 'description', 'issuetype', 'status', 'priority',
     'resolution', 'assignee', 'reporter', 'created', 'updated',
     'resolutiondate', 'duedate', 'labels', 'components', 'fixVersions',
     'parent', 'sprint', 'story_points', 'customfield_10016',
+    'timeoriginalestimate', 'timeestimate', 'timespent',
   ]);
 
   const customFields: Record<string, unknown> = {};
@@ -58,7 +57,9 @@ export function mapJiraIssue(raw: JiraIssue): Issue {
     priority: fields.priority?.name ?? null,
     resolution: fields.resolution?.name ?? null,
     assignee: fields.assignee?.displayName ?? null,
+    assigneeId: fields.assignee?.accountId ?? null,
     reporter: fields.reporter?.displayName ?? null,
+    reporterId: fields.reporter?.accountId ?? null,
     created: fields.created,
     updated: fields.updated,
     resolved: fields.resolutiondate ?? null,
@@ -69,6 +70,9 @@ export function mapJiraIssue(raw: JiraIssue): Issue {
     parentKey: fields.parent?.key ?? null,
     sprint: extractSprint(fields),
     storyPoints: extractStoryPoints(fields),
+    originalEstimate: extractTimeField(fields, 'timeoriginalestimate'),
+    remainingEstimate: extractTimeField(fields, 'timeestimate'),
+    timeSpent: extractTimeField(fields, 'timespent'),
     customFields,
     rawJson: raw as unknown as Record<string, unknown>,
   };
@@ -158,7 +162,6 @@ function extractText(value: unknown): string | null {
     return value;
   }
 
-  // ADF format — extract text recursively
   if (isAdfNode(value)) {
     return extractAdfText(value);
   }
@@ -205,6 +208,21 @@ function extractSprint(fields: NullableFields): string | null {
 /**
  * Extract story points from standard or custom field.
  */
+function extractSeconds(value: unknown): number | null {
+  if (typeof value === 'number') {
+    return value;
+  }
+  if (typeof value === 'string') {
+    const parsed = parseInt(value, 10);
+    return isNaN(parsed) ? null : parsed;
+  }
+  return null;
+}
+
+function extractTimeField(fields: NullableFields, key: string): number | null {
+  return extractSeconds((fields as Record<string, unknown>)[key]);
+}
+
 function extractStoryPoints(fields: NullableFields): number | null {
   const storyPoints: unknown = fields['story_points'] ?? fields['customfield_10016'];
   if (typeof storyPoints === 'number') {

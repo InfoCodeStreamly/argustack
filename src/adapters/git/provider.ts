@@ -88,9 +88,7 @@ export class GitProvider implements IGitProvider {
           batch.files.push(mapDiffDelta(delta, sha, stat.additions, stat.deletions));
           deltaResult = deltas.next();
         }
-      } catch {
-        // diff failed — skip
-      }
+      } catch { /* diff unavailable */ }
 
       const refs = extractIssueRefs(sha, commit.message);
       batch.issueRefs.push(...refs);

@@ -26,6 +26,14 @@ function cellStr(row: string[], index: number | undefined): string {
   return cell(row, index) ?? '';
 }
 
+function parseIntOrNull(value: string | null): number | null {
+  if (value === null) {
+    return null;
+  }
+  const parsed = parseInt(value, 10);
+  return isNaN(parsed) ? null : parsed;
+}
+
 export function mapCsvRow(row: string[], schema: CsvSchema): CsvRowResult {
   const sf = schema.standardFields;
 
@@ -44,7 +52,9 @@ export function mapCsvRow(row: string[], schema: CsvSchema): CsvRowResult {
     priority: cell(row, sf.get('Priority')),
     resolution: cell(row, sf.get('Resolution')),
     assignee: cell(row, sf.get('Assignee')),
+    assigneeId: cell(row, sf.get('Assignee Id')),
     reporter: cell(row, sf.get('Reporter')),
+    reporterId: cell(row, sf.get('Reporter Id')),
     created: parseJiraDate(cell(row, sf.get('Created'))),
     updated: parseJiraDate(cell(row, sf.get('Updated'))),
     resolved: parseJiraDate(cell(row, sf.get('Resolved'))),
@@ -53,8 +63,11 @@ export function mapCsvRow(row: string[], schema: CsvSchema): CsvRowResult {
     components: extractRepeated(row, schema, 'Components'),
     fixVersions: extractRepeated(row, schema, 'Fix versions'),
     parentKey: cell(row, sf.get('Parent key')),
-    sprint: null,
-    storyPoints: parseFloat(cell(row, sf.get('Original estimate')) ?? '') || null,
+    sprint: cell(row, sf.get('Sprint')),
+    storyPoints: extractStoryPoints(row, schema),
+    originalEstimate: parseIntOrNull(cell(row, sf.get('Original estimate'))),
+    remainingEstimate: parseIntOrNull(cell(row, sf.get('Remaining Estimate'))),
+    timeSpent: parseIntOrNull(cell(row, sf.get('Time Spent'))),
     customFields: extractCustomFields(row, schema),
     rawJson: buildRawJson(row, schema),
   };
@@ -64,6 +77,18 @@ export function mapCsvRow(row: string[], schema: CsvSchema): CsvRowResult {
   const links = extractLinks(issueKey, row, schema);
 
   return { issue, comments, worklogs, links };
+}
+
+function extractStoryPoints(row: string[], schema: CsvSchema): number | null {
+  for (const cf of schema.customFields) {
+    if (cf.name === 'Story Points' || cf.name === 'Story point estimate') {
+      const val = parseFloat(cell(row, cf.columnIndex) ?? '');
+      if (!isNaN(val)) {
+        return val;
+      }
+    }
+  }
+  return null;
 }
 
 function extractRepeated(row: string[], schema: CsvSchema, name: string): string[] {
@@ -166,14 +191,14 @@ function extractWorklogs(issueKey: string, row: string[], schema: CsvSchema): Is
     const description = parts[0] ?? '';
     const timestamp = parts[1] ?? '';
     const author = parts[2] ?? '';
-    const minutesStr = parts[parts.length - 1] ?? '0';
-    const minutes = parseInt(minutesStr, 10);
+    const secondsStr = parts[parts.length - 1] ?? '0';
+    const seconds = parseInt(secondsStr, 10);
 
     result.push({
       issueKey,
       author: author || null,
-      timeSpent: isNaN(minutes) ? null : `${minutes}m`,
-      timeSpentSeconds: isNaN(minutes) ? null : minutes * 60,
+      timeSpent: isNaN(seconds) ? null : formatTimeSpent(seconds),
+      timeSpentSeconds: isNaN(seconds) ? null : seconds,
       comment: description || null,
       started: parseJiraDate(timestamp),
     });
@@ -181,28 +206,39 @@ function extractWorklogs(issueKey: string, row: string[], schema: CsvSchema): Is
   return result;
 }
 
+function formatTimeSpent(seconds: number): string {
+  const hours = Math.floor(seconds / 3600);
+  const minutes = Math.floor((seconds % 3600) / 60);
+  if (hours > 0 && minutes > 0) {
+    return `${hours}h ${minutes}m`;
+  }
+  if (hours > 0) {
+    return `${hours}h`;
+  }
+  return `${minutes}m`;
+}
+
 function extractLinks(issueKey: string, row: string[], schema: CsvSchema): IssueLink[] {
   const result: IssueLink[] = [];
+  const seen = new Set<string>();
   for (const link of schema.issueLinks) {
     const targetKey = row[link.columnIndex]?.trim();
     if (!targetKey) {
       continue;
     }
-    if (link.direction === 'outward') {
-      result.push({
-        sourceKey: issueKey,
-        targetKey,
-        linkType: link.linkType,
-        direction: 'outward',
-      });
-    } else {
-      result.push({
-        sourceKey: targetKey,
-        targetKey: issueKey,
-        linkType: link.linkType,
-        direction: 'inward',
-      });
+    const sourceKey = link.direction === 'outward' ? issueKey : targetKey;
+    const destKey = link.direction === 'outward' ? targetKey : issueKey;
+    const dedupeKey = `${sourceKey}|${destKey}|${link.linkType}|${link.direction}`;
+    if (seen.has(dedupeKey)) {
+      continue;
     }
+    seen.add(dedupeKey);
+    result.push({
+      sourceKey,
+      targetKey: destKey,
+      linkType: link.linkType,
+      direction: link.direction,
+    });
   }
   return result;
 }

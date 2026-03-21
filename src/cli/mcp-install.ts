@@ -6,8 +6,6 @@ import { homedir } from 'node:os';
 import chalk from 'chalk';
 import { findWorkspaceRoot } from '../workspace/resolver.js';
 
-// ─── Types ──────────────────────────────────────────────────────────────────
-
 interface McpServerEntry {
   readonly command: string;
   readonly args: string[];
@@ -21,14 +19,11 @@ interface ClaudeClient {
   readonly argustackConfigured: boolean;
 }
 
-// ─── Config paths ───────────────────────────────────────────────────────────
-
 function getClaudeCodeConfigPath(): string {
   return join(homedir(), '.claude', 'settings.json');
 }
 
 function getClaudeDesktopConfigPath(): string {
-  // macOS path. Extensible for Linux/Windows later.
   return join(
     homedir(),
     'Library',
@@ -38,8 +33,6 @@ function getClaudeDesktopConfigPath(): string {
   );
 }
 
-// ─── Server path resolution ─────────────────────────────────────────────────
-
 /**
  * Resolve absolute path to `dist/mcp/server.js`.
  *
@@ -48,10 +41,6 @@ function getClaudeDesktopConfigPath(): string {
  */
 export function resolveServerPath(): string {
   const currentFile = fileURLToPath(import.meta.url);
-  // currentFile is either:
-  //   src/cli/mcp-install.ts (dev via tsx)
-  //   dist/cli/mcp-install.js (compiled)
-  // Both are 2 levels deep from package root.
   const packageRoot = resolve(dirname(currentFile), '..', '..');
   const serverPath = join(packageRoot, 'dist', 'mcp', 'server.js');
 
@@ -63,8 +52,6 @@ export function resolveServerPath(): string {
 
   return serverPath;
 }
-
-// ─── Safe JSON read/write ───────────────────────────────────────────────────
 
 function readJsonFile(filePath: string): Record<string, unknown> {
   if (!existsSync(filePath)) {
@@ -82,12 +69,9 @@ function writeJsonFile(
   writeFileSync(filePath, JSON.stringify(data, null, 2) + '\n');
 }
 
-// ─── Detect installed clients ───────────────────────────────────────────────
-
 function detectClaudeClients(): ClaudeClient[] {
   const clients: ClaudeClient[] = [];
 
-  // Claude Code — check if ~/.claude/ directory exists
   const codeConfigPath = getClaudeCodeConfigPath();
   const codeDir = dirname(codeConfigPath);
   const codeInstalled = existsSync(codeDir);
@@ -104,7 +88,6 @@ function detectClaudeClients(): ClaudeClient[] {
     argustackConfigured: codeConfigured,
   });
 
-  // Claude Desktop — check if config dir exists
   const desktopConfigPath = getClaudeDesktopConfigPath();
   const desktopDir = dirname(desktopConfigPath);
   const desktopInstalled = existsSync(desktopDir);
@@ -124,15 +107,12 @@ function detectClaudeClients(): ClaudeClient[] {
   return clients;
 }
 
-// ─── Install/uninstall into config ──────────────────────────────────────────
-
 function installIntoConfig(
   configPath: string,
   entry: McpServerEntry,
 ): void {
   const config = readJsonFile(configPath);
 
-  // Ensure mcpServers section exists
   if (!config['mcpServers'] || typeof config['mcpServers'] !== 'object') {
     config['mcpServers'] = {};
   }
@@ -160,8 +140,6 @@ function uninstallFromConfig(configPath: string): boolean {
   return true;
 }
 
-// ─── Build MCP entry ────────────────────────────────────────────────────────
-
 function buildMcpEntry(
   serverPath: string,
   workspacePath: string,
@@ -175,10 +153,7 @@ function buildMcpEntry(
   };
 }
 
-// ─── Register subcommands ───────────────────────────────────────────────────
-
 export function registerMcpCommands(mcpCmd: Command): void {
-  // argustack mcp install
   mcpCmd
     .command('install')
     .description('Configure Claude Code / Claude Desktop to use Argustack MCP')
@@ -188,7 +163,6 @@ export function registerMcpCommands(mcpCmd: Command): void {
     )
     .action((options: { workspace?: string }) => {
       try {
-        // 1. Resolve workspace
         const workspacePath = options.workspace
           ? resolve(options.workspace)
           : findWorkspaceRoot();
@@ -204,10 +178,8 @@ export function registerMcpCommands(mcpCmd: Command): void {
           process.exit(1);
         }
 
-        // 2. Resolve server path
         const serverPath = resolveServerPath();
 
-        // 3. Detect clients
         const clients = detectClaudeClients();
         const installedClients = clients.filter((c) => c.installed);
 
@@ -217,7 +189,6 @@ export function registerMcpCommands(mcpCmd: Command): void {
           process.exit(1);
         }
 
-        // 4. Install
         console.log('');
         console.log(chalk.bold('  Argustack MCP — install'));
         console.log('');
@@ -247,7 +218,6 @@ export function registerMcpCommands(mcpCmd: Command): void {
       }
     });
 
-  // argustack mcp uninstall
   mcpCmd
     .command('uninstall')
     .description('Remove Argustack from Claude MCP configuration')
