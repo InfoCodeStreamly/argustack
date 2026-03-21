@@ -390,6 +390,55 @@ export class PostgresStorage implements IStorage {
     return result.rows[0]?.last_updated ?? null;
   }
 
+  // ─── Embedding methods ──────────────────────────────────────────────────
+
+  async getUnembeddedIssueKeys(limit: number): Promise<string[]> {
+    interface KeyRow {
+      issue_key: string;
+    }
+    const result = await this.pool.query<KeyRow>(
+      `SELECT issue_key FROM issues WHERE embedding IS NULL ORDER BY updated DESC NULLS LAST LIMIT $1`,
+      [limit],
+    );
+    return result.rows.map((r) => r.issue_key);
+  }
+
+  async saveEmbedding(issueKey: string, vector: number[]): Promise<void> {
+    await this.pool.query(
+      `UPDATE issues SET embedding = $1 WHERE issue_key = $2`,
+      [`[${vector.join(',')}]`, issueKey],
+    );
+  }
+
+  async semanticSearch(
+    vector: number[],
+    limit: number,
+    threshold?: number,
+  ): Promise<{ issueKey: string; similarity: number }[]> {
+    interface SimilarityRow {
+      issue_key: string;
+      similarity: number;
+    }
+    const vectorStr = `[${vector.join(',')}]`;
+    const thresholdClause = threshold !== undefined
+      ? `AND 1 - (embedding <=> $1::vector) >= ${String(threshold)}`
+      : '';
+
+    const result = await this.pool.query<SimilarityRow>(
+      `SELECT issue_key, 1 - (embedding <=> $1::vector) AS similarity
+       FROM issues
+       WHERE embedding IS NOT NULL ${thresholdClause}
+       ORDER BY embedding <=> $1::vector
+       LIMIT $2`,
+      [vectorStr, limit],
+    );
+
+    return result.rows.map((r) => ({
+      issueKey: r.issue_key,
+      similarity: r.similarity,
+    }));
+  }
+
   async query(sql: string, params: unknown[]): Promise<QueryResult> {
     const result = await this.pool.query(sql, params);
     return { rows: result.rows as Record<string, unknown>[] };

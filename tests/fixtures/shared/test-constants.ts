@@ -39,6 +39,10 @@ export const TEST_IDS = {
   commentId: 'comment-1',
   author: 'John Doe',
   reporter: 'Jane Smith',
+
+  projectKey2: 'OTHER',
+  projectName2: 'Other Project',
+  projectId2: '10002',
 } as const;
 
 // ─── Factory: Project ─────────────────────────────────────────────────
@@ -170,6 +174,11 @@ export const GITHUB_TEST_IDS = {
   reviewId: 1001,
   commentId: 2001,
   releaseId: 3001,
+  prAuthor: 'johndoe',
+  reviewer: 'janedoe',
+  issueRefKey: 'PAP-123',
+  issueRefKey2: 'PAP-456',
+  issueRefKey3: 'PAP-100',
 } as const;
 
 // ─── Factory: PullRequest ────────────────────────────────────────────
@@ -181,7 +190,7 @@ export function createPullRequest(overrides?: Partial<PullRequest>): PullRequest
     title: 'feat: add login page',
     body: 'Implements PAP-123 login feature',
     state: 'merged',
-    author: 'johndoe',
+    author: GITHUB_TEST_IDS.prAuthor,
     createdAt: '2025-01-10T10:00:00Z',
     updatedAt: '2025-01-12T14:00:00Z',
     mergedAt: '2025-01-12T14:00:00Z',
@@ -190,7 +199,7 @@ export function createPullRequest(overrides?: Partial<PullRequest>): PullRequest
     headRef: 'feature/login',
     baseRef: 'main',
     labels: ['feature'],
-    reviewers: ['janedoe'],
+    reviewers: [GITHUB_TEST_IDS.reviewer],
     additions: 150,
     deletions: 20,
     changedFiles: 5,
@@ -206,7 +215,7 @@ export function createPrReview(overrides?: Partial<PullRequestReview>): PullRequ
     prNumber: GITHUB_TEST_IDS.prNumber,
     repoFullName: GITHUB_TEST_IDS.repoFullName,
     reviewId: GITHUB_TEST_IDS.reviewId,
-    reviewer: 'janedoe',
+    reviewer: GITHUB_TEST_IDS.reviewer,
     state: 'APPROVED',
     body: 'Looks good!',
     submittedAt: '2025-01-11T16:00:00Z',
@@ -221,7 +230,7 @@ export function createPrComment(overrides?: Partial<PullRequestComment>): PullRe
     prNumber: GITHUB_TEST_IDS.prNumber,
     repoFullName: GITHUB_TEST_IDS.repoFullName,
     commentId: GITHUB_TEST_IDS.commentId,
-    author: 'janedoe',
+    author: GITHUB_TEST_IDS.reviewer,
     body: 'Nit: consider renaming this variable',
     path: 'src/login.ts',
     line: 42,
@@ -254,7 +263,7 @@ export function createRelease(overrides?: Partial<Release>): Release {
     tagName: 'v1.0.0',
     name: 'Version 1.0.0',
     body: 'First stable release',
-    author: 'johndoe',
+    author: GITHUB_TEST_IDS.prAuthor,
     draft: false,
     prerelease: false,
     createdAt: '2025-02-01T10:00:00Z',
@@ -275,7 +284,7 @@ export function createGitHubBatch(overrides?: Partial<GitHubBatch>): GitHubBatch
     issueRefs: [{
       prNumber: GITHUB_TEST_IDS.prNumber,
       repoFullName: GITHUB_TEST_IDS.repoFullName,
-      issueKey: 'PAP-123',
+      issueKey: GITHUB_TEST_IDS.issueRefKey,
     }],
     ...overrides,
   };

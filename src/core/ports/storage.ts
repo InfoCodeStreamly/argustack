@@ -41,6 +41,15 @@ export interface IStorage {
   /** Get the latest PR updated_at timestamp for a repo (for incremental pull) */
   getLastPrUpdated(repoFullName: string): Promise<Date | null>;
 
+  /** Get issue keys that have no embedding yet (for batch embedding) */
+  getUnembeddedIssueKeys(limit: number): Promise<string[]>;
+
+  /** Save a computed embedding vector for an issue */
+  saveEmbedding(issueKey: string, vector: number[]): Promise<void>;
+
+  /** Semantic vector similarity search — returns issue keys ordered by similarity */
+  semanticSearch(vector: number[], limit: number, threshold?: number): Promise<{ issueKey: string; similarity: number }[]>;
+
   /** Execute a raw SQL query with parameterized values */
   query(sql: string, params: unknown[]): Promise<QueryResult>;
 

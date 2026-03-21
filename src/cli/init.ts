@@ -485,6 +485,9 @@ function generateEnv(
     'DB_USER=argustack',
     'DB_PASSWORD=argustack_local',
     'DB_NAME=argustack',
+    '',
+    '# === OpenAI embeddings (optional, for semantic search) ===',
+    '# OPENAI_API_KEY=sk-...',
   );
 
   return lines.join('\n') + '\n';

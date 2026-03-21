@@ -2,7 +2,7 @@ import { describe, it, expect } from 'vitest';
 import { readFileSync, readdirSync, statSync } from 'node:fs';
 import { resolve, join } from 'node:path';
 
-const ROOT = resolve(import.meta.dirname, '..', '..', '..');
+const ROOT = resolve(import.meta.dirname, '..', '..');
 const SRC = join(ROOT, 'src');
 
 function findTsFiles(dir: string): string[] {

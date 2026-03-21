@@ -43,7 +43,16 @@ export class FakeStorage implements IStorage {
     return Promise.resolve(this._lastUpdated.get(projectKey) ?? null);
   }
 
-  query(_sql: string, _params: unknown[]): Promise<QueryResult> {
+  query(sql: string, params: unknown[]): Promise<QueryResult> {
+    // Support SELECT summary, description for EmbedUseCase
+    if (sql.includes('summary') && sql.includes('description') && typeof params[0] === 'string') {
+      const issue = this.issues.get(params[0]);
+      if (issue) {
+        return Promise.resolve({
+          rows: [{ summary: issue.summary, description: issue.description }],
+        });
+      }
+    }
     return Promise.resolve({ rows: [] });
   }
 
@@ -108,6 +117,47 @@ export class FakeStorage implements IStorage {
     return Promise.resolve(this._lastPrUpdated.get(repoFullName) ?? null);
   }
 
+  // ─── Embedding methods ──────────────────────────────────────────
+
+  private readonly _embeddings = new Map<string, number[]>();
+
+  getUnembeddedIssueKeys(limit: number): Promise<string[]> {
+    const keys: string[] = [];
+    for (const [key] of this.issues) {
+      if (!this._embeddings.has(key)) {
+        keys.push(key);
+        if (keys.length >= limit) { break; }
+      }
+    }
+    return Promise.resolve(keys);
+  }
+
+  saveEmbedding(issueKey: string, vector: number[]): Promise<void> {
+    this._embeddings.set(issueKey, vector);
+    return Promise.resolve();
+  }
+
+  semanticSearch(
+    _vector: number[],
+    limit: number,
+    _threshold?: number
+  ): Promise<{ issueKey: string; similarity: number }[]> {
+    const results: { issueKey: string; similarity: number }[] = [];
+    for (const [key] of this._embeddings) {
+      results.push({ issueKey: key, similarity: 0.9 });
+      if (results.length >= limit) { break; }
+    }
+    return Promise.resolve(results);
+  }
+
+  get embeddingCount(): number {
+    return this._embeddings.size;
+  }
+
+  hasEmbedding(issueKey: string): boolean {
+    return this._embeddings.has(issueKey);
+  }
+
   // ─── Test helpers ─────────────────────────────────────────────
 
   seed(issues: Issue[]): void {
@@ -132,6 +182,7 @@ export class FakeStorage implements IStorage {
     this.savedGitHubBatches.length = 0;
     this.savedReleases.length = 0;
     this._lastPrUpdated.clear();
+    this._embeddings.clear();
     this.initialized = false;
     this.closed = false;
   }

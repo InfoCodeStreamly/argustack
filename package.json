@@ -19,6 +19,7 @@
     "test:unit": "vitest run --project unit",
     "test:integration": "vitest run --project integration",
     "test:mcp": "vitest run --project mcp",
+    "test:arch": "vitest run --project architecture",
     "check": "npm run typecheck && npm run lint",
     "ci": "npm run check && npm test",
     "build:mcpb": "npm run build && bash scripts/build-mcpb.sh",

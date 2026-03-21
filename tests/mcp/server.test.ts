@@ -1,6 +1,7 @@
 import { describe, it, expect, beforeAll, afterAll } from 'vitest';
 import { Client } from '@modelcontextprotocol/sdk/client/index.js';
 import { InMemoryTransport } from '@modelcontextprotocol/sdk/inMemory.js';
+import { TEST_IDS } from '../fixtures/shared/test-constants.js';
 
 /**
  * MCP Server integration tests.
@@ -52,8 +53,10 @@ describe('MCP server tools', () => {
     expect(toolNames).toContain('commit_stats');
     expect(toolNames).toContain('query_prs');
     expect(toolNames).toContain('issue_prs');
+    expect(toolNames).toContain('issue_timeline');
     expect(toolNames).toContain('query_releases');
-    expect(tools).toHaveLength(12);
+    expect(toolNames).toContain('semantic_search');
+    expect(tools).toHaveLength(14);
   });
 
   it('workspace_info tool responds (even without workspace)', async () => {
@@ -77,7 +80,7 @@ describe('MCP server tools', () => {
   it('get_issue tool requires issue_key parameter', async () => {
     const result = await client.callTool({
       name: 'get_issue',
-      arguments: { issue_key: 'TEST-1' },
+      arguments: { issue_key: TEST_IDS.issueKey },
     });
 
     expect(result.content).toBeDefined();

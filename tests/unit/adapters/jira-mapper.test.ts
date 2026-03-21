@@ -7,18 +7,15 @@ import {
   mapJiraWorklogs,
   mapJiraLinks,
 } from '../../../src/adapters/jira/mapper.js';
+import { TEST_IDS } from '../../fixtures/shared/test-constants.js';
 
 type JiraIssue = Version3Models.Issue;
 
-/**
- * Minimal Jira API response fixture.
- * Mirrors the shape jira.js returns from searchForIssuesUsingJqlEnhancedSearch.
- */
 function createRawJiraIssue(overrides?: Partial<JiraIssue>): JiraIssue {
   return {
-    key: 'PROJ-42',
-    id: '10042',
-    self: 'https://jira.example.com/rest/api/3/issue/10042',
+    key: TEST_IDS.issueKey,
+    id: TEST_IDS.issueId,
+    self: `https://jira.example.com/rest/api/3/issue/${TEST_IDS.issueId}`,
     fields: {
       summary: 'Fix login bug',
       description: {
@@ -44,7 +41,7 @@ function createRawJiraIssue(overrides?: Partial<JiraIssue>): JiraIssue {
       labels: ['critical', 'auth'],
       components: [{ name: 'Backend' }],
       fixVersions: [{ name: 'v2.1' }],
-      parent: { key: 'PROJ-10' },
+      parent: { key: TEST_IDS.issueKey2 },
       issuelinks: [],
       comment: { comments: [] },
       worklog: { worklogs: [] },
@@ -59,9 +56,9 @@ describe('jira mapper', () => {
       const raw = createRawJiraIssue();
       const result = mapJiraIssue(raw);
 
-      expect(result.key).toBe('PROJ-42');
-      expect(result.id).toBe('10042');
-      expect(result.projectKey).toBe('PROJ');
+      expect(result.key).toBe(TEST_IDS.issueKey);
+      expect(result.id).toBe(TEST_IDS.issueId);
+      expect(result.projectKey).toBe(TEST_IDS.projectKey);
       expect(result.summary).toBe('Fix login bug');
       expect(result.issueType).toBe('Bug');
       expect(result.status).toBe('Open');
@@ -70,7 +67,7 @@ describe('jira mapper', () => {
       expect(result.assignee).toBe('Alice');
       expect(result.reporter).toBe('Bob');
       expect(result.dueDate).toBe('2025-02-01');
-      expect(result.parentKey).toBe('PROJ-10');
+      expect(result.parentKey).toBe(TEST_IDS.issueKey2);
     });
 
     it('extracts text from ADF description', () => {
@@ -137,7 +134,7 @@ describe('jira mapper', () => {
       const result = mapJiraIssue(raw);
 
       expect(result.rawJson).toBeDefined();
-      expect((result.rawJson)['key']).toBe('PROJ-42');
+      expect((result.rawJson)['key']).toBe(TEST_IDS.issueKey);
     });
   });
 
@@ -156,17 +153,17 @@ describe('jira mapper', () => {
         ],
       } as JiraIssue['fields']['comment'];
 
-      const result = mapJiraComments('PROJ-42', raw);
+      const result = mapJiraComments(TEST_IDS.issueKey, raw);
 
       expect(result).toHaveLength(1);
-      expect(result[0]?.issueKey).toBe('PROJ-42');
+      expect(result[0]?.issueKey).toBe(TEST_IDS.issueKey);
       expect(result[0]?.commentId).toBe('c1');
       expect(result[0]?.author).toBe('Commenter');
     });
 
     it('returns empty array when no comments', () => {
       const raw = createRawJiraIssue();
-      const result = mapJiraComments('PROJ-42', raw);
+      const result = mapJiraComments(TEST_IDS.issueKey, raw);
 
       expect(result).toEqual([]);
     });
@@ -187,7 +184,7 @@ describe('jira mapper', () => {
         ],
       } as JiraIssue['changelog'];
 
-      const result = mapJiraChangelogs('PROJ-42', raw);
+      const result = mapJiraChangelogs(TEST_IDS.issueKey, raw);
 
       expect(result).toHaveLength(1);
       expect(result[0]?.field).toBe('status');
@@ -198,7 +195,7 @@ describe('jira mapper', () => {
 
     it('returns empty array when no changelog', () => {
       const raw = createRawJiraIssue();
-      const result = mapJiraChangelogs('PROJ-42', raw);
+      const result = mapJiraChangelogs(TEST_IDS.issueKey, raw);
 
       expect(result).toEqual([]);
     });
@@ -219,7 +216,7 @@ describe('jira mapper', () => {
         ],
       } as JiraIssue['fields']['worklog'];
 
-      const result = mapJiraWorklogs('PROJ-42', raw);
+      const result = mapJiraWorklogs(TEST_IDS.issueKey, raw);
 
       expect(result).toHaveLength(1);
       expect(result[0]?.timeSpent).toBe('3h');
@@ -233,15 +230,15 @@ describe('jira mapper', () => {
       raw.fields.issuelinks = [
         {
           type: { name: 'Blocks' },
-          outwardIssue: { key: 'PROJ-99' },
+          outwardIssue: { key: TEST_IDS.issueKey3 },
         },
       ] as JiraIssue['fields']['issuelinks'];
 
-      const result = mapJiraLinks('PROJ-42', raw);
+      const result = mapJiraLinks(TEST_IDS.issueKey, raw);
 
       expect(result).toHaveLength(1);
-      expect(result[0]?.sourceKey).toBe('PROJ-42');
-      expect(result[0]?.targetKey).toBe('PROJ-99');
+      expect(result[0]?.sourceKey).toBe(TEST_IDS.issueKey);
+      expect(result[0]?.targetKey).toBe(TEST_IDS.issueKey3);
       expect(result[0]?.direction).toBe('outward');
     });
 
@@ -250,15 +247,15 @@ describe('jira mapper', () => {
       raw.fields.issuelinks = [
         {
           type: { name: 'Blocks' },
-          inwardIssue: { key: 'PROJ-10' },
+          inwardIssue: { key: TEST_IDS.issueKey2 },
         },
       ] as JiraIssue['fields']['issuelinks'];
 
-      const result = mapJiraLinks('PROJ-42', raw);
+      const result = mapJiraLinks(TEST_IDS.issueKey, raw);
 
       expect(result).toHaveLength(1);
-      expect(result[0]?.sourceKey).toBe('PROJ-10');
-      expect(result[0]?.targetKey).toBe('PROJ-42');
+      expect(result[0]?.sourceKey).toBe(TEST_IDS.issueKey2);
+      expect(result[0]?.targetKey).toBe(TEST_IDS.issueKey);
       expect(result[0]?.direction).toBe('inward');
     });
 
@@ -267,19 +264,19 @@ describe('jira mapper', () => {
       raw.fields.issuelinks = [
         {
           type: { name: 'Related' },
-          outwardIssue: { key: 'PROJ-50' },
-          inwardIssue: { key: 'PROJ-51' },
+          outwardIssue: { key: TEST_IDS.issueKey2 },
+          inwardIssue: { key: TEST_IDS.issueKey3 },
         },
       ] as JiraIssue['fields']['issuelinks'];
 
-      const result = mapJiraLinks('PROJ-42', raw);
+      const result = mapJiraLinks(TEST_IDS.issueKey, raw);
 
       expect(result).toHaveLength(2);
     });
 
     it('returns empty array when no links', () => {
       const raw = createRawJiraIssue();
-      const result = mapJiraLinks('PROJ-42', raw);
+      const result = mapJiraLinks(TEST_IDS.issueKey, raw);
 
       expect(result).toEqual([]);
     });

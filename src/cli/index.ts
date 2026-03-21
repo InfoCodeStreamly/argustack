@@ -5,6 +5,7 @@ import { registerSourceCommands } from './sources.js';
 import { registerSyncCommand } from './sync.js';
 import { registerStatusCommand } from './status.js';
 import { registerMcpCommands } from './mcp-install.js';
+import { registerEmbedCommand } from './embed.js';
 import { runInit } from './init.js';
 import type { InitFlags } from './init.js';
 
@@ -58,6 +59,9 @@ registerSyncCommand(program);
 
 // argustack status
 registerStatusCommand(program);
+
+// argustack embed
+registerEmbedCommand(program);
 
 // argustack mcp install / uninstall
 const mcpCmd = program
