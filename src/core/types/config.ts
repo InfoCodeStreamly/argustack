@@ -3,7 +3,7 @@
  * Stored in .argustack/config.json
  */
 
-export type SourceType = 'jira' | 'git' | 'github' | 'db';
+export type SourceType = 'jira' | 'git' | 'github' | 'csv' | 'db';
 
 export interface SourceConfig {
   enabled: boolean;
@@ -47,10 +47,18 @@ export const SOURCE_META: Record<SourceType, { label: string; description: strin
       'This is DIFFERENT from Git above — GitHub gives you PRs and reviews, Git gives you commits. ' +
       'If your code is on GitHub, select BOTH Git and GitHub for full picture',
   },
+  csv: {
+    label: 'Jira CSV Import (no API needed)',
+    description:
+      'Same data as Jira above, but from a CSV file instead of API. ' +
+      'For teams without Jira API access or when you already have an export. ' +
+      'Supports all standard fields, comments, worklogs, and issue links. ' +
+      'Export from Jira: Filters → Export → CSV (All fields)',
+  },
   db: {
     label: 'Project Database',
     description: 'Coming soon — not available yet',
   },
 };
 
-export const ALL_SOURCES: SourceType[] = ['jira', 'git', 'github', 'db'];
+export const ALL_SOURCES: SourceType[] = ['jira', 'csv', 'git', 'github', 'db'];

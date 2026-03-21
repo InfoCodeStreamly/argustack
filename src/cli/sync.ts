@@ -6,6 +6,7 @@ import { requireWorkspace } from '../workspace/resolver.js';
 import { readConfig, getEnabledSources } from '../workspace/config.js';
 import { JiraProvider } from '../adapters/jira/index.js';
 import { GitProvider } from '../adapters/git/index.js';
+import { CsvProvider } from '../adapters/csv/index.js';
 import { PostgresStorage } from '../adapters/postgres/index.js';
 import { PullUseCase } from '../use-cases/pull.js';
 import { PullGitUseCase } from '../use-cases/pull-git.js';
@@ -229,6 +230,59 @@ async function syncGithub(
 }
 
 /**
+ * Sync Jira CSV file → PostgreSQL.
+ */
+async function syncCsv(
+  workspaceRoot: string,
+  options: { project?: string; since?: string; file?: string },
+): Promise<void> {
+  dotenv.config({ path: `${workspaceRoot}/.env`, quiet: true });
+
+  const csvFilePath = options.file ?? process.env['CSV_FILE_PATH'];
+
+  if (!csvFilePath) {
+    console.log(chalk.red('  Missing CSV file path'));
+    console.log(chalk.dim('  Use --file <path> or set CSV_FILE_PATH in .env'));
+    process.exit(1);
+  }
+
+  const source = new CsvProvider(csvFilePath);
+  const storage = createStorage(workspaceRoot);
+  const spinner = ora('Importing Jira CSV...').start();
+
+  try {
+    const projects = await source.getProjects();
+    const projectKeys = options.project
+      ? [options.project]
+      : projects.map((p) => p.key);
+
+    const allResults = [];
+    for (const projectKey of projectKeys) {
+      const pullUseCase = new PullUseCase(source, storage);
+      const results = await pullUseCase.execute({
+        projectKey,
+        ...(options.since ? { since: options.since } : {}),
+        onProgress: (msg) => { spinner.text = msg; },
+      });
+      allResults.push(...results);
+    }
+
+    spinner.succeed('CSV import complete!');
+    console.log('');
+    for (const r of allResults) {
+      console.log(
+        chalk.green(
+          `  ${r.projectKey}: ${String(r.issuesCount)} issues, ${String(r.commentsCount)} comments, ${String(r.changelogsCount)} changelogs`,
+        ),
+      );
+    }
+    console.log('');
+  } finally {
+    await storage.close();
+  }
+}
+
+/**
  * Called from `argustack init` to run first sync immediately after workspace creation.
  * Always passes epoch date to force a full pull — Docker volume may contain stale data
  * from a previous workspace, making incremental pull return 0 results.
@@ -243,6 +297,10 @@ export async function syncGitFromInit(workspaceRoot: string): Promise<void> {
 
 export async function syncGithubFromInit(workspaceRoot: string): Promise<void> {
   await syncGithub(workspaceRoot, { since: '1970-01-01' });
+}
+
+export async function syncCsvFromInit(workspaceRoot: string, filePath?: string): Promise<void> {
+  await syncCsv(workspaceRoot, { since: '1970-01-01', ...(filePath ? { file: filePath } : {}) });
 }
 
 /**
@@ -260,7 +318,8 @@ export function registerSyncCommand(program: Command): void {
     .description('Sync data from sources (all enabled or specific)')
     .option('-p, --project <key>', 'Sync specific project only')
     .option('--since <date>', 'Sync issues updated since date (YYYY-MM-DD)')
-    .action(async (type: string | undefined, options: { project?: string; since?: string }) => {
+    .option('-f, --file <path>', 'CSV file path (for csv source)')
+    .action(async (type: string | undefined, options: { project?: string; since?: string; file?: string }) => {
       try {
         const workspaceRoot = requireWorkspace();
         const config = readConfig(workspaceRoot);
@@ -319,6 +378,10 @@ export function registerSyncCommand(program: Command): void {
             }
             case 'github': {
               await syncGithub(workspaceRoot, options);
+              break;
+            }
+            case 'csv': {
+              await syncCsv(workspaceRoot, options);
               break;
             }
             case 'db': {

@@ -147,7 +147,7 @@ All available flags:
 |------|-------------|
 | `--no-interactive` | Run without prompts — all values from flags |
 | `-d, --dir <path>` | Workspace directory (default: current) |
-| `-s, --source <list>` | Comma-separated: `jira,git,github,db` |
+| `-s, --source <list>` | Comma-separated: `jira,git,github,csv,db` |
 | `--jira-url <url>` | Jira instance URL |
 | `--jira-email <email>` | Jira user email |
 | `--jira-token <token>` | Jira API token |
@@ -156,6 +156,7 @@ All available flags:
 | `--github-token <token>` | GitHub Personal Access Token |
 | `--github-owner <owner>` | GitHub repo owner |
 | `--github-repo <repo>` | GitHub repo name |
+| `--csv-file <path>` | Path to Jira CSV export file |
 | `--db-port <port>` | Argustack PostgreSQL port (default: `5434`) |
 | `--pgweb-port <port>` | pgweb UI port (default: `8086`) |
 
@@ -183,6 +184,8 @@ argustack sync                       # pull data from all configured sources
 argustack sync jira                  # pull Jira only
 argustack sync git                   # pull Git commits only
 argustack sync github                # pull GitHub PRs, reviews, releases
+argustack sync csv                   # import from Jira CSV export
+argustack sync csv -f /path/to.csv   # import specific CSV file
 argustack sync -p PROJ               # pull specific Jira project
 argustack sync --since 2025-01-01    # incremental pull (only new/updated)
 argustack sources                    # list configured sources
@@ -423,7 +426,7 @@ DB_NAME=argustack
 - [x] Progress indicators during sync (e.g. `150/506 issues (30%)`)
 - [ ] Database adapter (schema, sample data)
 - [ ] Cross-source analysis (Jira ticket vs actual code vs DB state)
-- [ ] CSV import (Jira export without API token)
+- [x] CSV import (Jira export without API token)
 
 ## License
 

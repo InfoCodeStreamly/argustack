@@ -42,6 +42,10 @@ interface GitHubSetupResult {
   githubRepo: string;
 }
 
+interface CsvSetupResult {
+  csvFilePath: string;
+}
+
 interface DbSetupResult {
   targetDbHost: string;
   targetDbPort: number;
@@ -67,6 +71,7 @@ export interface InitFlags {
   targetDbUser?: string;
   targetDbPassword?: string;
   targetDbName?: string;
+  csvFile?: string;
   dbPort?: string;
   pgwebPort?: string;
   interactive?: boolean;    // --no-interactive sets this to false
@@ -555,6 +560,27 @@ async function setupGithubInteractive(
   };
 }
 
+async function setupCsvInteractive(): Promise<CsvSetupResult> {
+  console.log('');
+  console.log(chalk.bold('  Jira CSV Import setup'));
+  console.log(chalk.dim('  Import issues from a Jira CSV export file.\n'));
+
+  const csvFilePath = await input({
+    message: 'Path to Jira CSV file:',
+    validate: (val): string | true => {
+      if (!val.trim()) {
+        return 'CSV file path is required';
+      }
+      return true;
+    },
+  });
+
+  const resolved = resolve(csvFilePath.replace(/^~/, process.env['HOME'] ?? '~'));
+  console.log(chalk.green(`  CSV file: ${resolved}`));
+
+  return { csvFilePath: resolved };
+}
+
 async function setupDbInteractive(): Promise<DbSetupResult | null> {
   console.log('');
   console.log(chalk.bold('  Database setup'));
@@ -650,12 +676,20 @@ function setupDbFromFlags(flags: InitFlags): DbSetupResult | null {
   };
 }
 
+function setupCsvFromFlags(flags: InitFlags): CsvSetupResult | null {
+  if (!flags.csvFile) {
+    throw new Error('CSV requires: --csv-file');
+  }
+  return { csvFilePath: flags.csvFile };
+}
+
 // ─── .env generation ─────────────────────────────────────────────────────────
 
 function generateEnv(
   jira: JiraSetupResult | null,
   git: GitSetupResult | null,
   github: GitHubSetupResult | null,
+  csv: CsvSetupResult | null,
   db: DbSetupResult | null,
   argustackDbPort: number,
 ): string {
@@ -686,6 +720,14 @@ function generateEnv(
       `GITHUB_TOKEN=${github.githubToken}`,
       `GITHUB_OWNER=${github.githubOwner}`,
       `GITHUB_REPO=${github.githubRepo}`,
+      '',
+    );
+  }
+
+  if (csv) {
+    lines.push(
+      '# === Jira CSV ===',
+      `CSV_FILE_PATH=${csv.csvFilePath}`,
       '',
     );
   }
@@ -763,6 +805,7 @@ function createWorkspaceFiles(
   jira: JiraSetupResult | null,
   git: GitSetupResult | null,
   github: GitHubSetupResult | null,
+  csv: CsvSetupResult | null,
   db: DbSetupResult | null,
   dbPort: number,
   pgwebPort: number,
@@ -786,13 +829,16 @@ function createWorkspaceFiles(
   if (github) {
     config = addSource(config, 'github');
   }
+  if (csv) {
+    config = addSource(config, 'csv');
+  }
   if (db) {
     config = addSource(config, 'db');
   }
   writeConfig(workspaceDir, config);
 
   // .env
-  writeFileSync(join(workspaceDir, '.env'), generateEnv(jira, git, github, db, dbPort));
+  writeFileSync(join(workspaceDir, '.env'), generateEnv(jira, git, github, csv, db, dbPort));
 
   // docker-compose.yml
   writeFileSync(join(workspaceDir, 'docker-compose.yml'), generateDockerCompose(dbPort, pgwebPort));
@@ -830,6 +876,7 @@ function printSummary(
   jira: JiraSetupResult | null,
   git: GitSetupResult | null,
   github: GitHubSetupResult | null,
+  csv: CsvSetupResult | null,
   db: DbSetupResult | null,
   pgwebPort: number,
   willAutoStart: boolean,
@@ -850,10 +897,13 @@ function printSummary(
   if (github) {
     console.log(`    ${chalk.green('✓')} GitHub — ${github.githubOwner}/${github.githubRepo}`);
   }
+  if (csv) {
+    console.log(`    ${chalk.green('✓')} Jira CSV — ${csv.csvFilePath}`);
+  }
   if (db) {
     console.log(`    ${chalk.green('✓')} Database — ${db.targetDbHost}:${db.targetDbPort}`);
   }
-  if (!jira && !git && !github && !db) {
+  if (!jira && !git && !github && !csv && !db) {
     console.log(`    ${chalk.yellow('—')} None yet. Use ${chalk.cyan('argustack source add <type>')}`);
   }
 
@@ -902,6 +952,7 @@ async function runInitNonInteractive(flags: InitFlags): Promise<void> {
   let jiraResult: JiraSetupResult | null = null;
   let gitResult: GitSetupResult | null = null;
   let githubResult: GitHubSetupResult | null = null;
+  let csvResult: CsvSetupResult | null = null;
   let dbResult: DbSetupResult | null = null;
 
   for (const source of selectedSources) {
@@ -915,6 +966,9 @@ async function runInitNonInteractive(flags: InitFlags): Promise<void> {
       case 'github':
         githubResult = setupGithubFromFlags(flags);
         break;
+      case 'csv':
+        csvResult = setupCsvFromFlags(flags);
+        break;
       case 'db':
         dbResult = setupDbFromFlags(flags);
         break;
@@ -927,14 +981,14 @@ async function runInitNonInteractive(flags: InitFlags): Promise<void> {
   // Create workspace
   const spinner = ora('Creating workspace...').start();
   try {
-    createWorkspaceFiles(workspaceDir, jiraResult, gitResult, githubResult, dbResult, dbPort, pgwebPort);
+    createWorkspaceFiles(workspaceDir, jiraResult, gitResult, githubResult, csvResult, dbResult, dbPort, pgwebPort);
     spinner.succeed('Workspace created!');
   } catch (err: unknown) {
     spinner.fail('Failed');
     throw err;
   }
 
-  printSummary(workspaceDir, jiraResult, gitResult, githubResult, dbResult, pgwebPort, false);
+  printSummary(workspaceDir, jiraResult, gitResult, githubResult, csvResult, dbResult, pgwebPort, false);
 }
 
 // ─── Interactive init ────────────────────────────────────────────────────────
@@ -999,6 +1053,7 @@ async function runInitInteractive(flags: InitFlags): Promise<void> {
   let jiraResult: JiraSetupResult | null = null;
   let gitResult: GitSetupResult | null = null;
   let githubResult: GitHubSetupResult | null = null;
+  let csvResult: CsvSetupResult | null = null;
   let dbResult: DbSetupResult | null = null;
 
   for (const source of selectedSources) {
@@ -1006,6 +1061,7 @@ async function runInitInteractive(flags: InitFlags): Promise<void> {
       case 'jira':   jiraResult = await setupJiraInteractive(); break;
       case 'git':    gitResult = await setupGitInteractive(); break;
       case 'github': githubResult = await setupGithubInteractive(gitResult?.githubToken, gitResult?.githubRepos); break;
+      case 'csv':    csvResult = await setupCsvInteractive(); break;
       case 'db':     dbResult = await setupDbInteractive(); break;
     }
   }
@@ -1042,7 +1098,7 @@ async function runInitInteractive(flags: InitFlags): Promise<void> {
   // 5. Create workspace
   const spinner = ora('Creating workspace...').start();
   try {
-    createWorkspaceFiles(workspaceDir, jiraResult, gitResult, githubResult, dbResult, dbPort, pgwebPort);
+    createWorkspaceFiles(workspaceDir, jiraResult, gitResult, githubResult, csvResult, dbResult, dbPort, pgwebPort);
     spinner.succeed('Workspace created!');
   } catch (err: unknown) {
     spinner.fail('Failed to create workspace');
@@ -1056,14 +1112,14 @@ async function runInitInteractive(flags: InitFlags): Promise<void> {
     default: true,
   });
 
-  printSummary(workspaceDir, jiraResult, gitResult, githubResult, dbResult, pgwebPort, autoStart);
+  printSummary(workspaceDir, jiraResult, gitResult, githubResult, csvResult, dbResult, pgwebPort, autoStart);
 
   if (autoStart) {
-    await startAndSync(workspaceDir, jiraResult !== null, gitResult !== null, githubResult !== null, pgwebPort);
+    await startAndSync(workspaceDir, jiraResult !== null, gitResult !== null, githubResult !== null, csvResult, pgwebPort);
   }
 }
 
-async function startAndSync(workspaceDir: string, hasJira: boolean, hasGit: boolean, hasGithub: boolean, pgwebPort: number): Promise<void> {
+async function startAndSync(workspaceDir: string, hasJira: boolean, hasGit: boolean, hasGithub: boolean, csv: CsvSetupResult | null, pgwebPort: number): Promise<void> {
   const spinnerDb = ora('Starting Docker containers...').start();
   try {
     execSync('docker compose up -d', { cwd: workspaceDir, stdio: 'pipe' });
@@ -1127,6 +1183,17 @@ async function startAndSync(workspaceDir: string, hasJira: boolean, hasGit: bool
     } catch (err: unknown) {
       console.log(chalk.red(`  GitHub sync failed: ${err instanceof Error ? err.message : String(err)}`));
       console.log(chalk.dim(`  Try manually: cd ${workspaceDir} && argustack sync github`));
+    }
+  }
+
+  if (csv) {
+    console.log('');
+    try {
+      const { syncCsvFromInit } = await import('./sync.js');
+      await syncCsvFromInit(workspaceDir, csv.csvFilePath);
+    } catch (err: unknown) {
+      console.log(chalk.red(`  CSV import failed: ${err instanceof Error ? err.message : String(err)}`));
+      console.log(chalk.dim(`  Try manually: cd ${workspaceDir} && argustack sync csv`));
     }
   }
 

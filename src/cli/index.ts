@@ -35,6 +35,7 @@ program
   .option('--target-db-user <user>', 'Target DB user')
   .option('--target-db-password <password>', 'Target DB password')
   .option('--target-db-name <name>', 'Target DB name')
+  .option('--csv-file <path>', 'Path to Jira CSV export file')
   .option('--db-port <port>', 'Argustack PostgreSQL port', '5434')
   .option('--pgweb-port <port>', 'pgweb UI port', '8086')
   .option('--no-interactive', 'Run without prompts (all values from flags)')
