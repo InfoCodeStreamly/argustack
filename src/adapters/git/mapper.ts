@@ -50,7 +50,8 @@ export function extractIssueRefs(commitHash: string, message: string): CommitIss
   while ((match = pattern.exec(message)) !== null) {
     const key = match[1];
     if (key) {
-      keys.add(key.toUpperCase());
+      const [prefix, num] = key.toUpperCase().split('-');
+      keys.add(`${prefix}-${String(Number(num))}`);
     }
   }
 

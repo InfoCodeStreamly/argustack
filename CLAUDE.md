@@ -8,7 +8,7 @@ Argustack — standalone open-source CLI tool for project analysis. Cross-refere
 - **GitHub** — what was reviewed (PRs, approvals, releases)
 - **DB** — what factually exists in production (coming soon)
 
-Downloads everything into local PostgreSQL, then gives Claude direct access via MCP server (14 tools).
+Downloads everything into local PostgreSQL, then gives Claude direct access via MCP server (15 tools).
 
 ## Tech Stack
 
@@ -77,7 +77,7 @@ src/
 │   └── resolver.ts                   find .argustack/ walking up from cwd
 │
 ├── mcp/                           ← MCP SERVER: Claude Desktop integration
-│   └── server.ts                     McpServer with 14 tools
+│   └── server.ts                     McpServer with 15 tools
 │
 └── cli/                           ← ENTRY POINT: commands, UX, wiring
     ├── index.ts                      Commander.js setup, registers all commands

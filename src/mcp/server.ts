@@ -120,6 +120,9 @@ function str(value: unknown): string {
   if (typeof value === 'number' || typeof value === 'boolean') {
     return String(value);
   }
+  if (value instanceof Date) {
+    return value.toISOString();
+  }
   // Objects, arrays, symbols, functions — use JSON for a meaningful representation
   return JSON.stringify(value);
 }
@@ -810,7 +813,7 @@ server.registerTool(
         const typed = row as unknown as CommitRow;
         if (typed.hash) {
           const shortHash = typed.hash.substring(0, 7);
-          const date = typed.committed_at ? typed.committed_at.substring(0, 10) : '?';
+          const date = typed.committed_at ? str(typed.committed_at).substring(0, 10) : '?';
           return `${shortHash} ${date} ${str(typed.author)}: ${str(typed.message).split('\n')[0]}`;
         }
         return JSON.stringify(row);
@@ -1615,6 +1618,346 @@ server.registerTool(
       await storage.close();
       return {
         content: [{ type: 'text' as const, text: `Search failed: ${getErrorMessage(err)}` }],
+        isError: true,
+      };
+    }
+  },
+);
+
+// ─── Tool 15: estimate ────────────────────────────────────────────────────────
+
+interface EstimateSimilarRow {
+  issue_key: string;
+  summary: string;
+  issue_type: string;
+  status: string;
+  assignee: string | null;
+  created: string;
+  resolved: string | null;
+  parent_key: string | null;
+  story_points: number | null;
+  rank: number;
+}
+
+interface EstimateWorklogRow {
+  issue_key: string;
+  author: string;
+  total_seconds: string;
+}
+
+interface EstimateCommitRow {
+  issue_key: string;
+  commits: string;
+  authors: string;
+  total_additions: string;
+  total_deletions: string;
+  first_commit: string | null;
+  last_commit: string | null;
+}
+
+interface EstimateBugRow {
+  bug_key: string;
+  summary: string;
+  resolved: string | null;
+  created: string;
+}
+
+interface EstimateRawRow {
+  issue_key: string;
+  original_estimate: string | null;
+  time_spent: string | null;
+  aggregate_time: string | null;
+}
+
+server.registerTool(
+  'estimate',
+  {
+    description: 'Predict effort for a new task based on historical data. Finds similar completed tasks, analyzes cycle times, worklogs per developer, bug aftermath, estimate accuracy. Two key inputs: WHAT (task description) and WHO (developer).',
+    inputSchema: {
+      description: z.string().describe('Description of the new task (e.g. "Stripe payment integration with subscriptions")'),
+      assignee: z.string().optional().describe('Developer name to predict for. If omitted, shows all developers who worked on similar tasks'),
+      limit: z.number().optional().describe('Number of similar tasks to analyze (default: 10)'),
+    },
+  },
+  async ({ description, assignee, limit }) => {
+    const ws = loadWorkspace();
+    if (!ws.ok) {
+      return {
+        content: [{ type: 'text' as const, text: `Workspace not found: ${ws.reason}` }],
+        isError: true,
+      };
+    }
+
+    const { storage } = await createAdapters(ws.root);
+    try {
+      const maxResults = limit ?? 10;
+
+      // 1. Find similar DONE issues via full-text search + status_category
+      const similarResult = await storage.query(
+        `SELECT issue_key, summary, issue_type, status, assignee, created, resolved,
+                parent_key, story_points,
+                ts_rank(search_vector, plainto_tsquery('english', $1)) as rank
+         FROM issues
+         WHERE search_vector @@ plainto_tsquery('english', $1)
+           AND status_category = 'Done'
+         ORDER BY rank DESC
+         LIMIT $2`,
+        [description, maxResults],
+      );
+
+      const similar = similarResult.rows as unknown as EstimateSimilarRow[];
+
+      if (similar.length === 0) {
+        await storage.close();
+        return {
+          content: [{ type: 'text' as const, text: `No similar completed tasks found for: "${description}"\n\nTry broader terms or different keywords.` }],
+        };
+      }
+
+      const issueKeys = similar.map((r) => r.issue_key);
+      const keysParam = issueKeys.map((_, i) => `$${String(i + 1)}`).join(',');
+
+      // 2. Worklogs per developer per issue
+      const worklogsResult = await storage.query(
+        `SELECT issue_key, author, SUM(time_spent_seconds) as total_seconds
+         FROM issue_worklogs
+         WHERE issue_key IN (${keysParam})
+         GROUP BY issue_key, author`,
+        issueKeys,
+      );
+      const worklogs = worklogsResult.rows as unknown as EstimateWorklogRow[];
+
+      // 3. Real developer — first assignee from changelogs (the person who started working)
+      const devChangelogResult = await storage.query(
+        `SELECT DISTINCT ON (issue_key) issue_key, to_value as dev_assignee
+         FROM issue_changelogs
+         WHERE issue_key IN (${keysParam})
+           AND field = 'assignee'
+           AND to_value IS NOT NULL
+           AND to_value != ''
+         ORDER BY issue_key, changed_at`,
+        issueKeys,
+      );
+      const devChangelogs = devChangelogResult.rows as unknown as { issue_key: string; dev_assignee: string }[];
+      const realDevMap = new Map<string, string>();
+      for (const d of devChangelogs) {
+        realDevMap.set(d.issue_key, d.dev_assignee);
+      }
+
+      // 4. Commits linked to these issues — with real coding time (first → last commit)
+      const commitsResult = await storage.query(
+        `SELECT r.issue_key,
+                COUNT(*) as commits,
+                STRING_AGG(DISTINCT c.author, ', ') as authors,
+                SUM(cf_agg.additions) as total_additions,
+                SUM(cf_agg.deletions) as total_deletions,
+                MIN(c.author_date) as first_commit,
+                MAX(c.author_date) as last_commit
+         FROM commit_issue_refs r
+         JOIN commits c ON r.commit_hash = c.hash
+         LEFT JOIN (
+           SELECT commit_hash, SUM(additions) as additions, SUM(deletions) as deletions
+           FROM commit_files GROUP BY commit_hash
+         ) cf_agg ON c.hash = cf_agg.commit_hash
+         WHERE r.issue_key IN (${keysParam})
+         GROUP BY r.issue_key`,
+        issueKeys,
+      );
+      const commitData = commitsResult.rows as unknown as EstimateCommitRow[];
+
+      // 5. Related issues — children (subtasks, bugs) + linked issues
+      const childrenResult = await storage.query(
+        `SELECT i.parent_key as related_to, i.issue_key as bug_key, i.summary, i.issue_type, i.resolved, i.created
+         FROM issues i
+         WHERE i.parent_key IN (${keysParam})
+           AND i.issue_key NOT IN (${keysParam})`,
+        [...issueKeys, ...issueKeys],
+      );
+      const linkedResult = await storage.query(
+        `SELECT il.source_key as related_to, i.issue_key as bug_key, i.summary, i.issue_type, i.resolved, i.created
+         FROM issue_links il
+         JOIN issues i ON i.issue_key = il.target_key
+         WHERE il.source_key IN (${keysParam})
+           AND i.issue_key NOT IN (${keysParam})`,
+        [...issueKeys, ...issueKeys],
+      );
+      const bugs = [
+        ...(childrenResult.rows as unknown as (EstimateBugRow & { related_to: string; issue_type: string })[]),
+        ...(linkedResult.rows as unknown as (EstimateBugRow & { related_to: string; issue_type: string })[]),
+      ];
+
+      // 6. Original estimates from raw_json
+      const rawEstimates = await storage.query(
+        `SELECT issue_key,
+                raw_json->'fields'->>'timeoriginalestimate' as original_estimate,
+                raw_json->'fields'->>'timespent' as time_spent,
+                raw_json->'fields'->>'aggregatetimespent' as aggregate_time
+         FROM issues
+         WHERE issue_key IN (${keysParam})`,
+        issueKeys,
+      );
+      const estimates = rawEstimates.rows as unknown as EstimateRawRow[];
+
+      await storage.close();
+
+      // ─── Build report ───
+
+      const sections: string[] = [];
+      sections.push(`# Estimate Prediction`);
+      sections.push(`Query: "${description}"${assignee ? ` | Developer: ${assignee}` : ''}`);
+      sections.push(`Based on ${String(similar.length)} similar completed tasks\n`);
+
+      // Index data by issue_key
+      const worklogMap = new Map<string, EstimateWorklogRow[]>();
+      for (const w of worklogs) {
+        const arr = worklogMap.get(w.issue_key) ?? [];
+        arr.push(w);
+        worklogMap.set(w.issue_key, arr);
+      }
+
+      const commitMap = new Map<string, EstimateCommitRow>();
+      for (const c of commitData) {
+        commitMap.set(c.issue_key, c);
+      }
+
+      const estimateMap = new Map<string, EstimateRawRow>();
+      for (const e of estimates) {
+        estimateMap.set(e.issue_key, e);
+      }
+
+      const bugMap = new Map<string, (EstimateBugRow & { related_to: string; issue_type: string })[]>();
+      for (const b of bugs) {
+        const arr = bugMap.get(b.related_to) ?? [];
+        arr.push(b);
+        bugMap.set(b.related_to, arr);
+      }
+
+      // ─── Per-issue breakdown ───
+      sections.push('## Similar Tasks\n');
+
+      let totalCycleHours = 0;
+      let totalCodingHours = 0;
+      let totalWorklogHours = 0;
+      let totalBugs = 0;
+      let validCycleCount = 0;
+      let validCodingCount = 0;
+      const developerStats = new Map<string, { tasks: number; cycleHours: number; codingHours: number; bugs: number; commits: number }>();
+
+      for (const issue of similar) {
+        const cycleHours = issue.resolved
+          ? (new Date(issue.resolved).getTime() - new Date(issue.created).getTime()) / 3600000
+          : null;
+
+        if (cycleHours !== null) {
+          totalCycleHours += cycleHours;
+          validCycleCount++;
+        }
+
+        const issueWorklogs = worklogMap.get(issue.issue_key) ?? [];
+        const issueCommits = commitMap.get(issue.issue_key);
+        const issueBugs = bugMap.get(issue.issue_key) ?? [];
+        const issueEstimate = estimateMap.get(issue.issue_key);
+
+        // Real coding time from commits
+        const codingHours = (issueCommits?.first_commit && issueCommits.last_commit)
+          ? (new Date(issueCommits.last_commit).getTime() - new Date(issueCommits.first_commit).getTime()) / 3600000
+          : null;
+
+        if (codingHours !== null && codingHours > 0) {
+          totalCodingHours += codingHours;
+          validCodingCount++;
+        }
+
+        const worklogHours = issueWorklogs.reduce((sum, w) => sum + Number(w.total_seconds), 0) / 3600;
+        totalWorklogHours += worklogHours;
+        totalBugs += issueBugs.length;
+
+        // Track developer stats — priority: changelog assignee → worklogs → commits → current assignee
+        const realDev = realDevMap.get(issue.issue_key);
+        const devName = realDev ?? (issueWorklogs.length > 0 ? issueWorklogs[0]?.author : null) ?? issueCommits?.authors ?? issue.assignee ?? 'unknown';
+        if (devName) {
+          const stats = developerStats.get(devName) ?? { tasks: 0, cycleHours: 0, codingHours: 0, bugs: 0, commits: 0 };
+          stats.tasks++;
+          stats.cycleHours += cycleHours ?? 0;
+          stats.codingHours += codingHours ?? 0;
+          stats.bugs += issueBugs.length;
+          stats.commits += Number(issueCommits?.commits ?? 0);
+          developerStats.set(devName, stats);
+        }
+
+        const originalEst = issueEstimate?.original_estimate ? `${String(Math.round(Number(issueEstimate.original_estimate) / 3600))}h est` : '';
+        const actualTime = issueEstimate?.time_spent ? `${String(Math.round(Number(issueEstimate.time_spent) / 3600))}h actual` : '';
+        const cycleStr = cycleHours !== null ? `${cycleHours.toFixed(1)}h cycle` : 'open';
+        const codingStr = codingHours !== null && codingHours > 0 ? ` | ${codingHours.toFixed(1)}h coding` : '';
+
+        sections.push(`### ${issue.issue_key}: ${issue.summary}`);
+        sections.push(`Type: ${issue.issue_type} | Dev: ${devName} | ${cycleStr}${codingStr}`);
+        if (originalEst || actualTime) {
+          sections.push(`Estimate: ${[originalEst, actualTime].filter(Boolean).join(' → ')}`);
+        }
+        if (issueCommits) {
+          sections.push(`Code: ${issueCommits.commits} commits, +${issueCommits.total_additions}/-${issueCommits.total_deletions} lines (${issueCommits.authors})`);
+        }
+        if (issueWorklogs.length > 0) {
+          const wlLines = issueWorklogs.map((w) => `  ${w.author}: ${(Number(w.total_seconds) / 3600).toFixed(1)}h`);
+          sections.push(`Worklogs:\n${wlLines.join('\n')}`);
+        }
+        if (issueBugs.length > 0) {
+          const bugLines = issueBugs.map((b) => `  ${b.bug_key} [${b.issue_type}] ${b.summary}`);
+          sections.push(`Related issues (${String(issueBugs.length)}):\n${bugLines.join('\n')}`);
+        }
+        sections.push('');
+      }
+
+      // ─── Aggregate prediction ───
+      sections.push('## Prediction\n');
+
+      const avgCycle = validCycleCount > 0 ? totalCycleHours / validCycleCount : 0;
+      const avgCoding = validCodingCount > 0 ? totalCodingHours / validCodingCount : 0;
+      const avgBugs = similar.length > 0 ? totalBugs / similar.length : 0;
+
+      // Best effort time: coding > worklogs > cycle
+      const bestTimeSource = avgCoding > 0 ? { label: 'coding time (commits)', hours: avgCoding }
+        : totalWorklogHours > 0 ? { label: 'logged time (worklogs)', hours: totalWorklogHours / similar.length }
+        : { label: 'cycle time (created→resolved)', hours: avgCycle };
+
+      sections.push(`Average ${bestTimeSource.label}: ${bestTimeSource.hours.toFixed(1)}h (${(bestTimeSource.hours / 8).toFixed(1)} working days)`);
+      if (avgCoding > 0 && avgCycle > 0) {
+        sections.push(`Cycle time (includes waiting/review): ${avgCycle.toFixed(1)}h — coding was ${((avgCoding / avgCycle) * 100).toFixed(0)}% of it`);
+      }
+      sections.push(`Bug rate: ${avgBugs.toFixed(1)} bugs per task`);
+
+      // ─── Developer breakdown ───
+      if (developerStats.size > 0) {
+        sections.push('\n## Developer Profiles\n');
+        for (const [dev, stats] of developerStats) {
+          if (assignee && !dev.toLowerCase().includes(assignee.toLowerCase())) {
+            continue;
+          }
+          const avgDevCoding = stats.tasks > 0 ? stats.codingHours / stats.tasks : 0;
+          const avgDevCycle = stats.tasks > 0 ? stats.cycleHours / stats.tasks : 0;
+          const devBestHours = avgDevCoding > 0 ? avgDevCoding : avgDevCycle;
+          const bugRate = stats.tasks > 0 ? stats.bugs / stats.tasks : 0;
+          sections.push(`**${dev}**: ${String(stats.tasks)} similar tasks, avg ${devBestHours.toFixed(1)}h (${(devBestHours / 8).toFixed(1)}d), ${bugRate.toFixed(1)} bugs/task, ${String(stats.commits)} commits`);
+        }
+      }
+
+      // ─── Final estimate ───
+      sections.push('\n## Recommended Estimate\n');
+      const bufferMultiplier = 1.3;
+      const predictedHours = bestTimeSource.hours * bufferMultiplier;
+      sections.push(`Base: ${bestTimeSource.hours.toFixed(0)}h + 30% buffer = **${predictedHours.toFixed(0)}h (${(predictedHours / 8).toFixed(1)} working days)**`);
+      if (avgBugs > 0.5) {
+        sections.push(`⚠ High bug rate (${avgBugs.toFixed(1)}/task) — consider additional buffer`);
+      }
+
+      return {
+        content: [{ type: 'text' as const, text: sections.join('\n') }],
+      };
+    } catch (err: unknown) {
+      await storage.close();
+      return {
+        content: [{ type: 'text' as const, text: `Estimate failed: ${getErrorMessage(err)}` }],
         isError: true,
       };
     }

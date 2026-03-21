@@ -56,7 +56,8 @@ describe('MCP server tools', () => {
     expect(toolNames).toContain('issue_timeline');
     expect(toolNames).toContain('query_releases');
     expect(toolNames).toContain('semantic_search');
-    expect(tools).toHaveLength(14);
+    expect(toolNames).toContain('estimate');
+    expect(tools).toHaveLength(15);
   });
 
   it('workspace_info tool responds (even without workspace)', async () => {
@@ -99,6 +100,33 @@ describe('MCP server tools', () => {
     const result = await client.callTool({
       name: 'issue_stats',
       arguments: {},
+    });
+
+    expect(result.content).toBeDefined();
+  });
+
+  it('query_commits accepts repo_path parameter', async () => {
+    const result = await client.callTool({
+      name: 'query_commits',
+      arguments: { repo_path: 'test-repo' },
+    });
+
+    expect(result.content).toBeDefined();
+  });
+
+  it('commit_stats accepts repo_path parameter', async () => {
+    const result = await client.callTool({
+      name: 'commit_stats',
+      arguments: { repo_path: 'test-repo' },
+    });
+
+    expect(result.content).toBeDefined();
+  });
+
+  it('issue_commits accepts repo_path parameter', async () => {
+    const result = await client.callTool({
+      name: 'issue_commits',
+      arguments: { issue_key: TEST_IDS.issueKey, repo_path: 'test-repo' },
     });
 
     expect(result.content).toBeDefined();
