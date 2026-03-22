@@ -6,12 +6,14 @@
 
 CLI tool that downloads your project data into a local database, then gives Claude / any LLM direct access to query it.
 
-Four sources of truth:
+Five sources of truth:
 - **Jira** — issues, comments, changelogs, worklogs, links (what was planned)
 - **Jira CSV** — import from CSV export for teams without Jira API access
 - **Git** — commits, per-file diffs, issue cross-references (what was coded)
 - **GitHub** — PRs, reviews, comments, releases (what was reviewed)
 - **Database** — coming soon (what actually exists in production)
+
+Each source is independent — own adapter, own use case, own sync command.
 
 All data stays on localhost in PostgreSQL (Docker). Nothing leaves your machine.
 
@@ -46,6 +48,12 @@ argustack mcp install      # connect to Claude Desktop as MCP server
 
 Non-interactive flags: `--no-interactive`, `--dir`, `--source`, `--jira-url`, `--jira-email`, `--jira-token`, `--jira-projects`, `--git-repo`, `--github-token`, `--github-owner`, `--github-repo`, `--csv-file`, `--db-port`, `--pgweb-port`.
 
+### Estimate Tool — Data Source Awareness
+
+The estimate tool adapts its output based on available data:
+- **With Jira API + Git**: actual work hours (time_spent, worklogs, commit spans) → per-developer predictions in hours with "without bugs" / "with bugs" breakdown
+- **With CSV only**: no effort data → shows **Resolution Timeline** in business days (weekdays only) with clear warning that this is lead time (backlog wait + development + review), not active development time
+
 After sync, users open Claude Desktop or Claude Code and ask questions in natural language.
 Claude queries the local database via 15 MCP tools and answers with full project context.
 
@@ -56,21 +64,23 @@ AI agents can run `argustack init --no-interactive` autonomously — no terminal
 **Jira:** query_issues, get_issue, issue_stats, pull_jira, list_projects
 **Git:** query_commits, issue_commits, commit_stats
 **GitHub:** query_prs, issue_prs, query_releases
-**Cross-source:** issue_timeline (changelogs + commits + PRs for one issue), semantic_search (pgvector embeddings)
-**Prediction:** estimate (predict how long a task will take for a specific developer — two predictions: "without bugs" and "with bugs" real cost, based on similar tasks, personal coefficient from full history, and component familiarity)
+**Cross-source:** issue_timeline (full cross-source timeline: changelogs + commits + PRs for one issue), semantic_search (pgvector embeddings)
+**Prediction:** estimate (predict task duration for a specific developer — with effort data: two predictions "without bugs" and "with bugs" based on similar tasks, personal coefficient, and component familiarity; with CSV only: resolution timeline in business days showing lead time from creation to close)
 **System:** workspace_info
 
-## Architecture
+## Architecture — Hexagonal (Ports & Adapters)
 
-Clean Architecture with dependency inversion:
+Driving adapters (entries): cli/, mcp/
+Driven adapters (external systems): adapters/jira/, adapters/git/, adapters/github/, adapters/postgres/
+Dependency Rule: cli/,mcp/ → use-cases/ → core/ports ← adapters/
 
 ```
-src/core/types/    — Domain types (Issue, PullRequest, Commit, Config)
-src/core/ports/    — Interfaces (ISourceProvider, IStorage)
-src/adapters/      — Implementations (jira/, git/, github/, csv/, postgres/, openai/)
+src/core/types/    — Domain types (Issue, PullRequest, Commit, Config) — zero dependencies
+src/core/ports/    — Interfaces (ISourceProvider, IGitProvider, IGitHubProvider, IStorage)
+src/adapters/      — Driven adapters (jira/, git/, github/, csv/, postgres/, openai/)
 src/use-cases/     — Business logic (PullUseCase, PullGitUseCase, PullGitHubUseCase, EmbedUseCase)
-src/cli/           — CLI entry point, commands
-src/mcp/           — MCP server for Claude Desktop / Claude Code
+src/cli/           — Driving adapter — CLI entry point, commands
+src/mcp/           — Driving adapter — MCP server for Claude Desktop / Claude Code (15 tools)
 ```
 
 ## Database tables

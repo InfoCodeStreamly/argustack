@@ -271,7 +271,7 @@ When connected to Claude, these tools are available:
 |------|-------------|
 | `issue_timeline` | Chronological timeline — changelogs + commits + PRs for one issue |
 | `semantic_search` | Find similar issues by meaning (pgvector embeddings) |
-| `estimate` | Predict how long a task will take for a specific developer — "without bugs" (pure dev time) and "with bugs" (real cost), personal coefficient from full history |
+| `estimate` | Predict task duration per developer. With effort data: "without bugs" / "with bugs" predictions. With CSV only: resolution timeline in business days (lead time, not active dev) |
 
 ### System tools
 
@@ -403,15 +403,27 @@ DB_NAME=argustack
 
 **`.env` is in `.gitignore`** — if you accidentally run `git add .`, your credentials won't be committed.
 
+## Architecture — Hexagonal (Ports & Adapters)
+
+```
+Driving adapters (entries):         cli/, mcp/
+Driven adapters (external systems): adapters/jira/, adapters/git/, adapters/github/, adapters/postgres/
+
+Dependency Rule: cli/,mcp/ → use-cases/ → core/ports ← adapters/
+```
+
+Core has zero dependencies — only pure TypeScript types and interfaces. Adapters implement core ports and are independently replaceable.
+
 ## Tech Stack
 
-- TypeScript / Node.js
-- Commander.js — CLI
-- jira.js — Jira REST API
-- Octokit — GitHub REST API (PRs, reviews, releases)
-- es-git — native Git bindings (N-API, powered by libgit2)
-- PostgreSQL 16 + pgvector — storage + vector search
-- MCP SDK — Claude integration
+- TypeScript / Node.js — Hexagonal Architecture
+- Commander.js — CLI (driving adapter)
+- MCP SDK — Claude integration (driving adapter)
+- jira.js — Jira REST API (driven adapter)
+- Octokit — GitHub REST API (driven adapter)
+- es-git — native Git bindings, N-API, powered by libgit2 (driven adapter)
+- csv-parse — streaming RFC 4180 CSV parser (driven adapter)
+- PostgreSQL 16 + pgvector — storage + vector search (driven adapter)
 - Docker — database infrastructure
 
 ## Roadmap
@@ -424,9 +436,10 @@ DB_NAME=argustack
 - [x] Cross-source timeline (issue_timeline: changelogs + commits + PRs)
 - [x] Multi-repo Git support (multiple repos per workspace, `GIT_REPO_PATHS`)
 - [x] Progress indicators during sync (e.g. `150/506 issues (30%)`)
+- [x] CSV import (Jira export without API token)
+- [x] Estimate tool — task duration prediction with data-source awareness
 - [ ] Database adapter (schema, sample data)
 - [ ] Cross-source analysis (Jira ticket vs actual code vs DB state)
-- [x] CSV import (Jira export without API token)
 
 ## License
 

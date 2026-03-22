@@ -21,22 +21,26 @@ npm run test:arch                  # architecture tests (SSOT validator, no-esli
 npm run test:watch                 # watch mode
 ```
 
-## Architecture
+## Architecture — Hexagonal (Ports & Adapters)
 
-Clean Architecture with dependency inversion. Core knows nothing about adapters.
+Core knows nothing about adapters. Driving adapters (entries): cli/, mcp/. Driven adapters (external systems): adapters/.
 
 ```
 src/
 ├── core/types/        ← Domain types (Issue, PullRequest, Commit, Config) — zero dependencies
 ├── core/ports/        ← Interfaces (ISourceProvider, IGitProvider, IGitHubProvider, IStorage) — contracts only
-├── adapters/          ← Implementations (jira/, git/, github/, postgres/, openai/)
+├── adapters/          ← Driven adapters (jira/, git/, github/, csv/, postgres/, openai/)
 ├── use-cases/         ← Business logic (pull.ts, pull-git.ts, pull-github.ts, embed.ts)
-├── cli/               ← Entry point — creates adapters, injects into use cases
-├── mcp/               ← MCP server for Claude Desktop / Claude Code (14 tools)
+├── cli/               ← Driving adapter — creates adapters, injects into use cases
+├── mcp/               ← Driving adapter — MCP server for Claude Desktop / Claude Code (15 tools)
+│   ├── server.ts      ← Orchestrator — registers tools, starts transport
+│   ├── types.ts       ← Row interfaces for SQL queries
+│   ├── helpers.ts     ← Shared utilities (loadWorkspace, textResponse, etc.)
+│   └── tools/         ← Tool modules (workspace, query, issue, search, estimate)
 └── workspace/         ← Config management, workspace resolver
 ```
 
-**Dependency Rule:** `cli/ → use-cases/ → core/ports` ← `adapters/`
+**Dependency Rule:** `cli/,mcp/ → use-cases/ → core/ports` ← `adapters/`
 
 ## Code Conventions
 
@@ -75,10 +79,11 @@ src/
 ## Source Types
 
 ```typescript
-type SourceType = 'jira' | 'git' | 'github' | 'db';
+type SourceType = 'jira' | 'git' | 'github' | 'csv' | 'db';
 ```
 
 - **jira** — Jira Cloud/Server API → issues, comments, changelogs, worklogs, links
+- **csv** — Jira CSV export → issues (no API needed, dynamic header detection)
 - **git** — local repos on disk → commits, per-file diffs, issue cross-references (multi-repo via `GIT_REPO_PATHS`)
 - **github** — GitHub REST API → PRs, reviews, comments, releases
 - **db** — coming soon
@@ -107,6 +112,7 @@ All three providers expose optional `getCount()` methods for progress reporting 
 | `src/core/types/` | Domain types — Issue, PullRequest, Commit, Config |
 | `src/core/ports/` | Interfaces — ISourceProvider, IGitProvider, IGitHubProvider, IStorage |
 | `src/adapters/jira/` | Jira API client, mapper, provider |
+| `src/adapters/csv/` | Jira CSV import — parser, mapper, provider |
 | `src/adapters/git/` | Git repo reader (es-git / libgit2) |
 | `src/adapters/github/` | GitHub REST API (Octokit) |
 | `src/adapters/postgres/` | PostgreSQL storage, schema, UPSERT |
@@ -116,8 +122,9 @@ All three providers expose optional `getCount()` methods for progress reporting 
 | `src/use-cases/pull-github.ts` | PullGitHubUseCase — GitHub → PostgreSQL |
 | `src/use-cases/embed.ts` | EmbedUseCase — generate embeddings |
 | `src/cli/init.ts` | Interactive workspace setup |
-| `src/cli/sync.ts` | Sync commands (jira, git, github) |
-| `src/mcp/server.ts` | MCP server — 14 tools for Claude |
+| `src/cli/sync.ts` | Sync commands (jira, git, github, csv) |
+| `src/mcp/server.ts` | MCP server orchestrator — registers 15 tools |
+| `src/mcp/tools/` | Tool modules (workspace, query, issue, search, estimate) |
 | `tests/fixtures/shared/` | SSOT test constants and factories |
 | `tests/fixtures/builders/` | IssueBuilder, PullRequestBuilder |
 | `tests/fixtures/fakes/` | In-memory fakes for integration tests |

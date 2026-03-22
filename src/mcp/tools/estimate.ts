@@ -60,6 +60,23 @@ function calculateBaseHours(metrics: SimilarTaskMetrics[]): { hours: number; met
   return { hours: weighted, method: `weighted trimmed mean (${String(trimmed.length)}/${String(metrics.length)} tasks)` };
 }
 
+function businessHoursBetween(start: Date, end: Date): number {
+  let hours = 0;
+  const current = new Date(start);
+  current.setHours(0, 0, 0, 0);
+  const endDate = new Date(end);
+  endDate.setHours(0, 0, 0, 0);
+
+  while (current <= endDate) {
+    const day = current.getDay();
+    if (day !== 0 && day !== 6) {
+      hours += 8;
+    }
+    current.setDate(current.getDate() + 1);
+  }
+  return hours;
+}
+
 export function registerEstimateTools(server: McpServer): void {
   server.registerTool(
     'estimate',
@@ -399,7 +416,8 @@ export function registerEstimateTools(server: McpServer): void {
           const taskCoeff = estH && estH > 0 && actualH ? actualH / estH : null;
           const taskCoeffBugs = estH && estH > 0 ? realCostH / estH : null;
 
-          const cycleStr = cycleHours !== null ? `${cycleHours.toFixed(1)}h cycle` : 'open';
+          const cycleBizDays = issue.resolved ? businessHoursBetween(new Date(issue.created), new Date(issue.resolved)) / 8 : null;
+          const cycleStr = cycleBizDays !== null ? `${cycleBizDays.toFixed(0)}d cycle` : 'open';
           const codingStr = codingHours !== null && codingHours > 0 ? ` | ${codingHours.toFixed(1)}h coding` : '';
 
           const scoreStr = `score: ${Number(issue.composite_score).toFixed(2)}`;
@@ -446,13 +464,13 @@ export function registerEstimateTools(server: McpServer): void {
           const worklogHours = issueWorklogs.reduce((sum, w) => sum + Number(w.total_seconds), 0) / 3600;
           const actualH = issueEstimate?.time_spent ? Number(issueEstimate.time_spent) / 3600 : null;
           const estimateH = issueEstimate?.original_estimate ? Number(issueEstimate.original_estimate) / 3600 : null;
-          const cycleH = issue.resolved
-            ? (new Date(issue.resolved).getTime() - new Date(issue.created).getTime()) / 3600000
+          const cycleBusinessH = issue.resolved
+            ? businessHoursBetween(new Date(issue.created), new Date(issue.resolved))
             : null;
-
-          const hours = actualH ?? (worklogHours > 0 ? worklogHours : null) ?? (codingHours && codingHours > 0 ? codingHours : null) ?? estimateH ?? cycleH;
+          const hours = actualH ?? (worklogHours > 0 ? worklogHours : null) ?? (codingHours && codingHours > 0 ? codingHours : null) ?? estimateH ?? (cycleBusinessH && cycleBusinessH > 0 ? cycleBusinessH : null);
+          const isCycleFallback = hours !== null && hours === cycleBusinessH && actualH === null && !(worklogHours > 0) && !(codingHours && codingHours > 0) && estimateH === null;
           if (hours !== null && hours > 0) {
-            taskMetrics.push({ issueKey: issue.issue_key, hours, weight: Number(issue.temporal_weight) });
+            taskMetrics.push({ issueKey: issue.issue_key, hours, weight: Number(issue.temporal_weight), isCycleFallback });
           }
         }
 
@@ -464,13 +482,17 @@ export function registerEstimateTools(server: McpServer): void {
         const avgCoding = validCodingCount > 0 ? totalCodingHours / validCodingCount : 0;
         const avgBugs = similar.length > 0 ? totalBugs / similar.length : 0;
 
-        sections.push(`Base hours: ${base.hours.toFixed(1)}h (${base.method})`);
-        if (avgCoding > 0 && avgCycle > 0) {
-          sections.push(`Cycle time: ${avgCycle.toFixed(1)}h — coding was ${((avgCoding / avgCycle) * 100).toFixed(0)}% of it`);
+        const allCycleFallback = taskMetrics.length > 0 && taskMetrics.every((m) => m.isCycleFallback);
+
+        if (!allCycleFallback) {
+          sections.push(`Base hours: ${base.hours.toFixed(1)}h (${base.method})`);
+          if (avgCoding > 0 && avgCycle > 0) {
+            sections.push(`Cycle time: ${avgCycle.toFixed(1)}h — coding was ${((avgCoding / avgCycle) * 100).toFixed(0)}% of it`);
+          }
         }
         sections.push(`Bug rate: ${avgBugs.toFixed(1)} bugs per task`);
 
-        if (developerStats.size > 0) {
+        if (!allCycleFallback && developerStats.size > 0) {
           sections.push('\n## Developer Profiles (similar tasks)\n');
           for (const [dev, stats] of developerStats) {
             if (assignee && !dev.toLowerCase().includes(assignee.toLowerCase())) {
@@ -484,12 +506,12 @@ export function registerEstimateTools(server: McpServer): void {
           }
         }
 
-        if (familiarity.factor < 1.0) {
+        if (!allCycleFallback && familiarity.factor < 1.0) {
           sections.push(`\n## Developer Familiarity\n`);
           sections.push(`${assignee}: ${familiarity.explanation}`);
         }
 
-        if (coefficients.length > 0) {
+        if (!allCycleFallback && coefficients.length > 0) {
           sections.push('\n## Developer Coefficients\n');
           const relevantCoeffs = assignee
             ? coefficients.filter((c) => c.assignee.toLowerCase().includes(assignee.toLowerCase()))
@@ -502,39 +524,56 @@ export function registerEstimateTools(server: McpServer): void {
           }
         }
 
-        sections.push('\n## Prediction\n');
-
-        const contextCoeffs = coefficients.filter((c) => c.context_label !== 'all types (fallback)');
-        const globalCoeffs = coefficients.filter((c) => c.context_label === 'all types (fallback)');
-
         const baseHours = base.hours;
 
-        const buildDevPrediction = (dev: DevCoefficientRow, label: string): string[] => {
-          const noBugs = Number(dev.coeff_no_bugs);
-          const withBugs = Number(dev.coeff_with_bugs);
-          const predNoBugs = baseHours * noBugs;
-          const predWithBugs = baseHours * withBugs;
-          const overhead = noBugs > 0 ? ((withBugs - noBugs) / noBugs * 100).toFixed(0) : '0';
-          const lines: string[] = [];
-          lines.push(`### ${dev.assignee} ${label}`);
-          lines.push(`Without bugs: ${baseHours.toFixed(1)}h ×${noBugs.toFixed(2)} = **${predNoBugs.toFixed(1)}h** (${(predNoBugs / 8).toFixed(1)}d)`);
-          lines.push(`With bugs: ${baseHours.toFixed(1)}h ×${withBugs.toFixed(2)} = **${predWithBugs.toFixed(1)}h** (${(predWithBugs / 8).toFixed(1)}d) — bug overhead +${overhead}%`);
-          lines.push(`Based on ${dev.task_count} completed tasks, ${dev.context_label}\n`);
-          return lines;
-        };
+        if (allCycleFallback) {
+          const cycleDays = taskMetrics.map((m) => m.hours / 8);
+          const minDays = Math.min(...cycleDays).toFixed(0);
+          const maxDays = Math.max(...cycleDays).toFixed(0);
+          const rangeStr = minDays === maxDays ? minDays : `${minDays}–${maxDays}`;
 
-        const devCtx = contextCoeffs.find((c) => c.assignee.toLowerCase().includes(assignee.toLowerCase()));
-        const devGlob = globalCoeffs.find((c) => c.assignee.toLowerCase().includes(assignee.toLowerCase()));
-        const dev = devCtx ?? devGlob;
-        if (dev) {
-          sections.push(...buildDevPrediction(dev, ''));
+          sections.push('\n## Resolution Timeline (cycle time only)\n');
+          sections.push(`Similar tasks were closed in **${rangeStr} business days** from creation.`);
+          sections.push(`This is lead time (backlog wait + development + code review), NOT active development time.`);
+          sections.push(`\n⚠ No effort tracking data available (time_spent, worklogs, commit history).`);
+          sections.push(`Connect **Jira API** or **Git** for actual work hours and per-developer predictions.`);
+        } else if (baseHours === 0) {
+          sections.push('\n## Prediction\n');
+          sections.push('**No data available for prediction.**\n');
+          sections.push('Similar tasks have no effort data and no resolved dates.');
+          sections.push('Need at least one of: time_spent, worklogs, commit history, estimates, or resolved date.');
         } else {
-          sections.push(`No coefficient data for "${assignee}". Need ≥3 completed tasks with estimates.`);
-          sections.push(`${baseHours.toFixed(1)}h based on similar tasks (no personal coefficient)\n`);
-        }
+          sections.push('\n## Prediction\n');
+          const contextCoeffs = coefficients.filter((c) => c.context_label !== 'all types (fallback)');
+          const globalCoeffs = coefficients.filter((c) => c.context_label === 'all types (fallback)');
 
-        if (avgBugs > 0.5) {
-          sections.push(`High bug rate (${avgBugs.toFixed(1)}/task) among similar tasks`);
+          const buildDevPrediction = (dev: DevCoefficientRow): string[] => {
+            const noBugs = Number(dev.coeff_no_bugs);
+            const withBugs = Number(dev.coeff_with_bugs);
+            const overhead = noBugs > 0 ? ((withBugs - noBugs) / noBugs * 100).toFixed(0) : '0';
+            const predNoBugs = baseHours * noBugs;
+            const predWithBugs = baseHours * withBugs;
+            const lines: string[] = [];
+            lines.push(`### ${dev.assignee}`);
+            lines.push(`Without bugs: ${baseHours.toFixed(1)}h ×${noBugs.toFixed(2)} = **${predNoBugs.toFixed(1)}h** (${(predNoBugs / 8).toFixed(1)}d)`);
+            lines.push(`With bugs: ${baseHours.toFixed(1)}h ×${withBugs.toFixed(2)} = **${predWithBugs.toFixed(1)}h** (${(predWithBugs / 8).toFixed(1)}d) — bug overhead +${overhead}%`);
+            lines.push(`Based on ${dev.task_count} completed tasks, ${dev.context_label}\n`);
+            return lines;
+          };
+
+          const devCtx = contextCoeffs.find((c) => c.assignee.toLowerCase().includes(assignee.toLowerCase()));
+          const devGlob = globalCoeffs.find((c) => c.assignee.toLowerCase().includes(assignee.toLowerCase()));
+          const dev = devCtx ?? devGlob;
+          if (dev) {
+            sections.push(...buildDevPrediction(dev));
+          } else {
+            sections.push(`No coefficient data for "${assignee}". Need ≥3 completed tasks.`);
+            sections.push(`**${baseHours.toFixed(1)}h** based on similar tasks (no personal coefficient)\n`);
+          }
+
+          if (avgBugs > 0.5) {
+            sections.push(`High bug rate (${avgBugs.toFixed(1)}/task) among similar tasks`);
+          }
         }
 
         return textResponse(sections.join('\n'));
