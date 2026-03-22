@@ -123,6 +123,7 @@ export interface SimilarTaskMetrics {
   issueKey: string;
   hours: number;
   weight: number;
+  isCycleFallback?: boolean;
 }
 
 export interface EstimateWorklogRow {
