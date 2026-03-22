@@ -26,9 +26,11 @@ Downloads everything into local PostgreSQL, then gives Claude direct access via 
 - **dotenv** — configuration via `.env`
 - **ora / chalk** — CLI UX (spinners, colors)
 
-## Architecture — Clean Architecture (adapted for CLI)
+## Architecture — Hexagonal (Ports & Adapters)
 
-Dependency Rule: `cli/ → use-cases/ → core/ports` ← `adapters/`
+Driving adapters (входи): `cli/` (Commander.js), `mcp/` (Claude MCP)
+Driven adapters (зовнішні системи): `adapters/jira/`, `adapters/git/`, `adapters/github/`, `adapters/postgres/`
+Dependency Rule: `cli/,mcp/ → use-cases/ → core/ports` ← `adapters/`
 
 ```
 src/
@@ -207,9 +209,12 @@ DB_NAME=argustack
 
 ```bash
 npm install                      # install dependencies
+docker compose up -d             # start PostgreSQL (from workspace dir)
 npm run dev -- sync              # run via tsx (dev mode)
 npm run build                    # compile TypeScript
+npm link                         # symlink global `argustack` to local build
 npm start -- sync                # run compiled version
+npm run ci                       # full check: typecheck + lint + all tests
 ```
 
 ## Commands
@@ -256,7 +261,7 @@ npm run check                    # typecheck + lint (no tests)
 - **Husky pre-commit hooks** — branch-aware (strict on `main`, flexible on `staging`/`feature/*`)
 - **lint-staged** — ESLint on staged `.ts` files
 - **Pre-commit runs**: lint-staged → TypeScript check → unit tests
-- **Architecture tests** — SSOT validator (no hardcoded IDs), no eslint-disable
+- **Architecture tests** — SSOT validator (no hardcoded IDs), no eslint-disable, no inline `//` comments
 
 ## Code Conventions
 
@@ -266,7 +271,7 @@ npm run check                    # typecheck + lint (no tests)
 - Async/await throughout
 - No hardcoded field names or project-specific logic
 - No eslint-disable — fix root cause with proper types
-- Dependency Inversion: depend on interfaces (core/ports), not implementations
+- Hexagonal Architecture: depend on ports (core/ports), not adapter implementations
 
 ## References
 

@@ -52,15 +52,15 @@ npm run ci  # typecheck + lint + tests
 
 ---
 
-## Architecture: Clean Architecture (Hexagonal)
+## Architecture: Hexagonal (Ports & Adapters)
 
 ```
-core/ports/     ← Interfaces (IStorage, ISourceProvider)
+core/ports/     ← Ports (IStorage, ISourceProvider)
 core/types/     ← Domain types (Issue, Project, etc.)
-adapters/       ← Implementations (postgres/, jira/)
+adapters/       ← Driven adapters (postgres/, jira/, git/, github/)
 use-cases/      ← Business logic (PullUseCase)
-mcp/            ← MCP server (tools)
-cli/            ← CLI commands
+mcp/            ← Driving adapter (Claude MCP tools)
+cli/            ← Driving adapter (Commander.js commands)
 workspace/      ← Config, resolver
 ```
 
