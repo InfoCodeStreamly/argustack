@@ -1,0 +1,107 @@
+# Argustack
+
+> RAG engine for project intelligence — pull Jira, Git, GitHub into local PostgreSQL, then ask AI about your project
+
+## What it does
+
+CLI tool that downloads your project data into a local database, then gives Claude / any LLM direct access to query it.
+
+Four sources of truth:
+- **Jira** — issues, comments, changelogs, worklogs, links (what was planned)
+- **Jira CSV** — import from CSV export for teams without Jira API access
+- **Git** — commits, per-file diffs, issue cross-references (what was coded)
+- **GitHub** — PRs, reviews, comments, releases (what was reviewed)
+- **Database** — coming soon (what actually exists in production)
+
+All data stays on localhost in PostgreSQL (Docker). Nothing leaves your machine.
+
+## How users interact
+
+Two modes — interactive (human) and non-interactive (AI agents, CI/CD):
+
+```bash
+npm i -g argustack
+
+# Interactive — prompts guide you through setup
+argustack init
+
+# Non-interactive — all values via CLI flags, no prompts
+argustack init --no-interactive \
+  --dir ~/project --source jira,git,github \
+  --jira-url "https://team.atlassian.net" \
+  --jira-email "user@co.com" --jira-token "ATATT3x..." \
+  --jira-projects PAP,MKT \
+  --git-repo /path/to/repo \
+  --github-token "github_pat_..." --github-owner org --github-repo repo
+
+# Then:
+docker compose up -d       # start database
+argustack sync             # pull all data from configured sources
+argustack sync jira        # pull specific source
+argustack sync github      # pull GitHub PRs/reviews/releases separately
+argustack sync csv         # import from Jira CSV export
+argustack embed            # generate OpenAI embeddings for semantic search
+argustack mcp install      # connect to Claude Desktop as MCP server
+```
+
+Non-interactive flags: `--no-interactive`, `--dir`, `--source`, `--jira-url`, `--jira-email`, `--jira-token`, `--jira-projects`, `--git-repo`, `--github-token`, `--github-owner`, `--github-repo`, `--csv-file`, `--db-port`, `--pgweb-port`.
+
+After sync, users open Claude Desktop or Claude Code and ask questions in natural language.
+Claude queries the local database via 15 MCP tools and answers with full project context.
+
+AI agents can run `argustack init --no-interactive` autonomously — no terminal interaction needed.
+
+## MCP Tools (15 total)
+
+**Jira:** query_issues, get_issue, issue_stats, pull_jira, list_projects
+**Git:** query_commits, issue_commits, commit_stats
+**GitHub:** query_prs, issue_prs, query_releases
+**Cross-source:** issue_timeline (changelogs + commits + PRs for one issue), semantic_search (pgvector embeddings)
+**Prediction:** estimate (predict how long a task will take for a specific developer — two predictions: "without bugs" and "with bugs" real cost, based on similar tasks, personal coefficient from full history, and component familiarity)
+**System:** workspace_info
+
+## Architecture
+
+Clean Architecture with dependency inversion:
+
+```
+src/core/types/    — Domain types (Issue, PullRequest, Commit, Config)
+src/core/ports/    — Interfaces (ISourceProvider, IStorage)
+src/adapters/      — Implementations (jira/, git/, github/, csv/, postgres/, openai/)
+src/use-cases/     — Business logic (PullUseCase, PullGitUseCase, PullGitHubUseCase, EmbedUseCase)
+src/cli/           — CLI entry point, commands
+src/mcp/           — MCP server for Claude Desktop / Claude Code
+```
+
+## Database tables
+
+**Jira:** issues (including original_estimate, time_spent, assignee_id, reporter_id), issue_comments, issue_changelogs, issue_worklogs, issue_links
+**Git:** commits, commit_files, commit_issue_refs
+**GitHub:** pull_requests, pr_reviews, pr_comments, pr_files, pr_issue_refs, releases
+
+Cross-references: commit messages and PR titles mentioning `PROJ-123` are automatically linked to Jira issues.
+
+## Key design decisions
+
+- Download ALL fields from Jira (`fields=*all`) — every custom field preserved
+- Store raw JSON as-is in `raw_json` JSONB column — nothing filtered
+- AsyncGenerator for streaming large datasets (100k+ issues)
+- Multi-repo Git support — `GIT_REPO_PATHS` accepts comma-separated paths, one GitProvider per repo, shared storage
+- Progress indicators during sync — ports expose optional count methods (`getIssueCount()`, `getCommitCount()`, `getPrCount()`) for displaying `150/506 issues (30%)`
+- Git MCP tools (`query_commits`, `issue_commits`, `commit_stats`) accept optional `repo_path` filter for multi-repo workspaces
+- Each workspace is isolated — own Docker, own credentials, own database
+- Jira CSV import — universal adapter for any Jira instance, dynamic header detection, supports worklogs/comments/links/custom fields
+- ESM modules, TypeScript strict mode, Vitest for testing
+
+## Detailed docs
+
+- [README.md](README.md) — Features, quick start, all commands, MCP tools, security
+- [CLAUDE.md](CLAUDE.md) — Architecture, tech stack, workspace concept, database schema
+- [AGENTS.md](AGENTS.md) — AI coding agent guide: commands, conventions, debugging
+- [.claude/rules/policies.md](.claude/rules/policies.md) — Git workflow, commit conventions
+- [.claude/rules/tests.md](.claude/rules/tests.md) — Testing strategy, SSOT fixtures
+- [.claude/rules/workflows.md](.claude/rules/workflows.md) — Development workflow
+
+## License
+
+MIT
