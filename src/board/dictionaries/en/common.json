@@ -1,0 +1,24 @@
+{
+  "common": {
+    "actions": {
+      "save": "Save",
+      "cancel": "Cancel",
+      "delete": "Delete",
+      "close": "Close",
+      "confirm": "Confirm",
+      "retry": "Retry"
+    },
+    "status": {
+      "loading": "Loading...",
+      "error": "Something went wrong",
+      "empty": "Nothing here yet",
+      "saving": "Saving..."
+    },
+    "time": {
+      "justNow": "Just now",
+      "minutesAgo": "{count}m ago",
+      "hoursAgo": "{count}h ago",
+      "daysAgo": "{count}d ago"
+    }
+  }
+}

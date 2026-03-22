@@ -1,0 +1,108 @@
+comments:
+  UndocumentedPublicClass:
+    active: false
+  UndocumentedPublicFunction:
+    active: false
+  UndocumentedPublicProperty:
+    active: false
+
+style:
+  RedundantVisibilityModifier:
+    active: false
+  UnnecessaryFullyQualifiedName:
+    active: false
+  MagicNumber:
+    active: true
+    ignoreNumbers:
+      - '-1'
+      - '0'
+      - '1'
+      - '2'
+    ignoreHashCodeFunction: true
+    ignorePropertyDeclaration: true
+    ignoreConstantDeclaration: true
+    ignoreCompanionObjectPropertyDeclaration: true
+    ignoreAnnotation: true
+    ignoreNamedArgument: true
+    ignoreEnums: true
+  ForbiddenComment:
+    active: true
+    comments:
+      - 'TODO'
+      - 'FIXME'
+      - 'HACK'
+      - 'STOPSHIP'
+  WildcardImport:
+    active: true
+  MaxLineLength:
+    active: true
+    maxLineLength: 120
+    excludeCommentStatements: true
+  ReturnCount:
+    active: true
+    max: 3
+  ExpressionBodySyntax:
+    active: true
+    includeLineWrapping: false
+  ClassOrdering:
+    active: true
+  CascadingCallWrapping:
+    active: true
+    includeElvis: false
+
+complexity:
+  CyclomaticComplexMethod:
+    active: true
+    allowedComplexity: 10
+  CognitiveComplexMethod:
+    active: true
+    allowedComplexity: 15
+  LongMethod:
+    active: true
+    allowedLines: 30
+  LargeClass:
+    active: true
+    allowedLines: 200
+  TooManyFunctions:
+    active: true
+    allowedFunctionsPerFile: 15
+    allowedFunctionsPerClass: 15
+  LongParameterList:
+    active: true
+    allowedFunctionParameters: 6
+    allowedConstructorParameters: 8
+  StringLiteralDuplication:
+    active: true
+    allowedDuplications: 2
+    allowedWithLengthLessThan: 5
+    ignoreAnnotation: true
+
+empty-blocks:
+  EmptyFunctionBlock:
+    active: true
+  EmptyClassBlock:
+    active: true
+  EmptyCatchBlock:
+    active: true
+  EmptyIfBlock:
+    active: true
+
+naming:
+  FunctionNaming:
+    active: true
+    functionPattern: '[a-z][a-zA-Z0-9]*'
+  ClassNaming:
+    active: true
+    classPattern: '[A-Z][a-zA-Z0-9]*'
+  PackageNaming:
+    active: true
+    packagePattern: '[a-z]+(\.[a-z][a-zA-Z0-9]*)*'
+  VariableNaming:
+    active: true
+    variablePattern: '[a-z][a-zA-Z0-9]*'
+
+potential-bugs:
+  UnsafeCast:
+    active: true
+  UnreachableCode:
+    active: true

@@ -1,0 +1,73 @@
+#!/bin/sh
+# Argustack Pre-commit Hook — Branch-Aware Quality Gate
+# --no-verify is FORBIDDEN by project policy
+
+current_branch=$(git rev-parse --abbrev-ref HEAD)
+
+echo "Running pre-commit on branch: $current_branch"
+
+# ==========================================
+# PHASE 1: Lint staged files (ALL BRANCHES)
+# ==========================================
+echo "\nPhase 1: lint-staged..."
+npx lint-staged
+
+if [ $? -ne 0 ]; then
+  echo "\n LINT-STAGED FAILED"
+  echo "Fix issues above and try again."
+  exit 1
+fi
+
+echo "Phase 1 passed"
+
+# ==========================================
+# PHASE 2: TypeScript type check (ALL BRANCHES)
+# ==========================================
+echo "\nPhase 2: TypeScript type check..."
+npx tsc --noEmit --incremental
+
+if [ $? -ne 0 ]; then
+  echo "\n TYPE CHECK FAILED"
+  echo "Fix type errors before committing."
+  exit 1
+fi
+
+echo "Phase 2 passed"
+
+# ==========================================
+# PHASE 3: Branch-specific tests
+# ==========================================
+if [ "$current_branch" = "main" ]; then
+  echo "\n[main] STRICT MODE — ALL tests must pass"
+  npm test
+
+  if [ $? -ne 0 ]; then
+    echo "\n TESTS FAILED on main"
+    echo "ALL tests must pass before committing to main."
+    exit 1
+  fi
+
+  echo "All tests passed"
+
+elif [ "$current_branch" = "staging" ]; then
+  echo "\n[staging] Running unit tests..."
+  npm run test:unit
+
+  if [ $? -ne 0 ]; then
+    echo "\nUnit tests failed on staging (warning, allowing commit)"
+  else
+    echo "Unit tests passed"
+  fi
+
+else
+  echo "\n[$current_branch] Running unit tests..."
+  npm run test:unit
+
+  if [ $? -ne 0 ]; then
+    echo "\nUnit tests failed (warning, allowing commit on feature branch)"
+  else
+    echo "Unit tests passed"
+  fi
+fi
+
+echo "\nAll pre-commit checks passed"

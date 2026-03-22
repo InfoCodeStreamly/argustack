@@ -1,0 +1,28 @@
+{
+  "board": {
+    "title": "Argustack",
+    "warning": {
+      "noClaude": "Claude CLI not found"
+    },
+    "column": {
+      "skill": "Skill",
+      "free": "Free",
+      "system": "System",
+      "emptyState": "No Tasks"
+    },
+    "card": {
+      "running": "Running...",
+      "done": "Complete",
+      "error": "Error",
+      "interrupted": "Interrupted"
+    },
+    "epic": {
+      "all": "All Epics",
+      "uncategorized": "Uncategorized"
+    },
+    "actions": {
+      "addCard": "New Card",
+      "settings": "Settings"
+    }
+  }
+}

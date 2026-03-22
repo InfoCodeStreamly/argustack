@@ -1,0 +1,38 @@
+{
+  "compilerOptions": {
+    // ─── Output ─────────────────────────────────────────────────
+    "target": "ES2024",
+    "module": "NodeNext",
+    "moduleResolution": "NodeNext",
+    "outDir": "dist",
+    "rootDir": "src",
+    "declaration": true,
+    "declarationMap": true,
+    "sourceMap": true,
+
+    // ─── STRICT MODE: Maximum strictness ────────────────────────
+    "strict": true,                         // enables all strict family checks
+    "noUnusedLocals": true,                 // ERROR on unused local variables
+    "noUnusedParameters": true,             // ERROR on unused function parameters
+    "noImplicitReturns": true,              // ERROR on missing return in function
+    "noFallthroughCasesInSwitch": true,     // ERROR on switch fallthrough
+    "noUncheckedIndexedAccess": true,       // index signatures return T | undefined
+    "noImplicitOverride": true,             // require 'override' keyword
+    "exactOptionalPropertyTypes": true,     // optional props can't be assigned undefined explicitly
+    "noPropertyAccessFromIndexSignature": true, // force bracket notation for index sigs
+    "allowUnusedLabels": false,             // ERROR on unused labels
+    "allowUnreachableCode": false,          // ERROR on unreachable code
+    "verbatimModuleSyntax": false,          // keep false for ESM compat with CJS deps
+    "isolatedModules": true,                // each file must be safely transpilable
+
+    // ─── Module ─────────────────────────────────────────────────
+    "esModuleInterop": true,
+    "forceConsistentCasingInFileNames": true,
+    "resolveJsonModule": true,
+
+    // ─── Lib check ──────────────────────────────────────────────
+    "skipLibCheck": true                    // keep true — 3rd party .d.ts issues aren't ours
+  },
+  "include": ["src/**/*"],
+  "exclude": ["node_modules", "dist", "src/board"]
+}

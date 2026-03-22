@@ -1,0 +1,19 @@
+[versions]
+kotlin = "2.3.0"
+intellijPlatform = "2.13.1"
+kotlinxSerialization = "1.7.3"
+detekt = "2.0.0-alpha.2"
+kover = "0.9.1"
+junit = "5.11.0"
+
+[libraries]
+kotlinx-serialization-json = { group = "org.jetbrains.kotlinx", name = "kotlinx-serialization-json", version.ref = "kotlinxSerialization" }
+detekt-formatting = { group = "dev.detekt", name = "detekt-formatting", version.ref = "detekt" }
+junit-jupiter = { group = "org.junit.jupiter", name = "junit-jupiter", version.ref = "junit" }
+
+[plugins]
+kotlin = { id = "org.jetbrains.kotlin.jvm", version.ref = "kotlin" }
+kotlinSerialization = { id = "org.jetbrains.kotlin.plugin.serialization", version.ref = "kotlin" }
+intellijPlatform = { id = "org.jetbrains.intellij.platform", version.ref = "intellijPlatform" }
+detekt = { id = "dev.detekt", version.ref = "detekt" }
+kover = { id = "org.jetbrains.kotlinx.kover", version.ref = "kover" }

@@ -1,0 +1,7 @@
+# Argustack workspace
+.env
+.mcp.json
+.kanban.json
+data/
+node_modules/
+.DS_Store

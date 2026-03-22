@@ -1,0 +1,36 @@
+# Argustack workspace (created by `argustack init`)
+.env
+.mcp.json
+.argustack/
+docker-compose.yml
+/db/
+/data/
+
+# Build & deps
+node_modules/
+dist/
+tsconfig.tsbuildinfo
+*.mcpb
+.eslintcache
+coverage/
+
+# Mutation testing
+mutation-reports/
+
+# IDE
+.idea/
+
+# Board state (local)
+.kanban.json
+
+# OS
+.DS_Store
+
+# Internal docs & notes
+Docs/
+
+# Claude Code
+.claude/
+
+# Test logs
+tests/logs/

@@ -1,0 +1,33 @@
+<idea-plugin>
+  <id>com.argustack.ide</id>
+  <name>Argustack</name>
+  <vendor email="info@codestreamly.com" url="https://github.com/InfoCodeStreamly/argustack">
+    CodeStreamly
+  </vendor>
+
+  <description><![CDATA[
+    Kanban board where columns are executable AI skills.<br/>
+    Drag a task card to a skill column — Claude Code executes the skill automatically.<br/>
+    Visual pipeline for plan → implement → test → review → deploy.
+  ]]></description>
+
+  <depends>com.intellij.modules.platform</depends>
+  <depends>org.jetbrains.plugins.terminal</depends>
+
+  <extensions defaultExtensionNs="com.intellij">
+    <toolWindow id="Argustack"
+                anchor="right"
+                factoryClass="com.argustack.ide.kanban.ui.KanbanToolWindowFactory"
+                icon="/icons/argustack.svg"/>
+
+    <projectService serviceImplementation="com.argustack.ide.kanban.service.OnboardingService"/>
+    <projectService serviceImplementation="com.argustack.ide.kanban.service.KanbanStateService"/>
+    <projectService serviceImplementation="com.argustack.ide.kanban.service.CardFileService"/>
+    <projectService serviceImplementation="com.argustack.ide.terminal.service.TerminalService"/>
+    <projectService serviceImplementation="com.argustack.ide.terminal.service.ExecutionTracker"/>
+    <projectService serviceImplementation="com.argustack.ide.skills.service.SkillDiscoveryService"/>
+    <projectService serviceImplementation="com.argustack.ide.kanban.service.JiraService"/>
+    <projectService serviceImplementation="com.argustack.ide.filewatcher.service.TaskFileWatcher"/>
+    <projectService serviceImplementation="com.argustack.ide.shared.config.ArgustackSettings"/>
+  </extensions>
+</idea-plugin>

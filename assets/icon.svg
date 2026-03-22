@@ -1,0 +1,33 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 512 512" fill="none">
+  <defs>
+    <linearGradient id="bg7" x1="0" y1="0" x2="512" y2="512" gradientUnits="userSpaceOnUse">
+      <stop offset="0%" stop-color="#0C0A1D"/>
+      <stop offset="100%" stop-color="#1A1636"/>
+    </linearGradient>
+  </defs>
+
+  <!-- Very dark background -->
+  <rect width="512" height="512" rx="96" fill="url(#bg7)"/>
+
+  <!-- Three stacked cubes in isometric perspective — literal "stack" -->
+  <!-- Bottom cube -->
+  <g transform="translate(256, 340)">
+    <path d="M-70 0 L0 40 L70 0 L0 -40 Z" fill="#4338CA"/>
+    <path d="M-70 0 L-70 30 L0 70 L0 40 Z" fill="#3730A3"/>
+    <path d="M70 0 L70 30 L0 70 L0 40 Z" fill="#312E81"/>
+  </g>
+
+  <!-- Middle cube -->
+  <g transform="translate(256, 265)">
+    <path d="M-70 0 L0 40 L70 0 L0 -40 Z" fill="#6366F1"/>
+    <path d="M-70 0 L-70 30 L0 70 L0 40 Z" fill="#4F46E5"/>
+    <path d="M70 0 L70 30 L0 70 L0 40 Z" fill="#4338CA"/>
+  </g>
+
+  <!-- Top cube (brightest) -->
+  <g transform="translate(256, 190)">
+    <path d="M-70 0 L0 40 L70 0 L0 -40 Z" fill="#A5B4FC"/>
+    <path d="M-70 0 L-70 30 L0 70 L0 40 Z" fill="#818CF8"/>
+    <path d="M70 0 L70 30 L0 70 L0 40 Z" fill="#6366F1"/>
+  </g>
+</svg>

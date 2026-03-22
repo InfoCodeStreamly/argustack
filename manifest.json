@@ -1,0 +1,83 @@
+{
+  "manifest_version": "0.3",
+  "name": "Argustack",
+  "description": "RAG engine for project intelligence — query Jira issues, Git commits, and databases from local PostgreSQL",
+  "server": {
+    "type": "node",
+    "entry_point": "dist/mcp/server.js"
+  },
+  "icon": "assets/icon.png",
+  "user_config": {
+    "workspace_path": {
+      "type": "directory",
+      "title": "Argustack Workspace",
+      "description": "Path to Argustack workspace (created by `argustack init`)",
+      "required": true
+    }
+  },
+  "env": {
+    "ARGUSTACK_WORKSPACE": "${user_config.workspace_path}"
+  },
+  "tools": [
+    {
+      "name": "workspace_info",
+      "description": "Get information about the current Argustack workspace"
+    },
+    {
+      "name": "list_projects",
+      "description": "List all Jira projects available in the configured Jira instance"
+    },
+    {
+      "name": "pull_jira",
+      "description": "Pull issues from Jira into local PostgreSQL database"
+    },
+    {
+      "name": "query_issues",
+      "description": "Search and query Jira issues with full-text search and filters"
+    },
+    {
+      "name": "get_issue",
+      "description": "Get full details of a specific issue by key"
+    },
+    {
+      "name": "issue_stats",
+      "description": "Get aggregate statistics about issues in the database"
+    },
+    {
+      "name": "query_commits",
+      "description": "Search commits by text, author, date, file path, or raw SQL"
+    },
+    {
+      "name": "issue_commits",
+      "description": "Find all commits mentioning a Jira issue key with file details"
+    },
+    {
+      "name": "commit_stats",
+      "description": "Aggregate Git stats — top authors, most changed files, linked issues"
+    },
+    {
+      "name": "query_prs",
+      "description": "Search GitHub pull requests with full-text search and filters"
+    },
+    {
+      "name": "issue_prs",
+      "description": "Find all PRs mentioning a Jira issue key with review details"
+    },
+    {
+      "name": "issue_timeline",
+      "description": "Full cross-source timeline for an issue: Jira changelog + Git commits + GitHub PRs"
+    },
+    {
+      "name": "query_releases",
+      "description": "List GitHub releases for the repository"
+    },
+    {
+      "name": "semantic_search",
+      "description": "Semantic similarity search across issues using AI embeddings"
+    }
+  ],
+  "compatibility": {
+    "platforms": ["macos"],
+    "min_claude_version": "1.0.0"
+  }
+}
