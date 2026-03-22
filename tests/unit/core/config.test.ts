@@ -1,4 +1,4 @@
-import { describe, it, expect } from 'vitest';
+import { describe, it, expect, vi, beforeEach } from 'vitest';
 import {
   createEmptyConfig,
   addSource,
@@ -6,8 +6,20 @@ import {
   disableSource,
   getEnabledSources,
   isSourceEnabled,
+  readConfig,
+  writeConfig,
 } from '../../../src/workspace/config.js';
 import { createWorkspaceConfig } from '../../fixtures/shared/test-constants.js';
+
+vi.mock('node:fs', () => ({
+  existsSync: vi.fn(),
+  readFileSync: vi.fn(),
+  writeFileSync: vi.fn(),
+}));
+
+beforeEach(() => {
+  vi.clearAllMocks();
+});
 
 describe('workspace config functions', () => {
   describe('createEmptyConfig', () => {
@@ -147,5 +159,80 @@ describe('workspace config functions', () => {
       const config = createWorkspaceConfig();
       expect(isSourceEnabled(config, 'db')).toBe(false);
     });
+  });
+});
+
+describe('readConfig', () => {
+  it('returns null when config file does not exist', async () => {
+    const fs = await import('node:fs');
+    vi.mocked(fs.existsSync).mockReturnValue(false);
+
+    const result = readConfig('/workspace');
+
+    expect(result).toBeNull();
+    expect(fs.readFileSync).not.toHaveBeenCalled();
+  });
+
+  it('reads and parses config.json when file exists', async () => {
+    const fs = await import('node:fs');
+    const expected = createWorkspaceConfig({ order: ['jira'] });
+
+    vi.mocked(fs.existsSync).mockReturnValue(true);
+    vi.mocked(fs.readFileSync).mockReturnValue(JSON.stringify(expected));
+
+    const result = readConfig('/workspace');
+
+    expect(result).toEqual(expected);
+    expect(fs.existsSync).toHaveBeenCalledWith(
+      expect.stringContaining('.argustack/config.json'),
+    );
+    expect(fs.readFileSync).toHaveBeenCalledWith(
+      expect.stringContaining('.argustack/config.json'),
+      'utf-8',
+    );
+  });
+
+  it('constructs the path relative to the given workspace root', async () => {
+    const fs = await import('node:fs');
+    const config = createWorkspaceConfig();
+
+    vi.mocked(fs.existsSync).mockReturnValue(true);
+    vi.mocked(fs.readFileSync).mockReturnValue(JSON.stringify(config));
+
+    readConfig('/projects/myworkspace');
+
+    const checkedPath = vi.mocked(fs.existsSync).mock.calls[0]?.[0] as string;
+    expect(checkedPath).toContain('/projects/myworkspace');
+    expect(checkedPath).toContain('.argustack');
+  });
+});
+
+describe('writeConfig', () => {
+  it('serialises config and writes to config.json', async () => {
+    const fs = await import('node:fs');
+    const config = createWorkspaceConfig({ order: ['git', 'github'] });
+
+    writeConfig('/workspace', config);
+
+    expect(fs.writeFileSync).toHaveBeenCalledOnce();
+
+    const [writtenPath, writtenContent] = vi.mocked(fs.writeFileSync).mock.calls[0] as [string, string];
+    expect(writtenPath).toContain('.argustack/config.json');
+    expect(writtenContent).toContain('"order"');
+    expect(writtenContent).toContain('"git"');
+    expect(writtenContent).toContain('"github"');
+    expect(writtenContent.endsWith('\n')).toBe(true);
+  });
+
+  it('writes valid JSON that can be round-tripped', async () => {
+    const fs = await import('node:fs');
+    const config = createWorkspaceConfig({ order: ['jira'] });
+    config.sources.jira = { enabled: true, addedAt: '2025-03-01T00:00:00.000Z' };
+
+    writeConfig('/workspace', config);
+
+    const writtenContent = vi.mocked(fs.writeFileSync).mock.calls[0]?.[1] as string;
+    const parsed = JSON.parse(writtenContent) as typeof config;
+    expect(parsed).toEqual(config);
   });
 });

@@ -19,12 +19,15 @@ async function testJiraConnection(
 export async function setupJiraInteractive(): Promise<JiraSetupResult | null> {
   console.log('');
   console.log(chalk.bold('  Jira setup'));
-  console.log(chalk.dim('  Connect to your Jira instance.\n'));
+  console.log(chalk.dim('  Connect to your Jira instance.'));
+  console.log(chalk.dim('  Example: https://your-team.atlassian.net\n'));
 
   const jiraUrlRaw = await input({
     message: 'Jira URL:',
-    default: 'https://your-team.atlassian.net',
     validate: (val): string | true => {
+      if (!val.trim()) {
+        return 'Jira URL is required';
+      }
       if (!val.startsWith('https://')) {
         return 'Must start with https://';
       }

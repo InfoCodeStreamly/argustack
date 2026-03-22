@@ -9,6 +9,7 @@
 import type { IStorage, QueryResult } from '../../../src/core/ports/storage.js';
 import type { IssueBatch, Issue, PullRequest, Release, GitHubBatch } from '../../../src/core/types/index.js';
 import type { CommitBatch, Commit } from '../../../src/core/types/git.js';
+import type { DbSchemaBatch } from '../../../src/core/types/database.js';
 
 export class FakeStorage implements IStorage {
   readonly name = 'FakeStorage';
@@ -158,6 +159,21 @@ export class FakeStorage implements IStorage {
     return this._embeddings.has(issueKey);
   }
 
+  // ─── DB schema methods ─────────────────────────────────────────
+
+  readonly savedDbBatches: { batch: DbSchemaBatch; sourceName: string }[] = [];
+  readonly deletedDbSources: string[] = [];
+
+  saveDbSchemaBatch(batch: DbSchemaBatch, sourceName: string): Promise<void> {
+    this.savedDbBatches.push({ batch, sourceName });
+    return Promise.resolve();
+  }
+
+  deleteDbSchema(sourceName: string): Promise<void> {
+    this.deletedDbSources.push(sourceName);
+    return Promise.resolve();
+  }
+
   // ─── Test helpers ─────────────────────────────────────────────
 
   seed(issues: Issue[]): void {
@@ -183,6 +199,8 @@ export class FakeStorage implements IStorage {
     this.savedReleases.length = 0;
     this._lastPrUpdated.clear();
     this._embeddings.clear();
+    this.savedDbBatches.length = 0;
+    this.deletedDbSources.length = 0;
     this.initialized = false;
     this.closed = false;
   }

@@ -29,6 +29,7 @@ async function startAndSync(
   hasGit: boolean,
   hasGithub: boolean,
   csv: CsvSetupResult | null,
+  db: DbSetupResult | null,
   pgwebPort: number,
 ): Promise<void> {
   const spinnerDb = ora('Starting Docker containers...').start();
@@ -104,6 +105,17 @@ async function startAndSync(
     } catch (err: unknown) {
       console.log(chalk.red(`  CSV import failed: ${getErrorMsg(err)}`));
       console.log(chalk.dim(`  Try manually: cd ${workspaceDir} && argustack sync csv`));
+    }
+  }
+
+  if (db) {
+    console.log('');
+    try {
+      const { syncDbFromInit } = await import('../sync.js');
+      await syncDbFromInit(workspaceDir);
+    } catch (err: unknown) {
+      console.log(chalk.red(`  Database sync failed: ${getErrorMsg(err)}`));
+      console.log(chalk.dim(`  Try manually: cd ${workspaceDir} && argustack sync db`));
     }
   }
 
@@ -276,7 +288,7 @@ async function runInitInteractive(flags: InitFlags): Promise<void> {
   printSummary(workspaceDir, jiraResult, gitResult, githubResult, csvResult, dbResult, pgwebPort, autoStart);
 
   if (autoStart) {
-    await startAndSync(workspaceDir, jiraResult !== null, gitResult !== null, githubResult !== null, csvResult, pgwebPort);
+    await startAndSync(workspaceDir, jiraResult !== null, gitResult !== null, githubResult !== null, csvResult, dbResult, pgwebPort);
   }
 }
 

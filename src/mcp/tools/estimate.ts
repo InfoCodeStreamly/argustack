@@ -18,7 +18,7 @@ import {
   getErrorMessage,
 } from '../helpers.js';
 
-function calculateFamiliarityFactor(
+export function calculateFamiliarityFactor(
   familiarityRows: FamiliarityRow[],
   taskComponents: string[] | null | undefined,
 ): { factor: number; explanation: string } {
@@ -41,7 +41,7 @@ function calculateFamiliarityFactor(
   return { factor, explanation: `${String(totalResolved)} resolved in ${compNames} — ×${factor.toFixed(2)}` };
 }
 
-function calculateBaseHours(metrics: SimilarTaskMetrics[]): { hours: number; method: string } {
+export function calculateBaseHours(metrics: SimilarTaskMetrics[]): { hours: number; method: string } {
   if (metrics.length === 0) {
     return { hours: 0, method: 'no data' };
   }
@@ -60,7 +60,7 @@ function calculateBaseHours(metrics: SimilarTaskMetrics[]): { hours: number; met
   return { hours: weighted, method: `weighted trimmed mean (${String(trimmed.length)}/${String(metrics.length)} tasks)` };
 }
 
-function businessHoursBetween(start: Date, end: Date): number {
+export function businessHoursBetween(start: Date, end: Date): number {
   let hours = 0;
   const current = new Date(start);
   current.setHours(0, 0, 0, 0);
