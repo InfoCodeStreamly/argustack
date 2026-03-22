@@ -34,3 +34,12 @@ export type {
 } from './config.js';
 
 export { SOURCE_META, ALL_SOURCES } from './config.js';
+
+export type {
+  DbEngine,
+  DbTable,
+  DbColumn,
+  DbForeignKey,
+  DbIndex,
+  DbSchemaBatch,
+} from './database.js';

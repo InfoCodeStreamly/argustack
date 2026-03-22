@@ -72,6 +72,7 @@ export function generateEnv(
   if (db) {
     lines.push(
       '# === Target Database (project DB to analyze) ===',
+      `TARGET_DB_ENGINE=${db.targetDbEngine}`,
       `TARGET_DB_HOST=${db.targetDbHost}`,
       `TARGET_DB_PORT=${db.targetDbPort}`,
       `TARGET_DB_USER=${db.targetDbUser}`,

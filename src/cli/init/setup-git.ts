@@ -125,7 +125,8 @@ async function collectGitRepoGithub(): Promise<{ paths: string[]; token: string;
     const cloneSpinner = ora(`Cloning ${repoName}...`).start();
 
     try {
-      await gitCloneWithProgress(cloneUrl, targetPath, cloneSpinner);
+      const authUrl = cloneUrl.replace('https://github.com/', `https://${githubToken.trim()}@github.com/`);
+      await gitCloneWithProgress(authUrl, targetPath, cloneSpinner);
       cloneSpinner.succeed(`Cloned to ${targetPath}`);
       clonedPaths.push(targetPath);
       clonedRepos.push(fullName);
@@ -242,6 +243,10 @@ export async function setupGitInteractive(): Promise<GitSetupResult | null> {
         return null;
       }
       continue;
+    }
+
+    if (mode === 'github') {
+      break;
     }
 
     addMore = await confirm({ message: 'Add another Git repository?', default: false });

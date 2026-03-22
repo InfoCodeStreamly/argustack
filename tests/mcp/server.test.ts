@@ -57,7 +57,10 @@ describe('MCP server tools', () => {
     expect(toolNames).toContain('query_releases');
     expect(toolNames).toContain('semantic_search');
     expect(toolNames).toContain('estimate');
-    expect(tools).toHaveLength(15);
+    expect(toolNames).toContain('db_schema');
+    expect(toolNames).toContain('db_query');
+    expect(toolNames).toContain('db_stats');
+    expect(tools).toHaveLength(18);
   });
 
   it('workspace_info tool responds (even without workspace)', async () => {

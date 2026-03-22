@@ -7,8 +7,8 @@ import { registerSyncCommand } from './sync.js';
 import { registerStatusCommand } from './status.js';
 import { registerMcpCommands } from './mcp-install.js';
 import { registerEmbedCommand } from './embed.js';
-import { runInit } from './init.js';
-import type { InitFlags } from './init.js';
+import { runInit } from './init/index.js';
+import type { InitFlags } from './init/index.js';
 
 const require = createRequire(import.meta.url);
 const { version } = require('../../package.json') as { version: string };
@@ -33,6 +33,7 @@ program
   .option('--github-token <token>', 'GitHub personal access token')
   .option('--github-owner <owner>', 'GitHub repository owner')
   .option('--github-repo <repo>', 'GitHub repository name')
+  .option('--target-db-engine <engine>', 'Target DB engine (postgresql, mysql, mssql, sqlite, oracledb)')
   .option('--target-db-host <host>', 'Target DB host')
   .option('--target-db-port <port>', 'Target DB port')
   .option('--target-db-user <user>', 'Target DB user')

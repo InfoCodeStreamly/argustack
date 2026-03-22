@@ -21,6 +21,7 @@ import { registerQueryTools } from './tools/query.js';
 import { registerIssueTools } from './tools/issue.js';
 import { registerSearchTools } from './tools/search.js';
 import { registerEstimateTools } from './tools/estimate.js';
+import { registerDatabaseTools } from './tools/database.js';
 
 const mcpFilename = fileURLToPath(import.meta.url);
 const mcpPackageRoot = resolve(dirname(mcpFilename), '..', '..');
@@ -54,6 +55,7 @@ registerQueryTools(server);
 registerIssueTools(server);
 registerSearchTools(server);
 registerEstimateTools(server);
+registerDatabaseTools(server);
 
 export async function startMcpServer(): Promise<void> {
   const transport = new StdioServerTransport();

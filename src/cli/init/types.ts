@@ -24,6 +24,7 @@ export interface CsvSetupResult {
 }
 
 export interface DbSetupResult {
+  targetDbEngine: string;
   targetDbHost: string;
   targetDbPort: number;
   targetDbUser: string;
@@ -42,6 +43,7 @@ export interface InitFlags {
   githubToken?: string;
   githubOwner?: string;
   githubRepo?: string;
+  targetDbEngine?: string;
   targetDbHost?: string;
   targetDbPort?: string;
   targetDbUser?: string;

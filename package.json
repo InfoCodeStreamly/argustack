@@ -1,6 +1,6 @@
 {
   "name": "argustack",
-  "version": "0.1.8",
+  "version": "0.1.9",
   "description": "Project analysis platform — Jira + Git + DB",
   "type": "module",
   "bin": {
@@ -54,6 +54,7 @@
     "dotenv": "^17.3.1",
     "es-git": "^0.6.0",
     "jira.js": "^5.3.1",
+    "knex": "^3.1.0",
     "octokit": "^5.0.5",
     "ora": "^9.3.0",
     "pg": "^8.13.1"

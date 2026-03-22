@@ -1,6 +1,7 @@
 import type { IssueBatch } from '../types/index.js';
 import type { CommitBatch } from '../types/git.js';
 import type { GitHubBatch, Release } from '../types/github.js';
+import type { DbSchemaBatch } from '../types/database.js';
 
 /** Generic query result — database-agnostic */
 export interface QueryResult {
@@ -52,6 +53,12 @@ export interface IStorage {
 
   /** Execute a raw SQL query with parameterized values */
   query(sql: string, params: unknown[]): Promise<QueryResult>;
+
+  /** Save external database schema metadata (upsert logic) */
+  saveDbSchemaBatch(batch: DbSchemaBatch, sourceName: string): Promise<void>;
+
+  /** Delete all schema metadata for a given external database source */
+  deleteDbSchema(sourceName: string): Promise<void>;
 
   /** Close connection / cleanup */
   close(): Promise<void>;

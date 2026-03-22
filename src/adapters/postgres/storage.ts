@@ -3,6 +3,7 @@ import type { IStorage, QueryResult } from '../../core/ports/storage.js';
 import type { IssueBatch } from '../../core/types/index.js';
 import type { CommitBatch } from '../../core/types/git.js';
 import type { GitHubBatch, Release } from '../../core/types/github.js';
+import type { DbSchemaBatch } from '../../core/types/database.js';
 import { createPool, type DbConfig } from './connection.js';
 import { ensureSchema } from './schema.js';
 
@@ -442,6 +443,74 @@ export class PostgresStorage implements IStorage {
   async query(sql: string, params: unknown[]): Promise<QueryResult> {
     const result = await this.pool.query(sql, params);
     return { rows: result.rows as Record<string, unknown>[] };
+  }
+
+  async saveDbSchemaBatch(batch: DbSchemaBatch, sourceName: string): Promise<void> {
+    const client = await this.pool.connect();
+    try {
+      await client.query('BEGIN');
+
+      for (const table of batch.tables) {
+        await client.query(
+          `INSERT INTO db_tables (source_name, table_schema, table_name, row_count, size_bytes)
+           VALUES ($1, $2, $3, $4, $5)
+           ON CONFLICT (source_name, table_schema, table_name) DO UPDATE SET
+             row_count = EXCLUDED.row_count,
+             size_bytes = EXCLUDED.size_bytes,
+             pulled_at = NOW()`,
+          [sourceName, table.schema, table.name, table.rowCount, table.sizeBytes],
+        );
+
+        for (const col of table.columns) {
+          await client.query(
+            `INSERT INTO db_columns (source_name, table_schema, table_name, column_name, data_type, is_nullable, default_value, is_primary_key, ordinal_position)
+             VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9)
+             ON CONFLICT (source_name, table_schema, table_name, column_name) DO UPDATE SET
+               data_type = EXCLUDED.data_type,
+               is_nullable = EXCLUDED.is_nullable,
+               default_value = EXCLUDED.default_value,
+               is_primary_key = EXCLUDED.is_primary_key,
+               ordinal_position = EXCLUDED.ordinal_position`,
+            [sourceName, table.schema, table.name, col.name, col.dataType, col.nullable, col.defaultValue, col.isPrimaryKey, col.ordinalPosition],
+          );
+        }
+      }
+
+      for (const fk of batch.foreignKeys) {
+        await client.query(
+          `INSERT INTO db_foreign_keys (source_name, table_name, column_name, referenced_table, referenced_column)
+           VALUES ($1, $2, $3, $4, $5)
+           ON CONFLICT (source_name, table_name, column_name, referenced_table, referenced_column) DO NOTHING`,
+          [sourceName, fk.tableName, fk.columnName, fk.referencedTable, fk.referencedColumn],
+        );
+      }
+
+      for (const idx of batch.indexes) {
+        await client.query(
+          `INSERT INTO db_indexes (source_name, table_name, index_name, columns, is_unique, is_primary)
+           VALUES ($1, $2, $3, $4, $5, $6)
+           ON CONFLICT (source_name, table_name, index_name) DO UPDATE SET
+             columns = EXCLUDED.columns,
+             is_unique = EXCLUDED.is_unique,
+             is_primary = EXCLUDED.is_primary`,
+          [sourceName, idx.tableName, idx.indexName, idx.columns, idx.isUnique, idx.isPrimary],
+        );
+      }
+
+      await client.query('COMMIT');
+    } catch (err: unknown) {
+      await client.query('ROLLBACK');
+      throw err;
+    } finally {
+      client.release();
+    }
+  }
+
+  async deleteDbSchema(sourceName: string): Promise<void> {
+    await this.pool.query('DELETE FROM db_indexes WHERE source_name = $1', [sourceName]);
+    await this.pool.query('DELETE FROM db_foreign_keys WHERE source_name = $1', [sourceName]);
+    await this.pool.query('DELETE FROM db_columns WHERE source_name = $1', [sourceName]);
+    await this.pool.query('DELETE FROM db_tables WHERE source_name = $1', [sourceName]);
   }
 
   async close(): Promise<void> {

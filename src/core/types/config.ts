@@ -56,8 +56,12 @@ export const SOURCE_META: Record<SourceType, { label: string; description: strin
       'Export from Jira: Filters → Export → CSV (All fields)',
   },
   db: {
-    label: 'Project Database',
-    description: 'Coming soon — not available yet',
+    label: 'Project Database (read-only)',
+    description:
+      'Connects to your project database (PostgreSQL, MySQL, MSSQL, SQLite, Oracle). ' +
+      'Syncs schema metadata (tables, columns, foreign keys, indexes) into Argustack for fast lookup. ' +
+      'Claude can browse schema structure offline and run read-only SQL queries against the live database. ' +
+      'All queries are validated — only SELECT/EXPLAIN/SHOW allowed, 30s timeout, 1000-row limit',
   },
 };
 

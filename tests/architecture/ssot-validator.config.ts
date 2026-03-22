@@ -41,6 +41,10 @@ export const EXCLUDED_LINE_PATTERNS: RegExp[] = [
   /** SSOT constant usage */
   /TEST_IDS\.\w+/,
   /GITHUB_TEST_IDS\.\w+/,
+  /GIT_TEST_IDS\.\w+/,
+  /ESTIMATE_TEST_IDS\.\w+/,
+  /SEARCH_TEST_IDS\.\w+/,
+  /DB_TEST_IDS\.\w+/,
 
   /** SSOT factory usage */
   /create(Issue|Batch|Comment|Changelog|Worklog|Link|Project|PullRequest|PrReview|PrComment|PrFile|Release|GitHubBatch|EmptyBatch|EmptyGitHubBatch|WorkspaceConfig)\s*\(/,

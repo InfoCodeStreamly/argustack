@@ -37,15 +37,16 @@ src/
 ├── core/                          ← CORE: types + interfaces (zero dependencies)
 │   ├── types/
 │   │   ├── issue.ts                  Issue, Comment, Changelog, Worklog, Link, IssueBatch
-│   │   ├── pull-request.ts           PullRequest, Review, PullRequestFile, GitHubBatch
-│   │   ├── commit.ts                 Commit, CommitFile, CommitIssueRef, CommitBatch
+│   │   ├── github.ts                 PullRequest, Review, PullRequestFile, GitHubBatch, Release
+│   │   ├── git.ts                    Commit, CommitFile, CommitIssueRef, CommitBatch, GitRef
 │   │   ├── project.ts                Project
 │   │   ├── config.ts                 WorkspaceConfig, SourceConfig, SourceType
 │   │   └── index.ts                  re-exports
 │   └── ports/
 │       ├── source-provider.ts        ISourceProvider — where data comes from
-│       ├── git-provider.ts           IGitProvider — Git-specific (extends ISourceProvider)
-│       ├── github-provider.ts        IGitHubProvider — GitHub-specific (extends ISourceProvider)
+│       ├── git-provider.ts           IGitProvider — Git-specific
+│       ├── github-provider.ts        IGitHubProvider — GitHub-specific
+│       ├── embedding-provider.ts     IEmbeddingProvider — text → vector
 │       ├── storage.ts                IStorage — where data is stored
 │       └── index.ts                  re-exports
 │
@@ -67,14 +68,17 @@ src/
 │   │   ├── provider.ts                  Streaming CSV → IssueBatch
 │   │   └── index.ts                     re-exports
 │   ├── git/                          GitProvider — reads local repos
+│   │   ├── mapper.ts                    Raw git data → core types
 │   │   ├── provider.ts                  es-git walker, commit + diff extraction
 │   │   └── index.ts                     re-exports
 │   ├── github/                       GitHubProvider — REST API via Octokit
+│   │   ├── client.ts                    Octokit wrapper
 │   │   ├── provider.ts                  PRs, reviews, comments, files, releases
 │   │   ├── mapper.ts                    Raw GitHub JSON → core types
 │   │   └── index.ts                     re-exports
 │   ├── openai/                       OpenAI embeddings adapter
-│   │   └── embedding.ts                 text-embedding-3-small, batched
+│   │   ├── embedding-provider.ts        text-embedding-3-small, batched
+│   │   └── index.ts                     re-exports
 │   └── postgres/                     PostgresStorage implements IStorage
 │       ├── connection.ts                pg Pool
 │       ├── schema.ts                    CREATE TABLE + indexes (idempotent)
@@ -86,11 +90,27 @@ src/
 │   └── resolver.ts                   find .argustack/ walking up from cwd
 │
 ├── mcp/                           ← MCP SERVER: Claude Desktop integration
-│   └── server.ts                     McpServer with 15 tools
+│   ├── server.ts                     McpServer setup + tool registration
+│   ├── helpers.ts                    Shared DB connection helper
+│   ├── types.ts                      Row types for query results
+│   └── tools/                        Tool modules (one per domain)
+│       ├── workspace.ts                 workspace_info, list_projects
+│       ├── query.ts                     query_commits, query_issues, query_prs, query_releases
+│       ├── issue.ts                     get_issue, issue_commits, issue_prs, issue_stats, issue_timeline
+│       ├── search.ts                    semantic_search
+│       └── estimate.ts                  estimate
 │
 └── cli/                           ← ENTRY POINT: commands, UX, wiring
     ├── index.ts                      Commander.js setup, registers all commands
-    ├── init.ts                       argustack init (interactive workspace setup)
+    ├── init/                         argustack init (interactive workspace setup)
+    │   ├── index.ts                     Init orchestrator
+    │   ├── types.ts                     Setup result types, InitFlags
+    │   ├── generators.ts               .env, docker-compose, config generation
+    │   ├── setup-jira.ts               Jira source setup prompts
+    │   ├── setup-git.ts                Git source setup prompts
+    │   ├── setup-github.ts             GitHub source setup prompts
+    │   ├── setup-csv.ts                CSV source setup prompts
+    │   └── setup-db.ts                 Database source setup prompts
     ├── sync.ts                       argustack sync (jira, git, github — separate functions)
     ├── embed.ts                      argustack embed (generate embeddings)
     ├── sources.ts                    argustack sources (list configured sources)

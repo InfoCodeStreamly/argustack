@@ -22,6 +22,11 @@ import type {
   PullRequestFile,
   Release,
   GitHubBatch,
+  DbTable,
+  DbColumn,
+  DbForeignKey,
+  DbIndex,
+  DbSchemaBatch,
 } from '../../../src/core/types/index.js';
 
 // ─── IDs ──────────────────────────────────────────────────────────────
@@ -47,6 +52,24 @@ export const TEST_IDS = {
   projectKey2: 'OTHER',
   projectName2: 'Other Project',
   projectId2: '10002',
+} as const;
+
+export const ESTIMATE_TEST_IDS = {
+  issueKey: 'TASK-10',
+  issueKey2: 'TASK-11',
+  issueKey3: 'TASK-12',
+  issueKey4: 'TASK-13',
+  issueKey5: 'TASK-14',
+  issueKey6: 'TASK-15',
+  bugKey: 'BUG-1',
+  excludeKey: 'TASK-99',
+  assignee: 'John',
+  metricKeyPrefix: 'TASK',
+} as const;
+
+export const SEARCH_TEST_IDS = {
+  ghostKey: 'GHOST-99',
+  notFoundKey: 'TEST-99',
 } as const;
 
 // ─── Factory: Project ─────────────────────────────────────────────────
@@ -184,6 +207,12 @@ export const GIT_TEST_IDS = {
   commitAuthor: 'John Doe',
   commitEmail: 'john@example.com',
   issueRefKey: 'TEST-1',
+  issueRefKey2: 'TEST-2',
+  issueRefKey3: 'PROJ-7',
+  multiRefKey1: 'PAY-42',
+  multiRefKey2: 'PAY-10',
+  multiRefKey3: 'CORE-5',
+  shortPrefixKey: 'AB-1',
 } as const;
 
 // ─── Factory: Commit ─────────────────────────────────────────────────
@@ -456,6 +485,84 @@ export function createCsvRow(overrides?: Partial<Record<string, string>>): strin
   }
 
   return row;
+}
+
+// ─── DB IDs ──────────────────────────────────────────────────────────
+
+export const DB_TEST_IDS = {
+  sourceName: 'postgresql:localhost:5432/testdb',
+  schema: 'public',
+  tableName: 'users',
+  tableName2: 'orders',
+  columnName: 'id',
+  columnName2: 'email',
+  indexName: 'idx_users_email',
+  fkColumn: 'user_id',
+} as const;
+
+// ─── Factory: DbTable ───────────────────────────────────────────────
+
+export function createDbTable(overrides?: Partial<DbTable>): DbTable {
+  return {
+    sourceName: DB_TEST_IDS.sourceName,
+    schema: DB_TEST_IDS.schema,
+    name: DB_TEST_IDS.tableName,
+    rowCount: 1000,
+    sizeBytes: 65536,
+    columns: [createDbColumn()],
+    ...overrides,
+  };
+}
+
+// ─── Factory: DbColumn ──────────────────────────────────────────────
+
+export function createDbColumn(overrides?: Partial<DbColumn>): DbColumn {
+  return {
+    tableName: DB_TEST_IDS.tableName,
+    name: DB_TEST_IDS.columnName,
+    dataType: 'integer',
+    nullable: false,
+    defaultValue: null,
+    isPrimaryKey: true,
+    ordinalPosition: 1,
+    ...overrides,
+  };
+}
+
+// ─── Factory: DbForeignKey ──────────────────────────────────────────
+
+export function createDbForeignKey(overrides?: Partial<DbForeignKey>): DbForeignKey {
+  return {
+    tableName: DB_TEST_IDS.tableName2,
+    columnName: DB_TEST_IDS.fkColumn,
+    referencedTable: DB_TEST_IDS.tableName,
+    referencedColumn: DB_TEST_IDS.columnName,
+    ...overrides,
+  };
+}
+
+// ─── Factory: DbIndex ───────────────────────────────────────────────
+
+export function createDbIndex(overrides?: Partial<DbIndex>): DbIndex {
+  return {
+    tableName: DB_TEST_IDS.tableName,
+    indexName: DB_TEST_IDS.indexName,
+    columns: [DB_TEST_IDS.columnName2],
+    isUnique: true,
+    isPrimary: false,
+    ...overrides,
+  };
+}
+
+// ─── Factory: DbSchemaBatch ────────────────────────────────────────
+
+export function createDbSchemaBatch(overrides?: Partial<DbSchemaBatch>): DbSchemaBatch {
+  return {
+    tables: [createDbTable()],
+    foreignKeys: [createDbForeignKey()],
+    indexes: [createDbIndex()],
+    ...overrides,
+  };
 }
 
 // ─── Factory: WorkspaceConfig ─────────────────────────────────────────

@@ -12,6 +12,9 @@ import { PullUseCase } from '../use-cases/pull.js';
 import { PullGitUseCase } from '../use-cases/pull-git.js';
 import { GitHubProvider } from '../adapters/github/index.js';
 import { PullGitHubUseCase } from '../use-cases/pull-github.js';
+import { DbProvider } from '../adapters/db/index.js';
+import { PullDbUseCase } from '../use-cases/pull-db.js';
+import type { DbEngine } from '../core/types/database.js';
 import type { SourceType } from '../core/types/index.js';
 import { ALL_SOURCES, SOURCE_META } from '../core/types/index.js';
 
@@ -304,6 +307,66 @@ export async function syncCsvFromInit(workspaceRoot: string, filePath?: string):
 }
 
 /**
+ * Sync external database schema → PostgreSQL.
+ */
+async function syncDb(
+  workspaceRoot: string,
+  _options: { since?: string },
+): Promise<void> {
+  dotenv.config({ path: `${workspaceRoot}/.env`, quiet: true });
+
+  const engine = (process.env['TARGET_DB_ENGINE'] ?? 'postgresql') as DbEngine;
+  const host = process.env['TARGET_DB_HOST'];
+  const port = process.env['TARGET_DB_PORT'];
+  const user = process.env['TARGET_DB_USER'];
+  const password = process.env['TARGET_DB_PASSWORD'];
+  const database = process.env['TARGET_DB_NAME'];
+
+  if (!host || !user || !database) {
+    console.log(chalk.red('  Missing target database credentials in .env'));
+    console.log(chalk.dim('  Required: TARGET_DB_HOST, TARGET_DB_USER, TARGET_DB_NAME'));
+    process.exit(1);
+  }
+
+  const sourceName = `${engine}:${host}:${port ?? ''}/${database}`;
+  const db = new DbProvider({
+    engine,
+    host,
+    port: parseInt(port ?? '5432', 10),
+    user,
+    password: password ?? '',
+    database,
+    name: sourceName,
+  });
+
+  const storage = createStorage(workspaceRoot);
+  const spinner = ora('Syncing database schema...').start();
+
+  try {
+    const pullDb = new PullDbUseCase(db, storage);
+
+    const result = await pullDb.execute(sourceName, {
+      onProgress: (msg) => { spinner.text = msg; },
+    });
+
+    spinner.succeed('Database sync complete!');
+    console.log('');
+    console.log(
+      chalk.green(
+        `  ${String(result.tablesCount)} tables, ${String(result.columnsCount)} columns, ${String(result.foreignKeysCount)} FKs, ${String(result.indexesCount)} indexes`,
+      ),
+    );
+    console.log('');
+  } finally {
+    await storage.close();
+  }
+}
+
+export async function syncDbFromInit(workspaceRoot: string): Promise<void> {
+  await syncDb(workspaceRoot, {});
+}
+
+/**
  * Register `argustack sync [type]` command.
  *
  * Usage:
@@ -382,7 +445,7 @@ export function registerSyncCommand(program: Command): void {
               break;
             }
             case 'db': {
-              console.log(chalk.dim(`  ○ Database sync — coming soon`));
+              await syncDb(workspaceRoot, options);
               break;
             }
           }

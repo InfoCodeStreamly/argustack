@@ -228,6 +228,60 @@ export async function ensureSchema(pool: pg.Pool): Promise<void> {
   await pool.query(`ALTER TABLE pull_requests ADD COLUMN IF NOT EXISTS search_vector tsvector`);
   await pool.query(`ALTER TABLE releases ADD COLUMN IF NOT EXISTS search_vector tsvector`);
 
+  await pool.query(`
+    CREATE TABLE IF NOT EXISTS db_tables (
+      id SERIAL PRIMARY KEY,
+      source_name TEXT NOT NULL,
+      table_schema TEXT,
+      table_name TEXT NOT NULL,
+      row_count BIGINT,
+      size_bytes BIGINT,
+      pulled_at TIMESTAMP DEFAULT NOW(),
+      UNIQUE(source_name, table_schema, table_name)
+    )
+  `);
+
+  await pool.query(`
+    CREATE TABLE IF NOT EXISTS db_columns (
+      id SERIAL PRIMARY KEY,
+      source_name TEXT NOT NULL,
+      table_schema TEXT,
+      table_name TEXT NOT NULL,
+      column_name TEXT NOT NULL,
+      data_type TEXT,
+      is_nullable BOOLEAN DEFAULT TRUE,
+      default_value TEXT,
+      is_primary_key BOOLEAN DEFAULT FALSE,
+      ordinal_position INTEGER,
+      UNIQUE(source_name, table_schema, table_name, column_name)
+    )
+  `);
+
+  await pool.query(`
+    CREATE TABLE IF NOT EXISTS db_foreign_keys (
+      id SERIAL PRIMARY KEY,
+      source_name TEXT NOT NULL,
+      table_name TEXT NOT NULL,
+      column_name TEXT NOT NULL,
+      referenced_table TEXT NOT NULL,
+      referenced_column TEXT NOT NULL,
+      UNIQUE(source_name, table_name, column_name, referenced_table, referenced_column)
+    )
+  `);
+
+  await pool.query(`
+    CREATE TABLE IF NOT EXISTS db_indexes (
+      id SERIAL PRIMARY KEY,
+      source_name TEXT NOT NULL,
+      table_name TEXT NOT NULL,
+      index_name TEXT NOT NULL,
+      columns TEXT[],
+      is_unique BOOLEAN DEFAULT FALSE,
+      is_primary BOOLEAN DEFAULT FALSE,
+      UNIQUE(source_name, table_name, index_name)
+    )
+  `);
+
   const indexes = [
     'CREATE INDEX IF NOT EXISTS idx_issues_project ON issues(project_key)',
     'CREATE INDEX IF NOT EXISTS idx_issues_status ON issues(status)',
@@ -265,6 +319,11 @@ export async function ensureSchema(pool: pg.Pool): Promise<void> {
     'CREATE INDEX IF NOT EXISTS idx_releases_repo ON releases(repo_full_name)',
     'CREATE INDEX IF NOT EXISTS idx_releases_tag ON releases(tag_name)',
     'CREATE INDEX IF NOT EXISTS idx_releases_search ON releases USING GIN(search_vector)',
+    'CREATE INDEX IF NOT EXISTS idx_db_tables_source ON db_tables(source_name)',
+    'CREATE INDEX IF NOT EXISTS idx_db_columns_source ON db_columns(source_name)',
+    'CREATE INDEX IF NOT EXISTS idx_db_columns_table ON db_columns(source_name, table_name)',
+    'CREATE INDEX IF NOT EXISTS idx_db_fk_source ON db_foreign_keys(source_name)',
+    'CREATE INDEX IF NOT EXISTS idx_db_indexes_source ON db_indexes(source_name)',
   ];
 
   for (const idx of indexes) {

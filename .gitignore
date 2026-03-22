@@ -3,8 +3,8 @@
 .mcp.json
 .argustack/
 docker-compose.yml
-db/
-data/
+/db/
+/data/
 
 # Build & deps
 node_modules/
@@ -12,6 +12,7 @@ dist/
 tsconfig.tsbuildinfo
 *.mcpb
 .eslintcache
+coverage/
 
 # OS
 .DS_Store
