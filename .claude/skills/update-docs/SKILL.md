@@ -1,6 +1,6 @@
 ---
 name: update-docs
-description: "Verify and regenerate Argustack PDF documentation in Docs/PaperLink/. Diffs recent git changes against the five doc files, checks source code for discrepancies, fixes markdown, bumps versions, and regenerates PDFs via md-to-pdf. Use after any feature implementation, code update, or version bump — especially when files in src/mcp/tools/, src/cli/, src/core/, src/adapters/postgres/schema.ts, or package.json have changed. Also trigger when the user says 'update docs', 'regenerate PDFs', 'verify documentation', 'docs out of date', or '/update-docs'."
+description: "Verify and regenerate Argustack PDF documentation in Docs/PaperLink/. Diffs recent git changes against the five doc files, checks source code for discrepancies, fixes markdown, bumps versions, renames files to include version, and regenerates PDFs via md-to-pdf. Use after any feature implementation, code update, or version bump — especially when files in src/mcp/tools/, src/cli/, src/core/, src/adapters/postgres/schema.ts, or package.json have changed. Also trigger when the user says 'update docs', 'regenerate PDFs', 'verify documentation', 'docs out of date', or '/update-docs'."
 ---
 
 # Update Argustack Documentation
@@ -25,22 +25,33 @@ Focus on changes in these areas — they're the ones that affect documentation:
 | `src/adapters/postgres/schema.ts` | MCP Tools Reference, Architecture Guide |
 | `src/core/ports/*.ts`, `src/core/types/*.ts` | Architecture Guide |
 | `src/mcp/tools/estimate.ts` | Estimate Deep Dive |
-| `package.json` (version, engines) | All docs (version line + prerequisites) |
+| `package.json` (version, engines) | All docs (version line + prerequisites + filenames) |
 | `src/` structure (new/renamed files) | Architecture Guide |
 
 If nothing documentation-relevant changed, say so and stop.
 
 ## Documents
 
-All live in `Docs/PaperLink/`:
+All live in `Docs/PaperLink/`. File naming convention:
+
+```
+Argustack <Title> (<version>).md
+Argustack <Title> (<version>).pdf
+```
+
+Example: `Argustack Use Cases (0.1.9).md`, `Argustack Use Cases (0.1.9).pdf`
+
+The five documents:
 
 | Document | Verified against |
 |----------|-----------------|
-| `Argustack Quick Start Guide.md` | `src/cli/index.ts` (flags), `package.json` (Node version), `src/cli/sync.ts` (sync commands) |
-| `Argustack Use Cases.md` | MCP tool names from `src/mcp/tools/*.ts`, general accuracy |
-| `Argustack MCP Tools Reference.md` | `src/mcp/tools/*.ts` (params, descriptions), `src/adapters/postgres/schema.ts` (column names) |
-| `Argustack Architecture Guide.md` | `src/` directory tree, `src/core/ports/*.ts`, `src/adapters/postgres/schema.ts` |
-| `Argustack Estimate Deep Dive.md` | `src/mcp/tools/estimate.ts` (algorithm, SQL, formulas, constants) |
+| `Argustack Quick Start Guide (X.Y.Z).md` | `src/cli/index.ts` (flags), `package.json` (Node version), `src/cli/sync.ts` (sync commands) |
+| `Argustack Use Cases (X.Y.Z).md` | MCP tool names from `src/mcp/tools/*.ts`, general accuracy |
+| `Argustack MCP Tools Reference (X.Y.Z).md` | `src/mcp/tools/*.ts` (params, descriptions), `src/adapters/postgres/schema.ts` (column names) |
+| `Argustack Architecture Guide (X.Y.Z).md` | `src/` directory tree, `src/core/ports/*.ts`, `src/adapters/postgres/schema.ts` |
+| `Argustack Estimate Deep Dive (X.Y.Z).md` | `src/mcp/tools/estimate.ts` (algorithm, SQL, formulas, constants) |
+
+To find current files, glob for `Docs/PaperLink/Argustack*.md`.
 
 ## Step 1 — Verify
 
@@ -83,6 +94,30 @@ For every discrepancy:
 2. Update the markdown
 
 Bump the `Version X.X.X` line on each cover page to match `package.json` version.
+
+### Rename files to match version
+
+When the version changes, rename both `.md` and `.pdf` files:
+
+```bash
+# Read current version from package.json
+VERSION=$(node -e "console.log(require('./package.json').version)")
+
+# Find old files and rename
+cd Docs/PaperLink
+for f in Argustack*.md; do
+  # Extract title (everything between "Argustack " and " (X.Y.Z).md" or ".md")
+  new_name=$(echo "$f" | sed -E "s/ \([0-9]+\.[0-9]+\.[0-9]+\)//" | sed "s/\.md/ ($VERSION).md/")
+  [ "$f" != "$new_name" ] && mv "$f" "$new_name"
+done
+# Same for .pdf files
+for f in Argustack*.pdf; do
+  new_name=$(echo "$f" | sed -E "s/ \([0-9]+\.[0-9]+\.[0-9]+\)//" | sed "s/\.pdf/ ($VERSION).pdf/")
+  [ "$f" != "$new_name" ] && mv "$f" "$new_name"
+done
+```
+
+Delete old-version `.pdf` files after regenerating new ones. Keep only the current version.
 
 ## Step 3 — Regenerate PDFs
 
