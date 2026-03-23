@@ -17,6 +17,7 @@ import { PullDbUseCase } from '../use-cases/pull-db.js';
 import type { DbEngine } from '../core/types/database.js';
 import type { SourceType } from '../core/types/index.js';
 import { ALL_SOURCES, SOURCE_META } from '../core/types/index.js';
+import { maskHost } from './init/types.js';
 
 /**
  * Create PostgresStorage from workspace .env.
@@ -328,7 +329,7 @@ async function syncDb(
     process.exit(1);
   }
 
-  const sourceName = `${engine}:${host}:${port ?? ''}/${database}`;
+  const sourceName = `${engine}:${maskHost(host)}:${port ?? ''}/${database}`;
   const db = new DbProvider({
     engine,
     host,

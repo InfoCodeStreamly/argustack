@@ -1,7 +1,9 @@
 import dotenv from 'dotenv';
+import { readdirSync, existsSync, statSync } from 'node:fs';
+import { join, dirname, basename } from 'node:path';
 import { findWorkspaceRoot } from '../workspace/resolver.js';
 import { readConfig, getEnabledSources } from '../workspace/config.js';
-import type { WorkspaceConfig } from '../core/types/index.js';
+import type { WorkspaceConfig, SourceType } from '../core/types/index.js';
 import type { ISourceProvider } from '../core/ports/source-provider.js';
 import type { IStorage } from '../core/ports/storage.js';
 import type { ToolResponse } from './types.js';
@@ -9,6 +11,15 @@ import type { ToolResponse } from './types.js';
 export type WorkspaceResult =
   | { ok: true; root: string; config: WorkspaceConfig }
   | { ok: false; reason: string };
+
+export interface WorkspaceListItem {
+  name: string;
+  path: string;
+  sources: SourceType[];
+  active: boolean;
+}
+
+let activeStorage: IStorage | null = null;
 
 export function loadWorkspace(): WorkspaceResult {
   const envVar = process.env['ARGUSTACK_WORKSPACE'];
@@ -30,6 +41,114 @@ export function loadWorkspace(): WorkspaceResult {
   }
 
   return { ok: true, root, config };
+}
+
+/**
+ * Switch to a different workspace by name.
+ * Closes current storage connection, updates env, reloads .env.
+ */
+export async function switchWorkspace(name: string): Promise<WorkspaceResult> {
+  const currentRoot = process.env['ARGUSTACK_WORKSPACE'];
+  if (!currentRoot) {
+    return { ok: false, reason: 'No ARGUSTACK_WORKSPACE set. Cannot determine sibling workspaces.' };
+  }
+
+  const parentDir = dirname(currentRoot);
+  const targetDir = join(parentDir, name);
+
+  if (!existsSync(join(targetDir, '.argustack'))) {
+    const available = listSiblingWorkspaces();
+    const names = available.map((w) => w.name).join(', ');
+    return {
+      ok: false,
+      reason: `Workspace '${name}' not found. Available: ${names || 'none'}`,
+    };
+  }
+
+  if (activeStorage) {
+    try {
+      await activeStorage.close();
+    } catch { /* ignore close errors */ }
+    activeStorage = null;
+  }
+
+  process.env['ARGUSTACK_WORKSPACE'] = targetDir;
+
+  const keysToRemove = Object.keys(process.env).filter((key) =>
+    key.startsWith('JIRA_') || key.startsWith('GIT_') || key.startsWith('GITHUB_') ||
+    key.startsWith('DB_') || key.startsWith('TARGET_DB_') || key.startsWith('CSV_') ||
+    key === 'OPENAI_API_KEY',
+  );
+  for (const key of keysToRemove) {
+    process.env[key] = undefined;
+  }
+
+  dotenv.config({ path: join(targetDir, '.env'), override: true });
+
+  return loadWorkspace();
+}
+
+/**
+ * Scan parent directory for sibling workspaces.
+ */
+export function listSiblingWorkspaces(): WorkspaceListItem[] {
+  const currentRoot = process.env['ARGUSTACK_WORKSPACE'];
+  if (!currentRoot) {
+    return [];
+  }
+
+  const parentDir = dirname(currentRoot);
+  const currentName = basename(currentRoot);
+
+  let entries: string[];
+  try {
+    entries = readdirSync(parentDir);
+  } catch {
+    return [];
+  }
+
+  const workspaces: WorkspaceListItem[] = [];
+
+  for (const name of entries) {
+    if (name.startsWith('.')) {
+      continue;
+    }
+
+    const subdir = join(parentDir, name);
+    try {
+      if (!statSync(subdir).isDirectory()) {
+        continue;
+      }
+    } catch {
+      continue;
+    }
+
+    if (!existsSync(join(subdir, '.argustack'))) {
+      continue;
+    }
+
+    const config = readConfig(subdir);
+    if (!config) {
+      continue;
+    }
+
+    workspaces.push({
+      name: config.name ?? name,
+      path: subdir,
+      sources: getEnabledSources(config),
+      active: name === currentName,
+    });
+  }
+
+  return workspaces;
+}
+
+export function setActiveStorage(storage: IStorage): void {
+  activeStorage = storage;
+}
+
+export function getActiveStorage(): IStorage | null {
+  return activeStorage;
 }
 
 export async function createAdapters(workspaceRoot: string): Promise<{

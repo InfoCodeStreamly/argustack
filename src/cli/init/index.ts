@@ -1,9 +1,12 @@
-import { input, confirm, checkbox } from '@inquirer/prompts';
+import { readdirSync } from 'node:fs';
+import { join, resolve, basename } from 'node:path';
+import { input, confirm, checkbox, select } from '@inquirer/prompts';
 import { execSync } from 'node:child_process';
 import chalk from 'chalk';
 import ora from 'ora';
 import { isWorkspace } from '../../workspace/resolver.js';
-import type { SourceType } from '../../core/types/index.js';
+import { readConfig } from '../../workspace/config.js';
+import type { SourceType, WorkspaceConfig } from '../../core/types/index.js';
 import { ALL_SOURCES, SOURCE_META } from '../../core/types/index.js';
 import type {
   InitFlags,
@@ -13,7 +16,7 @@ import type {
   CsvSetupResult,
   DbSetupResult,
 } from './types.js';
-import { DEFAULT_DB_PORT, DEFAULT_PGWEB_PORT, resolvePath, validatePort, getErrorMsg } from './types.js';
+import { DEFAULT_DB_PORT, DEFAULT_PGWEB_PORT, validatePort, getErrorMsg } from './types.js';
 import { setupJiraInteractive, setupJiraFromFlags } from './setup-jira.js';
 import { setupGitInteractive, setupGitFromFlags } from './setup-git.js';
 import { setupGithubInteractive, setupGithubFromFlags } from './setup-github.js';
@@ -22,6 +25,69 @@ import { setupDbInteractive, setupDbFromFlags } from './setup-db.js';
 import { createWorkspaceFiles, printSummary } from './generators.js';
 
 export type { InitFlags } from './types.js';
+
+interface WorkspaceInfo {
+  name: string;
+  path: string;
+  config: WorkspaceConfig;
+}
+
+/**
+ * Scan directory for existing workspace subdirectories.
+ */
+export function scanWorkspaces(dir: string): WorkspaceInfo[] {
+  const resolved = resolve(dir);
+  const workspaces: WorkspaceInfo[] = [];
+
+  let entries: string[];
+  try {
+    entries = readdirSync(resolved);
+  } catch {
+    return [];
+  }
+
+  for (const name of entries) {
+    if (name.startsWith('.')) {
+      continue;
+    }
+
+    const subdir = join(resolved, name);
+    if (isWorkspace(subdir)) {
+      const config = readConfig(subdir);
+      if (config) {
+        workspaces.push({
+          name: config.name ?? name,
+          path: subdir,
+          config,
+        });
+      }
+    }
+  }
+
+  return workspaces;
+}
+
+/**
+ * Sanitize workspace name to kebab-case directory name.
+ */
+function sanitizeName(raw: string): string {
+  return raw
+    .toLowerCase()
+    .trim()
+    .replace(/[^a-z0-9-]/g, '-')
+    .replace(/-+/g, '-')
+    .replace(/^-|-$/g, '');
+}
+
+/**
+ * Find next available port by checking existing docker-compose files.
+ */
+function findNextPort(workspaces: WorkspaceInfo[], basePort: number): number {
+  if (workspaces.length === 0) {
+    return basePort;
+  }
+  return basePort + workspaces.length;
+}
 
 async function startAndSync(
   workspaceDir: string,
@@ -128,10 +194,69 @@ async function startAndSync(
   console.log('');
 }
 
+async function setupSources(flags: InitFlags): Promise<{
+  jira: JiraSetupResult | null;
+  git: GitSetupResult | null;
+  github: GitHubSetupResult | null;
+  csv: CsvSetupResult | null;
+  db: DbSetupResult | null;
+}> {
+  console.log('');
+  const selectedSources = await checkbox<SourceType>({
+    message: 'Which sources do you have access to?',
+    choices: ALL_SOURCES.map((s) => ({
+      value: s,
+      name: SOURCE_META[s].label,
+      description: SOURCE_META[s].description,
+    })),
+  });
+
+  if (selectedSources.length === 0) {
+    console.log(chalk.yellow('\n  No sources selected. You can add them later with:'));
+    console.log(chalk.cyan('  argustack source add jira'));
+
+    const continueAnyway = await confirm({
+      message: 'Create workspace without sources?',
+      default: true,
+    });
+    if (!continueAnyway) {
+      throw new Error('Cancelled');
+    }
+  }
+
+  let jira: JiraSetupResult | null = null;
+  let git: GitSetupResult | null = null;
+  let github: GitHubSetupResult | null = null;
+  let csv: CsvSetupResult | null = null;
+  let db: DbSetupResult | null = null;
+
+  for (const source of selectedSources) {
+    switch (source) {
+      case 'jira':   jira = await setupJiraInteractive(); break;
+      case 'git':    git = await setupGitInteractive(); break;
+      case 'github': github = await setupGithubInteractive(git?.githubToken, git?.githubRepos); break;
+      case 'csv':    csv = await setupCsvInteractive(); break;
+      case 'db':     db = await setupDbInteractive(); break;
+    }
+  }
+
+  void flags;
+  return { jira, git, github, csv, db };
+}
+
 async function runInitNonInteractive(flags: InitFlags): Promise<void> {
   console.log(chalk.bold('\n  Argustack — non-interactive setup\n'));
 
-  const workspaceDir = resolvePath(flags.dir ?? process.cwd());
+  if (!flags.name) {
+    throw new Error('Workspace name is required. Usage: argustack init <name>');
+  }
+
+  const workspaceName = sanitizeName(flags.name);
+  const workspaceDir = resolve(process.cwd(), workspaceName);
+
+  if (isWorkspace(workspaceDir)) {
+    throw new Error(`Workspace '${workspaceName}' already exists at ${workspaceDir}`);
+  }
 
   const selectedSources: SourceType[] = flags.source
     ? (flags.source.split(',').map((s) => s.trim().toLowerCase()) as SourceType[])
@@ -169,13 +294,14 @@ async function runInitNonInteractive(flags: InitFlags): Promise<void> {
     }
   }
 
-  const dbPort = parseInt(flags.dbPort ?? String(DEFAULT_DB_PORT), 10);
-  const pgwebPort = parseInt(flags.pgwebPort ?? String(DEFAULT_PGWEB_PORT), 10);
+  const existing = scanWorkspaces(process.cwd());
+  const dbPort = parseInt(flags.dbPort ?? String(findNextPort(existing, DEFAULT_DB_PORT)), 10);
+  const pgwebPort = parseInt(flags.pgwebPort ?? String(findNextPort(existing, DEFAULT_PGWEB_PORT)), 10);
 
   const spinner = ora('Creating workspace...').start();
   try {
-    createWorkspaceFiles(workspaceDir, jiraResult, gitResult, githubResult, csvResult, dbResult, dbPort, pgwebPort);
-    spinner.succeed('Workspace created!');
+    createWorkspaceFiles(workspaceDir, jiraResult, gitResult, githubResult, csvResult, dbResult, dbPort, pgwebPort, workspaceName);
+    spinner.succeed(`Workspace '${workspaceName}' created!`);
   } catch (err: unknown) {
     spinner.fail('Failed');
     throw err;
@@ -189,21 +315,90 @@ async function runInitInteractive(flags: InitFlags): Promise<void> {
   console.log(chalk.bold('  Argustack — workspace setup'));
   console.log(chalk.dim('  Cross-reference Jira + Git + DB to analyze your project.\n'));
 
-  const targetDir = await input({
-    message: 'Workspace directory:',
-    default: flags.dir ?? process.cwd(),
-    validate: (val): string | true => {
-      if (!val.trim()) {
-        return 'Directory path is required';
-      }
-      return true;
-    },
-  });
+  const cwd = process.cwd();
+  const existing = scanWorkspaces(cwd);
 
-  const workspaceDir = resolvePath(targetDir);
+  let workspaceName: string;
+  let workspaceDir: string;
+
+  if (existing.length > 0) {
+    console.log(chalk.dim(`  Found ${String(existing.length)} workspace(s) in ${basename(cwd)}:`));
+    for (const ws of existing) {
+      const sources = ws.config.order.length > 0
+        ? ws.config.order.map((s) => SOURCE_META[s].label).join(', ')
+        : 'no sources';
+      console.log(`    ${chalk.green('●')} ${chalk.bold(ws.name)} — ${chalk.dim(sources)}`);
+    }
+    console.log('');
+
+    const action = await select({
+      message: 'What would you like to do?',
+      choices: [
+        { value: 'new', name: 'Create new workspace' },
+        ...existing.map((ws) => ({
+          value: `update:${ws.name}`,
+          name: `Update ${ws.name}`,
+        })),
+      ],
+    });
+
+    if (action.startsWith('update:')) {
+      const updateName = action.slice('update:'.length);
+      const ws = existing.find((w) => w.name === updateName);
+      if (!ws) {
+        throw new Error(`Workspace '${updateName}' not found`);
+      }
+      console.log(chalk.dim(`\n  Updating workspace: ${updateName}\n`));
+      workspaceName = updateName;
+      workspaceDir = ws.path;
+    } else {
+      const rawName = flags.name ?? await input({
+        message: 'Workspace name:',
+        validate: (val): string | true => {
+          if (val.includes('://') || val.includes('.') || val.includes('/')) {
+            return 'This looks like a URL. Enter a short project name (e.g. "paperlink", "my-project")';
+          }
+          const sanitized = sanitizeName(val);
+          if (!sanitized) {
+            return 'Name is required (letters, numbers, hyphens)';
+          }
+          if (sanitized.length > 30) {
+            return 'Name too long — keep it under 30 characters';
+          }
+          if (existing.some((ws) => ws.name === sanitized)) {
+            return `Workspace '${sanitized}' already exists`;
+          }
+          return true;
+        },
+      });
+
+      workspaceName = sanitizeName(rawName);
+      workspaceDir = join(cwd, workspaceName);
+    }
+  } else {
+    const rawName = flags.name ?? await input({
+      message: 'Workspace name:',
+      validate: (val): string | true => {
+        if (val.includes('://') || val.includes('.') || val.includes('/')) {
+          return 'This looks like a URL. Enter a short project name (e.g. "paperlink", "my-project")';
+        }
+        const sanitized = sanitizeName(val);
+        if (!sanitized) {
+          return 'Name is required (letters, numbers, hyphens)';
+        }
+        if (sanitized.length > 30) {
+          return 'Name too long — keep it under 30 characters';
+        }
+        return true;
+      },
+    });
+
+    workspaceName = sanitizeName(rawName);
+    workspaceDir = join(cwd, workspaceName);
+  }
 
   if (isWorkspace(workspaceDir)) {
-    console.log(chalk.yellow(`\n  Already an Argustack workspace: ${workspaceDir}`));
+    console.log(chalk.yellow(`\n  Workspace '${workspaceName}' already exists.`));
     const proceed = await confirm({ message: 'Reinitialize this workspace?', default: false });
     if (!proceed) {
       console.log(chalk.dim('  Cancelled.'));
@@ -211,59 +406,23 @@ async function runInitInteractive(flags: InitFlags): Promise<void> {
     }
   }
 
-  console.log('');
-  const selectedSources = await checkbox<SourceType>({
-    message: 'Which sources do you have access to?',
-    choices: ALL_SOURCES.map((s) => ({
-      value: s,
-      name: SOURCE_META[s].label,
-      description: SOURCE_META[s].description,
-    })),
-  });
-
-  if (selectedSources.length === 0) {
-    console.log(chalk.yellow('\n  No sources selected. You can add them later with:'));
-    console.log(chalk.cyan('  argustack source add jira'));
-    console.log(chalk.cyan('  argustack source add git'));
-    console.log(chalk.cyan('  argustack source add github'));
-    console.log(chalk.cyan('  argustack source add db'));
-
-    const continueAnyway = await confirm({
-      message: 'Create workspace without sources?',
-      default: true,
-    });
-    if (!continueAnyway) {
-      console.log(chalk.dim('  Cancelled.'));
-      return;
-    }
-  }
-
-  let jiraResult: JiraSetupResult | null = null;
-  let gitResult: GitSetupResult | null = null;
-  let githubResult: GitHubSetupResult | null = null;
-  let csvResult: CsvSetupResult | null = null;
-  let dbResult: DbSetupResult | null = null;
-
-  for (const source of selectedSources) {
-    switch (source) {
-      case 'jira':   jiraResult = await setupJiraInteractive(); break;
-      case 'git':    gitResult = await setupGitInteractive(); break;
-      case 'github': githubResult = await setupGithubInteractive(gitResult?.githubToken, gitResult?.githubRepos); break;
-      case 'csv':    csvResult = await setupCsvInteractive(); break;
-      case 'db':     dbResult = await setupDbInteractive(); break;
-    }
-  }
+  process.env['ARGUSTACK_INIT_WORKSPACE'] = workspaceName;
+  const { jira, git, github, csv, db } = await setupSources(flags);
+  delete process.env['ARGUSTACK_INIT_WORKSPACE'];
 
   console.log('');
   console.log(chalk.dim('  Argustack internal database (Docker):'));
 
+  const defaultDbPort = findNextPort(existing, DEFAULT_DB_PORT);
+  const defaultPgwebPort = findNextPort(existing, DEFAULT_PGWEB_PORT);
+
   const dbPortStr = await input({
-    message: 'PostgreSQL port:', default: flags.dbPort ?? String(DEFAULT_DB_PORT),
+    message: 'PostgreSQL port:', default: flags.dbPort ?? String(defaultDbPort),
     validate: (val): string | true => validatePort(val, 1024),
   });
 
   const pgwebPortStr = await input({
-    message: 'pgweb UI port:', default: flags.pgwebPort ?? String(DEFAULT_PGWEB_PORT),
+    message: 'pgweb UI port:', default: flags.pgwebPort ?? String(defaultPgwebPort),
     validate: (val): string | true => validatePort(val, 1024),
   });
 
@@ -272,8 +431,8 @@ async function runInitInteractive(flags: InitFlags): Promise<void> {
 
   const spinner = ora('Creating workspace...').start();
   try {
-    createWorkspaceFiles(workspaceDir, jiraResult, gitResult, githubResult, csvResult, dbResult, dbPort, pgwebPort);
-    spinner.succeed('Workspace created!');
+    createWorkspaceFiles(workspaceDir, jira, git, github, csv, db, dbPort, pgwebPort, workspaceName);
+    spinner.succeed(`Workspace '${workspaceName}' created!`);
   } catch (err: unknown) {
     spinner.fail('Failed to create workspace');
     console.log(chalk.red(`\n  Error: ${getErrorMsg(err)}`));
@@ -285,10 +444,10 @@ async function runInitInteractive(flags: InitFlags): Promise<void> {
     default: true,
   });
 
-  printSummary(workspaceDir, jiraResult, gitResult, githubResult, csvResult, dbResult, pgwebPort, autoStart);
+  printSummary(workspaceDir, jira, git, github, csv, db, pgwebPort, autoStart);
 
   if (autoStart) {
-    await startAndSync(workspaceDir, jiraResult !== null, gitResult !== null, githubResult !== null, csvResult, dbResult, pgwebPort);
+    await startAndSync(workspaceDir, jira !== null, git !== null, github !== null, csv, db, pgwebPort);
   }
 }
 

@@ -23,7 +23,7 @@ program
 program
   .command('init')
   .description('Create a new Argustack workspace')
-  .option('-d, --dir <path>', 'Workspace directory')
+  .argument('[name]', 'Workspace name (creates subdirectory)')
   .option('-s, --source <sources>', 'Comma-separated sources: jira,git,github,db')
   .option('--jira-url <url>', 'Jira instance URL')
   .option('--jira-email <email>', 'Jira user email')
@@ -40,12 +40,16 @@ program
   .option('--target-db-password <password>', 'Target DB password')
   .option('--target-db-name <name>', 'Target DB name')
   .option('--csv-file <path>', 'Path to Jira CSV export file')
-  .option('--db-port <port>', 'Argustack PostgreSQL port', '5434')
-  .option('--pgweb-port <port>', 'pgweb UI port', '8086')
+  .option('--db-port <port>', 'Argustack PostgreSQL port')
+  .option('--pgweb-port <port>', 'pgweb UI port')
   .option('--no-interactive', 'Run without prompts (all values from flags)')
-  .action(async (options: unknown) => {
+  .action(async (name: string | undefined, options: unknown) => {
     try {
-      await runInit(options as InitFlags);
+      const flags = options as InitFlags;
+      if (name) {
+        flags.name = name;
+      }
+      await runInit(flags);
     } catch (err: unknown) {
       if (err instanceof Error && err.name === 'ExitPromptError') {
         console.log('\n  Cancelled.');

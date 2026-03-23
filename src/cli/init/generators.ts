@@ -11,6 +11,7 @@ import type {
   CsvSetupResult,
   DbSetupResult,
 } from './types.js';
+import { maskHost, maskOrgRepo, maskPath } from './types.js';
 
 const currentDir = fileURLToPath(new URL('.', import.meta.url));
 
@@ -97,11 +98,12 @@ export function generateEnv(
   return lines.join('\n') + '\n';
 }
 
-export function generateDockerCompose(dbPort: number, pgwebPort: number): string {
+export function generateDockerCompose(dbPort: number, pgwebPort: number, workspaceName?: string): string {
+  const prefix = workspaceName ? `argustack-${workspaceName}` : 'argustack';
   return `services:
   db:
     image: pgvector/pgvector:pg16
-    container_name: argustack-db
+    container_name: ${prefix}-db
     ports:
       - "${dbPort}:5432"
     environment:
@@ -109,7 +111,7 @@ export function generateDockerCompose(dbPort: number, pgwebPort: number): string
       POSTGRES_PASSWORD: argustack_local
       POSTGRES_DB: argustack
     volumes:
-      - argustack-data:/var/lib/postgresql/data
+      - ${prefix}-data:/var/lib/postgresql/data
       - ./db/init.sql:/docker-entrypoint-initdb.d/init.sql
     healthcheck:
       test: ["CMD-SHELL", "pg_isready -U argustack"]
@@ -119,7 +121,7 @@ export function generateDockerCompose(dbPort: number, pgwebPort: number): string
 
   pgweb:
     image: sosedoff/pgweb
-    container_name: argustack-pgweb
+    container_name: ${prefix}-pgweb
     ports:
       - "${pgwebPort}:8081"
     environment:
@@ -130,7 +132,7 @@ export function generateDockerCompose(dbPort: number, pgwebPort: number): string
     restart: on-failure
 
 volumes:
-  argustack-data:
+  ${prefix}-data:
 `;
 }
 
@@ -143,6 +145,7 @@ export function createWorkspaceFiles(
   db: DbSetupResult | null,
   dbPort: number,
   pgwebPort: number,
+  workspaceName?: string,
 ): void {
   const templatesDir = getTemplatesDir();
 
@@ -151,7 +154,7 @@ export function createWorkspaceFiles(
   mkdirSync(join(workspaceDir, 'db'), { recursive: true });
   mkdirSync(join(workspaceDir, 'data'), { recursive: true });
 
-  let config = createEmptyConfig();
+  let config = createEmptyConfig(workspaceName);
   if (jira) {
     config = addSource(config, 'jira');
   }
@@ -171,7 +174,7 @@ export function createWorkspaceFiles(
 
   writeFileSync(join(workspaceDir, '.env'), generateEnv(jira, git, github, csv, db, dbPort));
 
-  writeFileSync(join(workspaceDir, 'docker-compose.yml'), generateDockerCompose(dbPort, pgwebPort));
+  writeFileSync(join(workspaceDir, 'docker-compose.yml'), generateDockerCompose(dbPort, pgwebPort, workspaceName));
 
   copyFileSync(join(templatesDir, 'init.sql'), join(workspaceDir, 'db', 'init.sql'));
 
@@ -210,21 +213,21 @@ export function printSummary(
 
   console.log(chalk.dim('  Sources configured:'));
   if (jira) {
-    console.log(`    ${chalk.green('✓')} Jira — ${jira.jiraUrl}`);
+    console.log(`    ${chalk.green('✓')} Jira — ${maskHost(jira.jiraUrl.replace(/^https?:\/\//, ''))}`);
   }
   if (git) {
     for (const p of git.gitRepoPaths) {
-      console.log(`    ${chalk.green('✓')} Git — ${p}`);
+      console.log(`    ${chalk.green('✓')} Git — ${maskPath(p)}`);
     }
   }
   if (github) {
-    console.log(`    ${chalk.green('✓')} GitHub — ${github.githubOwner}/${github.githubRepo}`);
+    console.log(`    ${chalk.green('✓')} GitHub — ${maskOrgRepo(github.githubOwner, github.githubRepo)}`);
   }
   if (csv) {
     console.log(`    ${chalk.green('✓')} Jira CSV — ${csv.csvFilePath}`);
   }
   if (db) {
-    console.log(`    ${chalk.green('✓')} Database — ${db.targetDbHost}:${db.targetDbPort}`);
+    console.log(`    ${chalk.green('✓')} Database — ${maskHost(db.targetDbHost)}:${db.targetDbPort}`);
   }
   if (!jira && !git && !github && !csv && !db) {
     console.log(`    ${chalk.yellow('—')} None yet. Use ${chalk.cyan('argustack source add <type>')}`);

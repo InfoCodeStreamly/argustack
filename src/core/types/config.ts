@@ -13,6 +13,8 @@ export interface SourceConfig {
 
 export interface WorkspaceConfig {
   version: 1;
+  /** Workspace name (directory name, kebab-case) */
+  name?: string;
   /** Which sources are configured */
   sources: Partial<Record<SourceType, SourceConfig>>;
   /** Order of sources (for analysis priority) */

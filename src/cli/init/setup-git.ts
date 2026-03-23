@@ -6,7 +6,7 @@ import { spawn } from 'node:child_process';
 import chalk from 'chalk';
 import ora, { type Ora } from 'ora';
 import type { InitFlags, GitSetupResult } from './types.js';
-import { resolvePath, getErrorMsg } from './types.js';
+import { resolvePath, getErrorMsg, maskPath } from './types.js';
 
 function gitCloneWithProgress(url: string, targetPath: string, spinner: Ora): Promise<void> {
   return new Promise<void>((res, rej) => {
@@ -115,7 +115,10 @@ async function collectGitRepoGithub(): Promise<{ paths: string[]; token: string;
   const clonedRepos: string[] = [];
   for (const { cloneUrl, fullName } of selectedRepos) {
     const repoName = cloneUrl.split('/').pop()?.replace(/\.git$/, '') ?? 'repo';
-    const defaultPath = resolve(repoName);
+    const workspaceName = process.env['ARGUSTACK_INIT_WORKSPACE'];
+    const defaultPath = workspaceName
+      ? resolve(workspaceName, repoName)
+      : resolve(repoName);
     const cloneDir = await input({
       message: `Clone ${repoName} into directory:`,
       default: defaultPath,
@@ -155,7 +158,10 @@ async function collectGitRepoUrl(): Promise<string | null> {
   });
 
   const defaultDir = repoUrl.trim().split('/').pop()?.replace(/\.git$/, '') ?? 'repo';
-  const defaultPath = resolve(defaultDir);
+  const workspaceName = process.env['ARGUSTACK_INIT_WORKSPACE'];
+  const defaultPath = workspaceName
+    ? resolve(workspaceName, defaultDir)
+    : resolve(defaultDir);
   const cloneDir = await input({
     message: 'Clone into directory:',
     default: defaultPath,
@@ -257,7 +263,7 @@ export async function setupGitInteractive(): Promise<GitSetupResult | null> {
   }
 
   for (const p of gitRepoPaths) {
-    console.log(chalk.green(`  Git source configured: ${p}`));
+    console.log(chalk.green(`  Git source configured: ${maskPath(p)}`));
   }
 
   return {

@@ -33,7 +33,7 @@ export interface DbSetupResult {
 }
 
 export interface InitFlags {
-  dir?: string;
+  name?: string;
   source?: string;
   jiraUrl?: string;
   jiraEmail?: string;
@@ -80,6 +80,58 @@ export function validatePort(val: string, min = 1): string | true {
  * Strip path, query, fragment from a Jira URL.
  * User may paste full board URL — we only need the base.
  */
+/**
+ * Mask sensitive string for display: show first 2 + last chars, mask middle.
+ * Email: in****@co**********.com
+ */
+export function maskEmail(email: string): string {
+  const [user, domain] = email.split('@');
+  if (!user || !domain) {
+    return '****';
+  }
+  const prefix = user.slice(0, 2);
+  const maskedUser = prefix + '*'.repeat(Math.max(user.length - 2, 4));
+
+  const dotIdx = domain.lastIndexOf('.');
+  if (dotIdx <= 0) {
+    return `${maskedUser}@${'*'.repeat(domain.length)}`;
+  }
+  const domainName = domain.slice(0, dotIdx);
+  const tld = domain.slice(dotIdx);
+  const domainPrefix = domainName.slice(0, 2);
+  const maskedDomain = domainPrefix + '*'.repeat(Math.max(domainName.length - 2, 4)) + tld;
+
+  return `${maskedUser}@${maskedDomain}`;
+}
+
+export function maskHost(host: string): string {
+  const parts = host.split('.');
+  if (parts.length < 2) {return host;}
+  return parts.map((part, i) => {
+    if (i === parts.length - 1) {return part;}
+    if (part.length <= 2) {return part;}
+    return part.slice(0, 2) + '*'.repeat(Math.min(part.length - 2, 10));
+  }).join('.');
+}
+
+export function maskOrgRepo(owner: string, repo?: string): string {
+  const full = repo ? `${owner}/${repo}` : owner;
+  const parts = full.split('/');
+  const o = parts[0] ?? '';
+  const r = parts[1] ?? '';
+  const maskedO = o.length <= 2 ? o : o.slice(0, 2) + '*'.repeat(Math.min(o.length - 2, 10));
+  if (!r) {return maskedO;}
+  const maskedR = r.length <= 2 ? r : r.slice(0, 2) + '*'.repeat(Math.min(r.length - 2, 10));
+  return `${maskedO}/${maskedR}`;
+}
+
+export function maskPath(p: string): string {
+  const parts = p.split('/');
+  const last = parts.pop() ?? '';
+  const maskedLast = last.length <= 2 ? last : last.slice(0, 2) + '*'.repeat(Math.min(last.length - 2, 10));
+  return [...parts, maskedLast].join('/');
+}
+
 export function extractJiraBaseUrl(raw: string): string {
   try {
     const url = new URL(raw.trim());

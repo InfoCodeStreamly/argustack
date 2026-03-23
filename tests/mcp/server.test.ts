@@ -43,6 +43,8 @@ describe('MCP server tools', () => {
     const toolNames = tools.map((t) => t.name);
 
     expect(toolNames).toContain('workspace_info');
+    expect(toolNames).toContain('switch_workspace');
+    expect(toolNames).toContain('list_workspaces');
     expect(toolNames).toContain('list_projects');
     expect(toolNames).toContain('pull_jira');
     expect(toolNames).toContain('query_issues');
@@ -60,7 +62,7 @@ describe('MCP server tools', () => {
     expect(toolNames).toContain('db_schema');
     expect(toolNames).toContain('db_query');
     expect(toolNames).toContain('db_stats');
-    expect(tools).toHaveLength(18);
+    expect(tools).toHaveLength(20);
   });
 
   it('workspace_info tool responds (even without workspace)', async () => {
