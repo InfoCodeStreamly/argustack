@@ -1,4 +1,4 @@
-import type { IssueBatch } from '../types/index.js';
+import type { IssueBatch, HybridSearchResult } from '../types/index.js';
 import type { CommitBatch } from '../types/git.js';
 import type { GitHubBatch, Release } from '../types/github.js';
 import type { DbSchemaBatch } from '../types/database.js';
@@ -50,6 +50,15 @@ export interface IStorage {
 
   /** Semantic vector similarity search — returns issue keys ordered by similarity */
   semanticSearch(vector: number[], limit: number, threshold?: number): Promise<{ issueKey: string; similarity: number }[]>;
+
+  /**
+   * Hybrid search — combines full-text (tsvector) and vector similarity (pgvector) using Reciprocal Rank Fusion.
+   * @param query - text query for full-text search
+   * @param vector - embedding vector for similarity search (null = text-only mode)
+   * @param limit - max results
+   * @param threshold - minimum similarity score for vector results (default 0.5)
+   */
+  hybridSearch(query: string, vector: number[] | null, limit: number, threshold?: number): Promise<HybridSearchResult[]>;
 
   /** Execute a raw SQL query with parameterized values */
   query(sql: string, params: unknown[]): Promise<QueryResult>;

@@ -1,6 +1,6 @@
 import type pg from 'pg';
 import type { IStorage, QueryResult } from '../../core/ports/storage.js';
-import type { IssueBatch } from '../../core/types/index.js';
+import type { IssueBatch, HybridSearchResult } from '../../core/types/index.js';
 import type { CommitBatch } from '../../core/types/git.js';
 import type { GitHubBatch, Release } from '../../core/types/github.js';
 import type { DbSchemaBatch } from '../../core/types/database.js';
@@ -438,6 +438,82 @@ export class PostgresStorage implements IStorage {
       issueKey: r.issue_key,
       similarity: r.similarity,
     }));
+  }
+
+  async hybridSearch(
+    query: string,
+    vector: number[] | null,
+    limit: number,
+    threshold?: number,
+  ): Promise<HybridSearchResult[]> {
+    interface HybridRow {
+      issue_key: string;
+      score: number;
+      in_text: boolean;
+      in_vector: boolean;
+    }
+
+    const k = 60;
+    const maxPerSource = limit * 2;
+    const minSimilarity = threshold ?? 0.5;
+
+    if (!vector) {
+      const result = await this.pool.query<HybridRow>(
+        `SELECT issue_key,
+                1.0 / (${String(k)} + ROW_NUMBER() OVER (ORDER BY ts_rank_cd(search_vector, plainto_tsquery('english', $1)) DESC)) AS score,
+                true AS in_text,
+                false AS in_vector
+         FROM issues
+         WHERE search_vector @@ plainto_tsquery('english', $1)
+         ORDER BY score DESC
+         LIMIT $2`,
+        [query, limit],
+      );
+      return result.rows.map((r) => ({
+        issueKey: r.issue_key,
+        score: r.score,
+        source: 'text' as const,
+      }));
+    }
+
+    const vectorStr = `[${vector.join(',')}]`;
+
+    const result = await this.pool.query<HybridRow>(
+      `WITH text_search AS (
+         SELECT issue_key, ROW_NUMBER() OVER (ORDER BY ts_rank_cd(search_vector, plainto_tsquery('english', $1)) DESC) AS rank
+         FROM issues
+         WHERE search_vector @@ plainto_tsquery('english', $1)
+         LIMIT $3
+       ),
+       vector_search AS (
+         SELECT issue_key, ROW_NUMBER() OVER (ORDER BY embedding <=> $2::vector) AS rank
+         FROM issues
+         WHERE embedding IS NOT NULL
+           AND 1 - (embedding <=> $2::vector) >= ${String(minSimilarity)}
+         LIMIT $3
+       )
+       SELECT COALESCE(t.issue_key, v.issue_key) AS issue_key,
+              1.0 / (${String(k)} + COALESCE(t.rank, 1000)) + 1.0 / (${String(k)} + COALESCE(v.rank, 1000)) AS score,
+              t.issue_key IS NOT NULL AS in_text,
+              v.issue_key IS NOT NULL AS in_vector
+       FROM text_search t
+       FULL OUTER JOIN vector_search v ON t.issue_key = v.issue_key
+       ORDER BY score DESC
+       LIMIT $4`,
+      [query, vectorStr, maxPerSource, limit],
+    );
+
+    return result.rows.map((r) => {
+      let source: HybridSearchResult['source'];
+      if (r.in_text && r.in_vector) {
+        source = 'both';
+      } else if (r.in_text) {
+        source = 'text';
+      } else {
+        source = 'semantic';
+      }
+      return { issueKey: r.issue_key, score: r.score, source };
+    });
   }
 
   async query(sql: string, params: unknown[]): Promise<QueryResult> {

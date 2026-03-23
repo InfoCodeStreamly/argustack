@@ -12,13 +12,13 @@ import {
 
 export function registerSearchTools(server: McpServer): void {
   server.registerTool(
-    'semantic_search',
+    'hybrid_search',
     {
-      description: 'Semantic vector similarity search across issues. Uses AI embeddings to find issues by meaning, not just keywords. Requires embeddings generated first ("argustack embed").',
+      description: 'Hybrid search across issues combining full-text keyword matching and semantic vector similarity using Reciprocal Rank Fusion. Works without embeddings (text-only fallback). For best results, run "argustack embed" first.',
       inputSchema: {
         query: z.string().describe('Natural language search query (e.g. "authentication timeout problems")'),
         limit: z.number().optional().describe('Max results (default: 10)'),
-        threshold: z.number().optional().describe('Minimum similarity score 0-1 (default: 0.5)'),
+        threshold: z.number().optional().describe('Minimum similarity score 0-1 for vector results (default: 0.5)'),
       },
     },
     async ({ query, limit, threshold }) => {
@@ -30,24 +30,18 @@ export function registerSearchTools(server: McpServer): void {
       const { storage } = await createAdapters(ws.root);
 
       try {
+        let queryVector: number[] | null = null;
+
         const apiKey = process.env['OPENAI_API_KEY'];
-        if (!apiKey) {
-          await storage.close();
-          return errorResponse('OPENAI_API_KEY not configured. Add it to .env and run "argustack embed" first.');
+        if (apiKey) {
+          const { OpenAIEmbeddingProvider } = await import('../../adapters/openai/index.js');
+          const embeddingProvider = new OpenAIEmbeddingProvider({ apiKey });
+          const vectors = await embeddingProvider.embed([query]);
+          queryVector = vectors[0] ?? null;
         }
 
-        const { OpenAIEmbeddingProvider } = await import('../../adapters/openai/index.js');
-        const embeddingProvider = new OpenAIEmbeddingProvider({ apiKey });
-
-        const vectors = await embeddingProvider.embed([query]);
-        const queryVector = vectors[0];
-
-        if (!queryVector) {
-          await storage.close();
-          return errorResponse('Failed to generate embedding for query.');
-        }
-
-        const results = await storage.semanticSearch(
+        const results = await storage.hybridSearch(
+          query,
           queryVector,
           limit ?? 10,
           threshold ?? 0.5,
@@ -55,7 +49,8 @@ export function registerSearchTools(server: McpServer): void {
 
         if (results.length === 0) {
           await storage.close();
-          return textResponse('No similar issues found. Make sure embeddings are generated ("argustack embed").');
+          const mode = queryVector ? 'hybrid (text + semantic)' : 'text-only';
+          return textResponse(`No issues found for "${query}" (${mode} search).`);
         }
 
         const issueKeys = results.map((r) => r.issueKey);
@@ -73,16 +68,17 @@ export function registerSearchTools(server: McpServer): void {
           issueMap.set(r.issue_key, row);
         }
 
+        const mode = queryVector ? 'hybrid' : 'text-only';
         const lines = results.map((r) => {
           const issue = issueMap.get(r.issueKey) as IssueRow | undefined;
-          const sim = (r.similarity * 100).toFixed(1);
+          const scoreStr = (r.score * 100).toFixed(1);
           if (issue) {
-            return `${r.issueKey} [${str(issue.status)}] ${str(issue.summary)} (${sim}% match)`;
+            return `${r.issueKey} [${str(issue.status)}] ${str(issue.summary)} (${scoreStr}% | ${r.source})`;
           }
-          return `${r.issueKey} (${sim}% match)`;
+          return `${r.issueKey} (${scoreStr}% | ${r.source})`;
         });
 
-        return textResponse([`Semantic search: "${query}" (${String(results.length)} results):`, '', ...lines].join('\n'));
+        return textResponse([`Search: "${query}" (${mode}, ${String(results.length)} results):`, '', ...lines].join('\n'));
       } catch (err: unknown) {
         await storage.close();
         return errorResponse(`Search failed: ${getErrorMessage(err)}`);

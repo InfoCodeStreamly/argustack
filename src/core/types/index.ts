@@ -5,6 +5,7 @@ export type {
   IssueWorklog,
   IssueLink,
   IssueBatch,
+  HybridSearchResult,
 } from './issue.js';
 
 export type { Project } from './project.js';
