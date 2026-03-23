@@ -5,6 +5,8 @@ import {
   loadWorkspace,
   createAdapters,
   getEnabledSources,
+  switchWorkspace,
+  listSiblingWorkspaces,
   textResponse,
   errorResponse,
   getErrorMessage,
@@ -27,8 +29,12 @@ export function registerWorkspaceTools(server: McpServer): void {
         (s) => `  • ${SOURCE_META[s].label}: ${SOURCE_META[s].description}`
       );
 
+      const nameLine = ws.config.name
+        ? `Argustack Workspace: ${ws.config.name} (active)`
+        : 'Argustack Workspace (active)';
+
       const text = [
-        `Argustack Workspace`,
+        nameLine,
         `Root: ${ws.root}`,
         `Created: ${ws.config.createdAt}`,
         ``,
@@ -67,6 +73,53 @@ export function registerWorkspaceTools(server: McpServer): void {
       } catch (err: unknown) {
         return errorResponse(`Failed to list projects: ${getErrorMessage(err)}`);
       }
+    }
+  );
+
+  server.registerTool(
+    'switch_workspace',
+    {
+      description: 'Switch to a different Argustack workspace. All subsequent queries will use the new workspace database. Use list_workspaces to see available workspaces.',
+      inputSchema: {
+        name: z.string().describe('Workspace name to switch to (e.g. "beautybooking", "paperlink")'),
+      },
+    },
+    async ({ name }) => {
+      const result = await switchWorkspace(name);
+      if (!result.ok) {
+        return errorResponse(result.reason);
+      }
+
+      const enabled = getEnabledSources(result.config);
+      const sources = enabled.map((s) => SOURCE_META[s].label).join(', ') || 'none';
+
+      return textResponse(
+        `Switched to workspace: ${result.config.name ?? name}\n` +
+        `Root: ${result.root}\n` +
+        `Sources: ${sources}`
+      );
+    }
+  );
+
+  server.registerTool(
+    'list_workspaces',
+    {
+      description: 'List all available Argustack workspaces. Shows which workspace is currently active.',
+    },
+    () => {
+      const workspaces = listSiblingWorkspaces();
+
+      if (workspaces.length === 0) {
+        return textResponse('No workspaces found. Run `argustack init <name>` to create one.');
+      }
+
+      const lines = workspaces.map((ws) => {
+        const sources = ws.sources.map((s) => SOURCE_META[s].label).join(', ') || 'no sources';
+        const marker = ws.active ? ' (active)' : '';
+        return `  ${ws.active ? '●' : '○'} ${ws.name}${marker} — ${sources}`;
+      });
+
+      return textResponse(`Workspaces (${String(workspaces.length)}):\n${lines.join('\n')}`);
     }
   );
 

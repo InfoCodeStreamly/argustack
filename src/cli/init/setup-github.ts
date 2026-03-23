@@ -2,7 +2,7 @@ import { confirm, password } from '@inquirer/prompts';
 import chalk from 'chalk';
 import ora from 'ora';
 import type { InitFlags, GitHubSetupResult } from './types.js';
-import { getErrorMsg } from './types.js';
+import { getErrorMsg, maskOrgRepo } from './types.js';
 
 export async function setupGithubInteractive(
   existingToken?: string,
@@ -17,10 +17,10 @@ export async function setupGithubInteractive(
     const [owner = '', repo = ''] = repoToUse.split('/');
 
     if (existingRepos.length === 1) {
-      console.log(chalk.green(`  Auto-configured from Git step: ${repoToUse}`));
+      console.log(chalk.green(`  Auto-configured from Git step: ${maskOrgRepo(repoToUse)}`));
     } else {
-      console.log(chalk.dim(`  Repos from Git step: ${existingRepos.join(', ')}`));
-      console.log(chalk.green(`  Using first repo for GitHub PRs: ${repoToUse}`));
+      console.log(chalk.dim(`  Repos from Git step: ${existingRepos.map((r) => maskOrgRepo(r)).join(', ')}`));
+      console.log(chalk.green(`  Using first repo for GitHub PRs: ${maskOrgRepo(repoToUse)}`));
     }
 
     return {
@@ -95,7 +95,7 @@ export async function setupGithubInteractive(
   });
 
   const [owner = '', repo = ''] = selectedRepo.split('/');
-  console.log(chalk.green(`  GitHub configured: ${selectedRepo}`));
+  console.log(chalk.green(`  GitHub configured: ${maskOrgRepo(selectedRepo)}`));
 
   return {
     githubToken: githubToken.trim(),

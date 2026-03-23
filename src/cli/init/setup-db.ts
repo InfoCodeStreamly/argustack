@@ -2,6 +2,7 @@ import { input, password } from '@inquirer/prompts';
 import chalk from 'chalk';
 import ora from 'ora';
 import type { InitFlags, DbSetupResult } from './types.js';
+import { maskHost } from './types.js';
 
 const ENGINE_BY_PROTOCOL: Record<string, string> = {
   postgres: 'postgresql',
@@ -96,8 +97,9 @@ export async function setupDbInteractive(): Promise<DbSetupResult | null> {
   console.log(chalk.dim('  Paste a connection string or enter credentials manually.'));
   console.log(chalk.dim('  Example: postgresql://user:pass@host:5432/mydb\n'));
 
-  const connStr = await input({
+  const connStr = await password({
     message: 'Connection string (or press Enter to type manually):',
+    mask: '*',
   });
 
   if (connStr.trim()) {
@@ -110,7 +112,7 @@ export async function setupDbInteractive(): Promise<DbSetupResult | null> {
 
     const spinner = ora(`Connecting to ${parsed.targetDbEngine}...`).start();
     if (await tryConnect(parsed)) {
-      spinner.succeed(`Connected! ${parsed.targetDbEngine} ${parsed.targetDbUser}@${parsed.targetDbHost}:${String(parsed.targetDbPort)}/${parsed.targetDbName}`);
+      spinner.succeed(`Connected! ${parsed.targetDbEngine} at ${maskHost(parsed.targetDbHost)}:${String(parsed.targetDbPort)}`);
       return parsed;
     }
     spinner.fail('Connection failed');
@@ -141,7 +143,7 @@ async function setupDbManual(): Promise<DbSetupResult | null> {
   const detected = await autoDetectEngine(targetDbHost, targetDbPort, targetDbUser, targetDbPassword, targetDbName);
 
   if (detected) {
-    spinner.succeed(`Connected! Detected ${detected.targetDbEngine} at ${targetDbHost}:${String(targetDbPort)}/${targetDbName}`);
+    spinner.succeed(`Connected! Detected ${detected.targetDbEngine} at ${maskHost(targetDbHost)}:${String(targetDbPort)}`);
     return detected;
   }
 

@@ -1,4 +1,4 @@
-import { input, confirm, password, checkbox } from '@inquirer/prompts';
+import { confirm, password, checkbox } from '@inquirer/prompts';
 import chalk from 'chalk';
 import ora from 'ora';
 import type { InitFlags, JiraSetupResult } from './types.js';
@@ -22,8 +22,9 @@ export async function setupJiraInteractive(): Promise<JiraSetupResult | null> {
   console.log(chalk.dim('  Connect to your Jira instance.'));
   console.log(chalk.dim('  Example: https://your-team.atlassian.net\n'));
 
-  const jiraUrlRaw = await input({
+  const jiraUrlRaw = await password({
     message: 'Jira URL:',
+    mask: '*',
     validate: (val): string | true => {
       if (!val.trim()) {
         return 'Jira URL is required';
@@ -37,8 +38,9 @@ export async function setupJiraInteractive(): Promise<JiraSetupResult | null> {
 
   const jiraUrl = extractJiraBaseUrl(jiraUrlRaw);
 
-  const jiraEmail = await input({
+  const jiraEmail = await password({
     message: 'Email:',
+    mask: '*',
     validate: (val): string | true => {
       if (!val.includes('@')) {
         return 'Must be a valid email';

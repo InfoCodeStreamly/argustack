@@ -3,10 +3,13 @@
 [![npm version](https://img.shields.io/npm/v/argustack.svg)](https://www.npmjs.com/package/argustack)
 [![npm downloads](https://img.shields.io/npm/dm/argustack.svg)](https://www.npmjs.com/package/argustack)
 [![license](https://img.shields.io/npm/l/argustack.svg)](LICENSE)
+[![docs](https://img.shields.io/badge/docs-DataRoom-blue)](https://app.paperlink.online/s/0aa7d2d6/argustack)
 
 **Ask AI about your Jira, Git, and GitHub — powered by local data, not cloud APIs.**
 
-Argustack downloads your project data into local PostgreSQL, cross-references everything, and gives Claude direct access via 15 MCP tools. All data stays on your machine.
+[**Documentation & Examples →**](https://app.paperlink.online/s/0aa7d2d6/argustack)
+
+Argustack downloads your project data into local PostgreSQL, cross-references everything, and gives Claude direct access via 20 MCP tools. All data stays on your machine.
 
 > *Was ticket PROJ-123 implemented as described?*
 > *Who reviewed the PR and what was the feedback?*
@@ -21,7 +24,7 @@ Argustack downloads your project data into local PostgreSQL, cross-references ev
 - **Cross-source timeline** — Jira + Git + GitHub events in chronological order
 - **Semantic search** — find issues by meaning, not just keywords (pgvector)
 - **Task estimation** — predict duration per developer based on actual history
-- **15 MCP tools** — Claude queries your data directly via SQL
+- **20 MCP tools** — Claude queries your data directly via SQL
 - **100% local** — no cloud, no accounts, no telemetry
 
 ## Quick Start

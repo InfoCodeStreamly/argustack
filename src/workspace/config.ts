@@ -7,9 +7,10 @@ const CONFIG_FILE = '.argustack/config.json';
 /**
  * Create a fresh empty workspace config.
  */
-export function createEmptyConfig(): WorkspaceConfig {
+export function createEmptyConfig(name?: string): WorkspaceConfig {
   return {
     version: 1,
+    ...(name ? { name } : {}),
     sources: {},
     order: [],
     createdAt: new Date().toISOString(),

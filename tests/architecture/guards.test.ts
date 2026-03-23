@@ -151,10 +151,10 @@ describe('architecture guard: MCP tool count', () => {
 
     expect(
       totalRegistrations,
-      `Expected 18 MCP tool registrations but found ${String(totalRegistrations)}.\n` +
+      `Expected 20 MCP tool registrations but found ${String(totalRegistrations)}.\n` +
         `Breakdown by file:\n${breakdown}\n\n` +
         `If you added a new tool, update this guard to the new expected count AND add a test in tests/mcp/server.test.ts.`
-    ).toBe(18);
+    ).toBe(20);
   });
 });
 
