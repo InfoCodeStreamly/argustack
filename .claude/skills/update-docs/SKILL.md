@@ -1,6 +1,6 @@
 ---
 name: update-docs
-description: "Verify and regenerate Argustack PDF documentation in Docs/PaperLink/. Diffs recent git changes against the five doc files, checks source code for discrepancies, fixes markdown, bumps versions, renames files to include version, and regenerates PDFs via md-to-pdf. Use after any feature implementation, code update, or version bump — especially when files in src/mcp/tools/, src/cli/, src/core/, src/adapters/postgres/schema.ts, or package.json have changed. Also trigger when the user says 'update docs', 'regenerate PDFs', 'verify documentation', 'docs out of date', or '/update-docs'."
+description: "Verify and regenerate Argustack PDF documentation in Docs/PaperLink/, then create a GitHub Release with changelog. Diffs recent git changes against the five doc files, checks source code for discrepancies, fixes markdown, bumps versions, renames files to include version, regenerates PDFs via md-to-pdf, and creates a GitHub Release with tag and changelog. Use after any feature implementation, code update, or version bump — especially when files in src/mcp/tools/, src/cli/, src/core/, src/adapters/postgres/schema.ts, or package.json have changed. Also trigger when the user says 'update docs', 'regenerate PDFs', 'verify documentation', 'docs out of date', 'create release', or '/update-docs'."
 ---
 
 # Update Argustack Documentation
@@ -132,7 +132,75 @@ npx md-to-pdf "FILENAME.md" \
 
 Generate PDFs one at a time — Puppeteer doesn't handle parallel runs well.
 
-## Step 4 — Report
+## Step 4 — GitHub Release
+
+After docs are updated and committed, create a GitHub Release for the current version.
+
+### Gather changelog
+
+Collect all commits since the last release tag (or last 20 commits if no tags exist):
+
+```bash
+LAST_TAG=$(git describe --tags --abbrev=0 2>/dev/null || echo "")
+if [ -n "$LAST_TAG" ]; then
+  git log "$LAST_TAG"..HEAD --oneline
+else
+  git log --oneline -20
+fi
+```
+
+### Write the changelog
+
+Use Keep a Changelog categories (https://keepachangelog.com) with Anthropic-style descriptions (specific, descriptive, explains what AND why):
+
+**Categories (use only those that have entries):**
+- **Added** — new features, new tools, new capabilities
+- **Changed** — modifications to existing behavior
+- **Fixed** — bug corrections
+- **Removed** — deleted features or deprecated items
+- **Security** — vulnerability patches
+
+**Writing style:**
+- Each entry is one bullet point, 1-2 sentences
+- Be specific: name the tool, flag, or feature. Not "improved search" but "replaced semantic_search with hybrid_search combining full-text and vector similarity via Reciprocal Rank Fusion"
+- Explain the user impact: what can they do now that they couldn't before?
+- Skip merge commits, version bumps, internal refactors that don't affect users
+- No commit hashes in the notes — keep it human-readable
+
+### Create the release
+
+```bash
+VERSION=$(node -e "console.log(require('./package.json').version)")
+
+gh release create "v$VERSION" \
+  --title "v$VERSION" \
+  --notes "$(cat <<'EOF'
+## What's Changed
+
+### Added
+- description of new feature
+
+### Changed
+- description of what changed
+
+### Fixed
+- description of bug fix
+
+**Full Changelog**: https://github.com/InfoCodeStreamly/argustack/compare/PREV_TAG...v$VERSION
+EOF
+)"
+```
+
+If no previous tag exists, omit the Full Changelog link. If the tag already exists, skip release creation and note it in the report.
+
+### Release rules
+
+- Tag format: `v0.1.11` (v prefix + semver from package.json)
+- Target: `main` branch (releases only from production)
+- No draft, no prerelease — publish immediately
+- Human-readable: write for users, not machines
+
+## Step 5 — Report
 
 Wrap up with a summary table:
 
@@ -141,6 +209,11 @@ Wrap up with a summary table:
 |----------|--------------|-------|-------|
 | Quick Start Guide | 0 | 0 | 11 |
 | ...
+```
+
+Include release info:
+```
+Release: v0.1.11 — https://github.com/InfoCodeStreamly/argustack/releases/tag/v0.1.11
 ```
 
 ## Writing Style

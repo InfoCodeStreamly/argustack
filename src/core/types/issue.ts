@@ -82,3 +82,9 @@ export interface IssueBatch {
   worklogs: IssueWorklog[];
   links: IssueLink[];
 }
+
+export interface HybridSearchResult {
+  issueKey: string;
+  score: number;
+  source: 'text' | 'semantic' | 'both';
+}

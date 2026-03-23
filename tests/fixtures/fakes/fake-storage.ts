@@ -7,7 +7,7 @@
  */
 
 import type { IStorage, QueryResult } from '../../../src/core/ports/storage.js';
-import type { IssueBatch, Issue, PullRequest, Release, GitHubBatch } from '../../../src/core/types/index.js';
+import type { IssueBatch, Issue, PullRequest, Release, GitHubBatch, HybridSearchResult } from '../../../src/core/types/index.js';
 import type { CommitBatch, Commit } from '../../../src/core/types/git.js';
 import type { DbSchemaBatch } from '../../../src/core/types/database.js';
 
@@ -147,6 +147,29 @@ export class FakeStorage implements IStorage {
     for (const [key] of this._embeddings) {
       results.push({ issueKey: key, similarity: 0.9 });
       if (results.length >= limit) { break; }
+    }
+    return Promise.resolve(results);
+  }
+
+  hybridSearch(
+    _query: string,
+    _vector: number[] | null,
+    limit: number,
+    _threshold?: number
+  ): Promise<HybridSearchResult[]> {
+    const results: HybridSearchResult[] = [];
+    for (const [key] of this._embeddings) {
+      results.push({ issueKey: key, score: 0.85, source: 'both' });
+      if (results.length >= limit) { break; }
+    }
+    if (results.length === 0) {
+      for (const batch of this.savedBatches) {
+        for (const issue of batch.issues) {
+          results.push({ issueKey: issue.key, score: 0.5, source: 'text' });
+          if (results.length >= limit) { break; }
+        }
+        if (results.length >= limit) { break; }
+      }
     }
     return Promise.resolve(results);
   }

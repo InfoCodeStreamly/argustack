@@ -57,7 +57,7 @@ describe('MCP server tools', () => {
     expect(toolNames).toContain('issue_prs');
     expect(toolNames).toContain('issue_timeline');
     expect(toolNames).toContain('query_releases');
-    expect(toolNames).toContain('semantic_search');
+    expect(toolNames).toContain('hybrid_search');
     expect(toolNames).toContain('estimate');
     expect(toolNames).toContain('db_schema');
     expect(toolNames).toContain('db_query');
