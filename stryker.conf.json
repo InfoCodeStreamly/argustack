@@ -1,0 +1,45 @@
+{
+  "$schema": "./node_modules/@stryker-mutator/core/schema/stryker-schema.json",
+  "packageManager": "npm",
+  "testRunner": "vitest",
+  "vitest": {
+    "configFile": "vitest.stryker.config.ts",
+    "related": false
+  },
+  "mutate": [
+    "src/core/types/**/*.ts",
+    "src/core/ports/**/*.ts",
+    "src/core/board/**/*.ts",
+    "src/adapters/jira/**/*.ts",
+    "src/adapters/git/**/*.ts",
+    "src/adapters/github/**/*.ts",
+    "src/adapters/postgres/**/*.ts",
+    "src/adapters/openai/**/*.ts",
+    "src/adapters/csv/**/*.ts",
+    "src/adapters/db/**/*.ts",
+    "src/adapters/board/**/*.ts",
+    "src/use-cases/**/*.ts",
+    "src/mcp/**/*.ts",
+    "src/workspace/**/*.ts",
+    "!src/**/index.ts"
+  ],
+  "coverageAnalysis": "perTest",
+  "reporters": ["progress", "clear-text", "html"],
+  "htmlReporter": {
+    "fileName": "mutation-reports/index.html"
+  },
+  "incremental": true,
+  "incrementalFile": "mutation-reports/stryker-incremental.json",
+  "thresholds": {
+    "high": 80,
+    "low": 60,
+    "break": 45
+  },
+  "timeoutMS": 60000,
+  "timeoutFactor": 2,
+  "dryRunTimeoutMinutes": 10,
+  "concurrency": 6,
+  "maxTestRunnerReuse": 50,
+  "ignoreStatic": true,
+  "ignorePatterns": ["node_modules", "dist", "coverage", "src/board"]
+}

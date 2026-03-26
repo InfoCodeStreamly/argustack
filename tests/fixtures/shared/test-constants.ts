@@ -52,6 +52,9 @@ export const TEST_IDS = {
   projectKey2: 'OTHER',
   projectName2: 'Other Project',
   projectId2: '10002',
+
+  alternativeIssueKey: 'ALPHA-42',
+  alternativeProjectKey: 'ALPHA',
 } as const;
 
 export const ESTIMATE_TEST_IDS = {
@@ -576,3 +579,16 @@ export function createWorkspaceConfig(overrides?: Partial<WorkspaceConfig>): Wor
     ...overrides,
   };
 }
+
+export const TEST_MIRROR_CONFIG = {
+  excludedDirs: new Set([
+    'board/src',
+    'board/dictionaries',
+  ]),
+  excludedFiles: new Set([
+    'index.ts',
+  ]),
+  excludedPatterns: [
+    /\.d\.ts$/,
+  ],
+} as const;

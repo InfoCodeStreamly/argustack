@@ -286,11 +286,11 @@ describe('pull_jira', () => {
     vi.mocked(createAdapters).mockResolvedValue({ storage: mockStorage as never, source: mockSource as never });
 
     const handler = getHandler('pull_jira');
-    await handler({ project: 'ALPHA' });
+    await handler({ project: TEST_IDS.projectKey });
 
     const instance = vi.mocked(PullUseCase).mock.instances[0] as { execute: ReturnType<typeof vi.fn> };
     expect(instance.execute).toHaveBeenCalledWith(
-      expect.objectContaining({ projectKey: 'ALPHA' }),
+      expect.objectContaining({ projectKey: TEST_IDS.projectKey }),
     );
   });
 

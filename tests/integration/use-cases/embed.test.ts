@@ -87,9 +87,118 @@ describe('EmbedUseCase', () => {
     const result = await useCase.execute({ batchSize: 2 });
 
     expect(result.embeddedCount).toBe(3);
-    // Two batches: first with 2 issues, second with 1
     expect(embedding.embedCalls).toHaveLength(2);
     expect(embedding.embedCalls[0]).toHaveLength(2);
     expect(embedding.embedCalls[1]).toHaveLength(1);
+  });
+
+  it('skips issues where both summary and description are empty', async () => {
+    storage.seed([
+      createIssue({ key: TEST_IDS.issueKey, summary: '', description: null }),
+    ]);
+
+    const result = await useCase.execute();
+
+    expect(result.embeddedCount).toBe(0);
+    expect(result.skippedCount).toBe(1);
+    expect(embedding.embedCalls).toHaveLength(0);
+  });
+
+  it('skips issues where summary is empty and description is empty string', async () => {
+    storage.seed([
+      createIssue({ key: TEST_IDS.issueKey, summary: '', description: '' }),
+    ]);
+
+    const result = await useCase.execute();
+
+    expect(result.embeddedCount).toBe(0);
+    expect(result.skippedCount).toBe(1);
+  });
+
+  it('embeds issue with only description and no summary', async () => {
+    storage.seed([
+      createIssue({ key: TEST_IDS.issueKey, summary: '', description: 'Only description here' }),
+    ]);
+
+    const result = await useCase.execute();
+
+    expect(result.embeddedCount).toBe(1);
+    expect(result.skippedCount).toBe(0);
+    expect(embedding.embedCalls[0]).toEqual(['Only description here']);
+  });
+
+  it('default batchSize is 100 when not specified', async () => {
+    const keys = Array.from({ length: 100 }, (_, i) =>
+      createIssue({ key: `${TEST_IDS.projectKey}-${i + 1}`, summary: `Issue ${i}`, description: `desc ${i}` }),
+    );
+    storage.seed(keys);
+
+    const result = await useCase.execute();
+
+    expect(result.embeddedCount).toBe(100);
+    expect(embedding.embedCalls).toHaveLength(1);
+    expect(embedding.embedCalls[0]).toHaveLength(100);
+  });
+
+  it('batchSize of 1 processes each issue in a separate embed call', async () => {
+    storage.seed([
+      createIssue({ key: TEST_IDS.issueKey, summary: 'A', description: 'aa' }),
+      createIssue({ key: TEST_IDS.issueKey2, summary: 'B', description: 'bb' }),
+    ]);
+
+    const result = await useCase.execute({ batchSize: 1 });
+
+    expect(result.embeddedCount).toBe(2);
+    expect(embedding.embedCalls).toHaveLength(2);
+    expect(embedding.embedCalls[0]).toHaveLength(1);
+    expect(embedding.embedCalls[1]).toHaveLength(1);
+  });
+
+  it('progress message includes batch size count', async () => {
+    storage.seed([
+      createIssue({ key: TEST_IDS.issueKey, summary: 'Issue', description: 'desc' }),
+      createIssue({ key: TEST_IDS.issueKey2, summary: 'Issue2', description: 'desc2' }),
+    ]);
+
+    const messages: string[] = [];
+    await useCase.execute({ batchSize: 2, onProgress: (msg) => messages.push(msg) });
+
+    expect(messages.some((m) => m.includes('2 issues'))).toBe(true);
+  });
+
+  it('progress reports embedded count after each batch', async () => {
+    storage.seed([
+      createIssue({ key: TEST_IDS.issueKey, summary: 'Issue 1', description: 'd1' }),
+      createIssue({ key: TEST_IDS.issueKey2, summary: 'Issue 2', description: 'd2' }),
+    ]);
+
+    const messages: string[] = [];
+    await useCase.execute({ batchSize: 1, onProgress: (msg) => messages.push(msg) });
+
+    expect(messages.some((m) => m.includes('Embedded 1 issues'))).toBe(true);
+    expect(messages.some((m) => m.includes('Embedded 2 issues'))).toBe(true);
+  });
+
+  it('done message reports exact embedded count', async () => {
+    storage.seed([
+      createIssue({ key: TEST_IDS.issueKey, summary: 'Valid', description: 'desc' }),
+    ]);
+
+    const messages: string[] = [];
+    await useCase.execute({ onProgress: (msg) => messages.push(msg) });
+
+    expect(messages.some((m) => m.includes('Done:') && m.includes('1 embedded'))).toBe(true);
+  });
+
+  it('stores correct vector for each issue key', async () => {
+    storage.seed([
+      createIssue({ key: TEST_IDS.issueKey, summary: 'Alpha', description: 'a' }),
+      createIssue({ key: TEST_IDS.issueKey2, summary: 'Beta', description: 'b' }),
+    ]);
+
+    await useCase.execute();
+
+    expect(storage.hasEmbedding(TEST_IDS.issueKey)).toBe(true);
+    expect(storage.hasEmbedding(TEST_IDS.issueKey2)).toBe(true);
   });
 });

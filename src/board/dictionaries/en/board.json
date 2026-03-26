@@ -1,0 +1,36 @@
+{
+  "board": {
+    "title": "Argustack Board",
+    "subtitle": "Skill Pipeline",
+    "warning": {
+      "noClaude": "Claude CLI not found — skill execution disabled"
+    },
+    "column": {
+      "skill": "Skill",
+      "system": "System",
+      "emptyState": "No Tasks",
+      "dropHint": "Drop here"
+    },
+    "card": {
+      "jiraPrefix": "Jira",
+      "assignedTo": "Assigned to",
+      "noAssignee": "Unassigned",
+      "createdAt": "Created",
+      "runningSkill": "Running skill...",
+      "skillComplete": "Skill complete",
+      "skillFailed": "Skill failed",
+      "viewFile": "View File"
+    },
+    "actions": {
+      "addTask": "Add Task",
+      "importFromJira": "Import from Jira",
+      "refresh": "Refresh",
+      "settings": "Settings"
+    },
+    "status": {
+      "connected": "Connected",
+      "disconnected": "Disconnected",
+      "reconnecting": "Reconnecting..."
+    }
+  }
+}

@@ -19,7 +19,7 @@ interface ClaudeClient {
   readonly argustackConfigured: boolean;
 }
 
-function getClaudeCodeConfigPath(): string {
+export function getClaudeCodeConfigPath(): string {
   return join(homedir(), '.claude', 'settings.json');
 }
 
@@ -107,7 +107,7 @@ function detectClaudeClients(): ClaudeClient[] {
   return clients;
 }
 
-function installIntoConfig(
+export function installIntoConfig(
   configPath: string,
   entry: McpServerEntry,
 ): void {
@@ -140,7 +140,7 @@ function uninstallFromConfig(configPath: string): boolean {
   return true;
 }
 
-function buildMcpEntry(
+export function buildMcpEntry(
   serverPath: string,
   workspacePath: string,
 ): McpServerEntry {

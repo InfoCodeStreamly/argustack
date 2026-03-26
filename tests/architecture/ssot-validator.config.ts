@@ -83,6 +83,9 @@ export const EXCLUDED_LINE_PATTERNS: RegExp[] = [
   /\/\^[^/]+\$?\//,
   /toMatch\s*\(\s*\//,
 
+  /** MIME types (text/html, image/png, application/json, text/event-stream, etc.) */
+  /['"`](text|image|application|audio|video|font|multipart|message)\//,
+
   /** File paths */
   /['"`]\.\.?\//,
   /['"`]src\//,
