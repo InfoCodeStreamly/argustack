@@ -1,4 +1,5 @@
 import { resolve } from 'node:path';
+import { createServer } from 'node:net';
 
 export interface JiraSetupResult {
   jiraUrl: string;
@@ -59,6 +60,25 @@ const DEFAULT_DB_PORT = 5434;
 const DEFAULT_PGWEB_PORT = 8086;
 
 export { DEFAULT_DB_PORT, DEFAULT_PGWEB_PORT };
+
+export function isPortAvailable(port: number): Promise<boolean> {
+  return new Promise((res) => {
+    const server = createServer();
+    server.once('error', () => { res(false); });
+    server.once('listening', () => { server.close(() => { res(true); }); });
+    server.listen(port, '0.0.0.0');
+  });
+}
+
+export async function findAvailablePort(basePort: number, maxAttempts = 10): Promise<number> {
+  for (let i = 0; i < maxAttempts; i++) {
+    const port = basePort + i;
+    if (await isPortAvailable(port)) {
+      return port;
+    }
+  }
+  throw new Error(`No available port found in range ${String(basePort)}-${String(basePort + maxAttempts - 1)}`);
+}
 
 export function getErrorMsg(err: unknown): string {
   return err instanceof Error ? err.message : String(err);

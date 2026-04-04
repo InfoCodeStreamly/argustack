@@ -25,21 +25,30 @@ public class CardHandler(
 ) {
 
     public fun handleMove(message: BridgeMessage.MoveCard) {
-        if (isCardRunning(message.cardId, message.targetColumn)) {
+        val stateService = KanbanStateService.getInstance(project)
+        val targetCol = stateService.getState().columns.find { it.name == message.targetColumn }
+        val isSystemTarget = targetCol?.type != ColumnType.SKILL
+
+        if (!isSystemTarget && isCardRunning(message.cardId, message.targetColumn)) {
             onBoardStateChanged()
             return
         }
-        val stateService = KanbanStateService.getInstance(project)
+
         val cardBefore = stateService.getState().cards.find { it.id == message.cardId }
         val oldColumn = cardBefore?.column
-        KanbanStateService.getInstance(project).moveCard(message.cardId, message.targetColumn)
+        stateService.moveCard(message.cardId, message.targetColumn)
+
+        if (isSystemTarget) {
+            resetExecutionState(message.cardId)
+        }
 
         if (cardBefore != null && oldColumn != null) {
             moveFileIfZoneChanged(cardBefore, oldColumn, message.targetColumn)
-            val column = stateService.getState().columns.find { it.name == message.targetColumn }
-            val card = stateService.getState().cards.find { it.id == message.cardId }
-            if (card != null && column?.type == ColumnType.SKILL) {
-                executeSkillForCard(card.id, column.name, card.mdPath)
+            if (!isSystemTarget) {
+                val card = stateService.getState().cards.find { it.id == message.cardId }
+                if (card != null) {
+                    executeSkillForCard(card.id, message.targetColumn, card.mdPath)
+                }
             }
         }
         onBoardStateChanged()
@@ -139,6 +148,11 @@ public class CardHandler(
             return true
         }
         return false
+    }
+
+    private fun resetExecutionState(cardId: String) {
+        val stateService = KanbanStateService.getInstance(project)
+        stateService.updateCardExecutionState(cardId, ExecutionState.IDLE)
     }
 
     private fun moveFileIfZoneChanged(card: Card, oldColumn: String, newColumn: String) {

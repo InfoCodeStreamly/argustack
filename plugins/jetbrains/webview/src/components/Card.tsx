@@ -25,6 +25,25 @@ const STATE_ICONS: Record<ExecutionState, string> = {
 
 const DOUBLE_CLICK_MS = 300;
 
+function epicColor(name: string): string | null {
+  if (name === 'Uncategorized') return null;
+  let hash = 0;
+  for (let i = 0; i < name.length; i++) {
+    hash = name.charCodeAt(i) + ((hash << 5) - hash);
+  }
+  const hue = ((hash % 360) + 360) % 360;
+  return `hsla(${String(hue)}, 45%, 55%, 0.2)`;
+}
+
+function epicTextColor(name: string): string {
+  let hash = 0;
+  for (let i = 0; i < name.length; i++) {
+    hash = name.charCodeAt(i) + ((hash << 5) - hash);
+  }
+  const hue = ((hash % 360) + 360) % 360;
+  return `hsla(${String(hue)}, 60%, 75%, 1)`;
+}
+
 export function Card({ card, executionState, jiraConfigured, hasProjectKey, epics, onDoubleClick, onResume, onDelete, onCreateJira, onChangeEpic }: CardProps) {
   const resolvedState = executionState ?? (card.executionState as ExecutionState | null) ?? undefined;
   const stateIcon = resolvedState ? STATE_ICONS[resolvedState] : '';
@@ -33,6 +52,9 @@ export function Card({ card, executionState, jiraConfigured, hasProjectKey, epic
   const lastClickRef = useRef(0);
   const [showMenu, setShowMenu] = useState(false);
   const menuBtnRef = useRef<HTMLButtonElement>(null);
+
+  const bgColor = epicColor(card.epic);
+  const txtColor = epicTextColor(card.epic);
 
   function handleClick() {
     const now = Date.now();
@@ -53,7 +75,6 @@ export function Card({ card, executionState, jiraConfigured, hasProjectKey, epic
       <div className="card__title-row">
         <div className="card__title">
           {stateIcon && <span className="card__state">{stateIcon}</span>}
-          {card.jiraKey && <span className="card__project-key">{card.jiraKey}</span>}
           {card.title}
         </div>
         <button
@@ -66,8 +87,15 @@ export function Card({ card, executionState, jiraConfigured, hasProjectKey, epic
         </button>
       </div>
       <div className="card__meta">
-        {card.epic !== 'Uncategorized' && <span className="card__epic">{card.epic}</span>}
-        {card.assignee && <span className="card__assignee">{card.assignee}</span>}
+        {bgColor && (
+          <span
+            className="card__epic-badge"
+            style={{ backgroundColor: bgColor, color: txtColor }}
+          >
+            {card.epic}
+          </span>
+        )}
+        {card.jiraKey && <span className="card__jira-key">{card.jiraKey}</span>}
       </div>
       {canResume && (
         <button

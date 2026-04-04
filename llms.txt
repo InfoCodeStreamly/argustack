@@ -1,6 +1,6 @@
 # Argustack
 
-> RAG engine for project intelligence — pull Jira, Git, GitHub into local PostgreSQL, then ask AI about your project
+> RAG engine for project intelligence — pull Jira, Git, GitHub into local PostgreSQL, then ask AI about your project. Includes JetBrains IDE plugin with kanban board where columns are Claude Code skills.
 
 ## What it does
 
@@ -67,6 +67,19 @@ AI agents can run `argustack init --no-interactive` autonomously — no terminal
 **Cross-source:** issue_timeline (full cross-source timeline: changelogs + commits + PRs for one issue), semantic_search (pgvector embeddings)
 **Prediction:** estimate (predict task duration for a specific developer — with effort data: two predictions "without bugs" and "with bugs" based on similar tasks, personal coefficient, and component familiarity; with CSV only: resolution timeline in business days showing lead time from creation to close)
 **System:** workspace_info
+
+## IDE Plugin (plugins/jetbrains/)
+
+Kanban board for JetBrains IDEs. Cards are Markdown files, columns are Claude Code skills from `.claude/skills/`. Drag a card to a skill column to execute it.
+
+- Kotlin 2.3 + JCEF React webview
+- Cards live in `Docs/Tasks/{Backlog,InProgress,Done}/{epic}/`
+- Workflows group skills into named pipelines
+- Done column has configurable time filter
+- Auto-generates `Docs/Tasks/README.md` on first load
+- State in `.kanban.json`, file system is source of truth
+
+Install: download ZIP from GitHub Releases, Settings > Plugins > Install from Disk.
 
 ## Architecture — Hexagonal (Ports & Adapters)
 
