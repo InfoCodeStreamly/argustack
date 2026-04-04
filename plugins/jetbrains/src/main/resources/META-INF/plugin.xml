@@ -6,10 +6,48 @@
   </vendor>
 
   <description><![CDATA[
-    Kanban board where columns are executable AI skills.<br/>
-    Drag a task card to a skill column — Claude Code executes the skill automatically.<br/>
-    Visual pipeline for plan → implement → test → review → deploy.
+    <p>Kanban board inside your IDE where columns are <a href="https://docs.anthropic.com/en/docs/claude-code">Claude Code</a> skills.</p>
+
+    <p>Drag a task card to a skill column — Claude Code executes the skill automatically on that task.</p>
+
+    <h3>How it works</h3>
+    <ul>
+      <li><b>Cards</b> = Markdown files in your project (one file = one task)</li>
+      <li><b>Columns</b> = skills from <code>.claude/skills/</code> (auto-discovered)</li>
+      <li><b>Drag</b> a card to a column → Claude runs that skill with the task as context</li>
+    </ul>
+
+    <h3>Features</h3>
+    <ul>
+      <li>Visual pipeline: plan → implement → test → review → deploy</li>
+      <li>Workflows — group skills into named pipelines</li>
+      <li>Epics — organize tasks by feature area</li>
+      <li>Done column time filter — show only recent completions</li>
+      <li>Jira integration — create tickets from the board</li>
+      <li>Terminal session persistence — resume interrupted Claude sessions</li>
+      <li>File system is the source of truth — board reflects your <code>Docs/Tasks/</code> folder</li>
+    </ul>
+
+    <h3>Getting started</h3>
+    <ol>
+      <li>Install <a href="https://docs.anthropic.com/en/docs/claude-code">Claude Code CLI</a></li>
+      <li>Add skills to <code>.claude/skills/</code> in your project</li>
+      <li>Open the Argustack panel (right sidebar)</li>
+      <li>Create a card, drag it to a skill column</li>
+    </ol>
+
+    <p>Part of <a href="https://github.com/InfoCodeStreamly/argustack">Argustack</a> — open-source project analysis platform.</p>
   ]]></description>
+
+  <change-notes><![CDATA[
+    <h3>v0.2.2</h3>
+    <ul>
+      <li>Card redesign — colored epic badges, clean visual hierarchy</li>
+      <li>README auto-update — regenerates when plugin version changes</li>
+      <li>Done column time filter</li>
+      <li>Card format documentation for AI agents</li>
+    </ul>
+  ]]></change-notes>
 
   <depends>com.intellij.modules.platform</depends>
   <depends>org.jetbrains.plugins.terminal</depends>
