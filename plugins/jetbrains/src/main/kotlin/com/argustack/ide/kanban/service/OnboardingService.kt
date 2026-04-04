@@ -50,7 +50,7 @@ public class OnboardingService(
 
     public companion object {
         private const val README_FILENAME: String = "README.md"
-        private const val PLUGIN_VERSION: String = "0.2.2"
+        private const val PLUGIN_VERSION: String = "0.2.3"
         private const val VERSION_PREFIX: String = "argustack-plugin:"
 
         public fun getInstance(project: Project): OnboardingService =
