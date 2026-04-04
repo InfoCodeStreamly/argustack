@@ -16,7 +16,7 @@ import type {
   CsvSetupResult,
   DbSetupResult,
 } from './types.js';
-import { DEFAULT_DB_PORT, DEFAULT_PGWEB_PORT, validatePort, getErrorMsg } from './types.js';
+import { DEFAULT_DB_PORT, DEFAULT_PGWEB_PORT, validatePort, getErrorMsg, findAvailablePort } from './types.js';
 import { setupJiraInteractive, setupJiraFromFlags } from './setup-jira.js';
 import { setupGitInteractive, setupGitFromFlags } from './setup-git.js';
 import { setupGithubInteractive, setupGithubFromFlags } from './setup-github.js';
@@ -82,12 +82,6 @@ function sanitizeName(raw: string): string {
 /**
  * Find next available port by checking existing docker-compose files.
  */
-function findNextPort(workspaces: WorkspaceInfo[], basePort: number): number {
-  if (workspaces.length === 0) {
-    return basePort;
-  }
-  return basePort + workspaces.length;
-}
 
 async function startAndSync(
   workspaceDir: string,
@@ -294,9 +288,12 @@ async function runInitNonInteractive(flags: InitFlags): Promise<void> {
     }
   }
 
-  const existing = scanWorkspaces(process.cwd());
-  const dbPort = parseInt(flags.dbPort ?? String(findNextPort(existing, DEFAULT_DB_PORT)), 10);
-  const pgwebPort = parseInt(flags.pgwebPort ?? String(findNextPort(existing, DEFAULT_PGWEB_PORT)), 10);
+  const dbPort = flags.dbPort
+    ? parseInt(flags.dbPort, 10)
+    : await findAvailablePort(DEFAULT_DB_PORT);
+  const pgwebPort = flags.pgwebPort
+    ? parseInt(flags.pgwebPort, 10)
+    : await findAvailablePort(DEFAULT_PGWEB_PORT);
 
   const spinner = ora('Creating workspace...').start();
   try {
@@ -413,8 +410,8 @@ async function runInitInteractive(flags: InitFlags): Promise<void> {
   console.log('');
   console.log(chalk.dim('  Argustack internal database (Docker):'));
 
-  const defaultDbPort = findNextPort(existing, DEFAULT_DB_PORT);
-  const defaultPgwebPort = findNextPort(existing, DEFAULT_PGWEB_PORT);
+  const defaultDbPort = await findAvailablePort(DEFAULT_DB_PORT);
+  const defaultPgwebPort = await findAvailablePort(DEFAULT_PGWEB_PORT);
 
   const dbPortStr = await input({
     message: 'PostgreSQL port:', default: flags.dbPort ?? String(defaultDbPort),

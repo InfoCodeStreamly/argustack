@@ -76,6 +76,40 @@ src/
 - `feature/*` — merge into staging before main
 - Pre-commit hooks: lint-staged → typecheck → unit tests
 
+## IDE Plugin (`plugins/jetbrains/`)
+
+Kanban board for JetBrains IDEs. Separate codebase: Kotlin + React webview.
+
+```bash
+cd plugins/jetbrains
+./gradlew build -x buildSearchableOptions -x test   # build plugin
+./gradlew runIde                                      # launch sandbox IDE
+./gradlew buildPlugin                                 # create ZIP for distribution
+```
+
+**Architecture (service-based, NOT hexagonal):**
+```
+plugins/jetbrains/src/main/kotlin/com/argustack/ide/
+├── kanban/model/      — Card, Column, BoardState, BoardSettings
+├── kanban/service/    — KanbanStateService, CardFileService, OnboardingService
+├── kanban/bridge/     — KanbanBridge, CardHandler, BoardHandler (JS↔Kotlin)
+├── kanban/ui/         — KanbanToolWindow (JCEF browser)
+├── skills/service/    — SkillDiscoveryService
+├── terminal/service/  — TerminalService (Claude Code execution)
+
+plugins/jetbrains/webview/src/
+├── components/        — React (Board, Column, Card, dropdowns)
+├── hooks/             — useBoard, useBridge
+├── types.ts           — TypeScript interfaces mirroring Kotlin DTOs
+└── styles.css         — IntelliJ New UI Dark theme
+```
+
+**Plugin rules:**
+- Kotlin: `public` visibility required (`-Xexplicit-api=strict`)
+- Detekt 2.x: `allRules = true`, max 15 functions/class, max 30 lines/method
+- New services must be registered in `plugin.xml`
+- State persists in `.kanban.json`, cards are `.md` files in `Docs/Tasks/`
+
 ## Source Types
 
 ```typescript

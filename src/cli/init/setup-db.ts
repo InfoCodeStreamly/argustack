@@ -45,7 +45,11 @@ function parseConnectionString(raw: string): DbSetupResult | null {
 }
 
 async function tryConnect(result: DbSetupResult): Promise<boolean> {
+  const origWarn = console.warn;
+  const origError = console.error;
   try {
+    console.warn = () => { /* suppress knex driver noise */ };
+    console.error = () => { /* suppress knex driver noise */ };
     const knex = (await import('knex')).default;
     const db = knex({
       client: result.targetDbEngine === 'postgresql' ? 'pg' : result.targetDbEngine,
@@ -65,6 +69,9 @@ async function tryConnect(result: DbSetupResult): Promise<boolean> {
     return true;
   } catch {
     return false;
+  } finally {
+    console.warn = origWarn;
+    console.error = origError;
   }
 }
 

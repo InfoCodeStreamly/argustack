@@ -17,19 +17,24 @@ public class OnboardingService(
         val basePath = project.basePath ?: return
         val settings = ArgustackSettings.getInstance(project)
         val tasksDir = File(basePath, settings.tasksDir)
-
         val readmeFile = File(tasksDir, README_FILENAME)
-        if (readmeFile.isFile) return
+
+        if (readmeFile.isFile && hasCurrentVersion(readmeFile)) return
 
         if (!tasksDir.exists()) {
             tasksDir.mkdirs()
         }
 
         readmeFile.writeText(buildReadmeContent(settings.tasksDir))
-        LOG.info("OnboardingService: README created at ${readmeFile.absolutePath}")
+        LOG.info("OnboardingService: README created/updated at ${readmeFile.absolutePath}")
 
         com.intellij.openapi.vfs.LocalFileSystem.getInstance()
             .refreshAndFindFileByIoFile(tasksDir)
+    }
+
+    private fun hasCurrentVersion(file: File): Boolean {
+        val lastLine = file.readLines().lastOrNull()?.trim() ?: return false
+        return lastLine == "<!-- $VERSION_PREFIX$PLUGIN_VERSION -->"
     }
 
     private fun buildReadmeContent(tasksDirPath: String): String = buildString {
@@ -40,10 +45,13 @@ public class OnboardingService(
         appendEpicsAndWorkflows()
         appendArgustackCli()
         appendFooter()
+        appendLine("<!-- $VERSION_PREFIX$PLUGIN_VERSION -->")
     }
 
     public companion object {
         private const val README_FILENAME: String = "README.md"
+        private const val PLUGIN_VERSION: String = "0.2.2"
+        private const val VERSION_PREFIX: String = "argustack-plugin:"
 
         public fun getInstance(project: Project): OnboardingService =
             project.getService(OnboardingService::class.java)
@@ -114,8 +122,46 @@ private fun StringBuilder.appendCardFormat() {
     appendLine("This is what Claude reads when a skill runs on this card.")
     appendLine("```")
     appendLine()
-    appendLine("Frontmatter fields: `epic` (folder grouping), `jiraKey` (linked Jira issue),")
-    appendLine("`createdAt` (timestamp). All optional.")
+    appendCardCreation()
+    appendCardAgentFormat()
+}
+
+private fun StringBuilder.appendCardCreation() {
+    appendLine("### Creating Cards")
+    appendLine()
+    appendLine("Three ways to create a card:")
+    appendLine("1. **Board UI** — click + in Backlog column, enter title")
+    appendLine("2. **Claude / AI agent** — create a `.md` file in the correct folder (see below)")
+    appendLine("3. **Manually** — create a `.md` file in any `{status}/{epic}/` folder")
+    appendLine()
+    appendLine("The board picks up any `.md` file in Backlog/, InProgress/, or Done/ subfolders.")
+    appendLine("No fields are required. A file with just `# Title` and nothing else is valid.")
+    appendLine()
+}
+
+private fun StringBuilder.appendCardAgentFormat() {
+    appendLine("### Recommended format for AI agents")
+    appendLine()
+    appendLine("When creating a card programmatically, use this format:")
+    appendLine()
+    appendLine("```yaml")
+    appendLine("---")
+    appendLine("epic: {folder name where file is placed}")
+    appendLine("jiraKey: {PAP-XXX if known, omit if not}")
+    appendLine("createdAt: {ISO timestamp}")
+    appendLine("---")
+    appendLine("# {Task title — short, descriptive}")
+    appendLine()
+    appendLine("{Task description, acceptance criteria, or any context.}")
+    appendLine("```")
+    appendLine()
+    appendLine("File name: `kebab-case-slug.md` (e.g., `fix-login-timeout.md`).")
+    appendLine("Place in: `Backlog/{epic}/` for new tasks, `InProgress/{epic}/` for active work.")
+    appendLine()
+    appendLine("All frontmatter fields are optional:")
+    appendLine("- `epic` — auto-detected from parent folder if omitted")
+    appendLine("- `jiraKey` — linked Jira issue (e.g., PAP-123)")
+    appendLine("- `createdAt` — ISO timestamp (auto-set by board UI)")
     appendLine()
 }
 

@@ -51,12 +51,12 @@ beforeEach(() => {
 // ─── getClaudeCodeConfigPath ─────────────────────────────────────────────────
 
 describe('getClaudeCodeConfigPath', () => {
-  it('returns path under home directory .claude/settings.json', () => {
+  it('returns path to ~/.claude.json', () => {
     const result = getClaudeCodeConfigPath();
 
-    expect(result).toContain('.claude');
-    expect(result).toContain('settings.json');
+    expect(result).toContain('.claude.json');
     expect(result).toContain('/home/testuser');
+    expect(result).not.toContain('settings.json');
   });
 });
 
@@ -141,10 +141,10 @@ describe('installIntoConfig', () => {
     const written = JSON.parse(writeContent) as Record<string, unknown>;
     expect(written['mcpServers']).toBeDefined();
     const servers = written['mcpServers'] as Record<string, unknown>;
-    expect(servers['Argustack']).toBeDefined();
+    expect(servers['argustack']).toBeDefined();
   });
 
-  it('adds Argustack key to existing mcpServers map', () => {
+  it('adds argustack key to existing mcpServers map', () => {
     const existingConfig = { mcpServers: { OtherTool: { command: 'node', args: [] } } };
     mockExistsSync.mockReturnValue(true);
     mockReadFileSync.mockReturnValue(JSON.stringify(existingConfig));
@@ -155,12 +155,12 @@ describe('installIntoConfig', () => {
     const written = JSON.parse(writeContent) as Record<string, unknown>;
     const servers = written['mcpServers'] as Record<string, unknown>;
     expect(servers['OtherTool']).toBeDefined();
-    expect(servers['Argustack']).toBeDefined();
+    expect(servers['argustack']).toBeDefined();
   });
 
-  it('overwrites existing Argustack entry with new values', () => {
+  it('overwrites existing argustack entry with new values', () => {
     const oldEntry = { command: 'node', args: ['/old/server.js'], env: { ARGUSTACK_WORKSPACE: '/old' } };
-    const existingConfig = { mcpServers: { Argustack: oldEntry } };
+    const existingConfig = { mcpServers: { argustack: oldEntry } };
     mockExistsSync.mockReturnValue(true);
     mockReadFileSync.mockReturnValue(JSON.stringify(existingConfig));
 
@@ -169,7 +169,7 @@ describe('installIntoConfig', () => {
     const [, writeContent] = mockWriteFileSync.mock.calls[0] as [string, string];
     const written = JSON.parse(writeContent) as Record<string, unknown>;
     const servers = written['mcpServers'] as Record<string, unknown>;
-    const argustackEntry = servers['Argustack'] as Record<string, unknown>;
+    const argustackEntry = servers['argustack'] as Record<string, unknown>;
     expect((argustackEntry['env'] as Record<string, string>)['ARGUSTACK_WORKSPACE']).toBe('/workspace');
   });
 
@@ -205,6 +205,6 @@ describe('installIntoConfig', () => {
     const written = JSON.parse(writeContent) as Record<string, unknown>;
     const servers = written['mcpServers'] as Record<string, unknown>;
     expect(typeof servers).toBe('object');
-    expect(servers['Argustack']).toBeDefined();
+    expect(servers['argustack']).toBeDefined();
   });
 });
