@@ -47,6 +47,7 @@ public class CardHandler(
             if (!isSystemTarget) {
                 val card = stateService.getState().cards.find { it.id == message.cardId }
                 if (card != null) {
+                    injectContext(card, oldColumn, message.targetColumn)
                     executeSkillForCard(card.id, message.targetColumn, card.mdPath)
                 }
             }
@@ -155,10 +156,22 @@ public class CardHandler(
         stateService.updateCardExecutionState(cardId, ExecutionState.IDLE)
     }
 
+    private fun injectContext(card: Card, oldColumn: String, targetSkill: String) {
+        val basePath = project.basePath ?: return
+        val mdFile = File(basePath, card.mdPath)
+        if (!mdFile.exists()) return
+        val content = mdFile.readText()
+        val hasContent = content.replace(Regex("---[\\s\\S]*?---"), "").trim().length > MIN_CONTENT_LENGTH
+        val hint = if (hasContent) "Append your output to this file." else "Write your output to this file."
+        val comment = "<!-- argustack: from '$oldColumn' to '$targetSkill'. $hint -->"
+        val cleaned = content.replace(Regex("<!-- argustack:.*?-->\n?"), "")
+        mdFile.writeText("$comment\n$cleaned")
+    }
+
     private fun moveFileIfZoneChanged(card: Card, oldColumn: String, newColumn: String) {
         val oldZone = columnToZone(oldColumn)
         val newZone = columnToZone(newColumn)
-        if (oldZone == newZone) return
+        if (oldZone == newZone || oldZone == IN_PROGRESS_ZONE && newZone == IN_PROGRESS_ZONE) return
         val basePath = project.basePath ?: return
         val mdFile = File(basePath, card.mdPath)
         if (!mdFile.exists()) return
@@ -211,6 +224,8 @@ public class CardHandler(
     private companion object {
         private const val SESSION_NAME_LENGTH: Int = 6
         private const val JIRA_KEY_FIELD: String = "jiraKey:"
+        private const val MIN_CONTENT_LENGTH: Int = 10
+        private const val IN_PROGRESS_ZONE: String = "InProgress"
 
         private fun columnToZone(columnName: String): String = when (columnName) {
             KanbanStateService.BACKLOG_COLUMN -> "Backlog"

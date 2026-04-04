@@ -40,12 +40,13 @@
   ]]></description>
 
   <change-notes><![CDATA[
-    <h3>v0.2.2</h3>
+    <h3>v0.2.4</h3>
     <ul>
+      <li>Skill execution fix — file stays stable during skill-to-skill drags</li>
+      <li>Context injection — plugin tells skill about card source and file state</li>
       <li>Card redesign — colored epic badges, clean visual hierarchy</li>
       <li>README auto-update — regenerates when plugin version changes</li>
       <li>Done column time filter</li>
-      <li>Card format documentation for AI agents</li>
     </ul>
   ]]></change-notes>
 
