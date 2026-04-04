@@ -1,0 +1,31 @@
+name: Publish IDE Plugin
+
+on:
+  release:
+    types: [published]
+
+jobs:
+  publish:
+    if: startsWith(github.event.release.tag_name, 'Argustack-IDE-Plugin-')
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v5
+
+      - uses: actions/setup-java@v4
+        with:
+          distribution: temurin
+          java-version: 21
+
+      - uses: actions/setup-node@v5
+        with:
+          node-version: 24
+
+      - name: Build webview
+        working-directory: plugins/jetbrains/webview
+        run: npm ci && npm run build
+
+      - name: Publish to Marketplace
+        working-directory: plugins/jetbrains
+        run: ./gradlew publishPlugin -x buildSearchableOptions -x test
+        env:
+          MARKETPLACE_TOKEN: ${{ secrets.MARKETPLACE_TOKEN }}
