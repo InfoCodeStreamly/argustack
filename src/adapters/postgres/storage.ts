@@ -218,7 +218,11 @@ export class PostgresStorage implements IStorage {
       `SELECT MAX(updated) as last_updated FROM issues WHERE project_key = $1`,
       [projectKey]
     );
-    return result.rows[0]?.last_updated ?? null;
+    const raw = result.rows[0]?.last_updated;
+    if (!raw) {
+      return null;
+    }
+    return new Date(raw).toISOString();
   }
 
   async saveGitHubBatch(batch: GitHubBatch): Promise<void> {
