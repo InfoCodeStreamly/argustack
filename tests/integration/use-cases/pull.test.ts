@@ -110,7 +110,14 @@ describe('PullUseCase', () => {
 
     await useCase.execute();
 
-    expect(source.pullCalls[0]?.since).toBe('2025-06-14T23:59:00.000Z');
+    const since = source.pullCalls[0]?.since;
+    const expected = new Date(new Date('2025-06-15T00:00:00.000Z').getTime() - 60_000);
+    const y = expected.getFullYear();
+    const m = String(expected.getMonth() + 1).padStart(2, '0');
+    const d = String(expected.getDate()).padStart(2, '0');
+    const h = String(expected.getHours()).padStart(2, '0');
+    const min = String(expected.getMinutes()).padStart(2, '0');
+    expect(since).toBe(`${String(y)}-${m}-${d} ${h}:${min}`);
   });
 
   it('does full pull when no lastUpdated and no since', async () => {
@@ -227,8 +234,13 @@ describe('PullUseCase', () => {
 
     await useCase.execute();
 
-    const expected = new Date(new Date(lastUpdated).getTime() - 60_000).toISOString();
-    expect(source.pullCalls[0]?.since).toBe(expected);
+    const exp = new Date(new Date(lastUpdated).getTime() - 60_000);
+    const y = exp.getFullYear();
+    const mo = String(exp.getMonth() + 1).padStart(2, '0');
+    const d = String(exp.getDate()).padStart(2, '0');
+    const h = String(exp.getHours()).padStart(2, '0');
+    const mi = String(exp.getMinutes()).padStart(2, '0');
+    expect(source.pullCalls[0]?.since).toBe(`${String(y)}-${mo}-${d} ${h}:${mi}`);
   });
 
   it('logs incremental pull message when since is set from storage', async () => {

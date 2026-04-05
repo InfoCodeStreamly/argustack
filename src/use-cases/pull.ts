@@ -3,6 +3,15 @@ import type { IStorage } from '../core/ports/storage.js';
 
 function noop(_message: string): void { /* intentional */ }
 
+function toJiraDateString(date: Date): string {
+  const y = date.getFullYear();
+  const m = String(date.getMonth() + 1).padStart(2, '0');
+  const d = String(date.getDate()).padStart(2, '0');
+  const h = String(date.getHours()).padStart(2, '0');
+  const min = String(date.getMinutes()).padStart(2, '0');
+  return `${String(y)}-${m}-${d} ${h}:${min}`;
+}
+
 export interface PullOptions {
   /** Specific project key, or null for all configured projects */
   projectKey?: string;
@@ -51,7 +60,7 @@ export class PullUseCase {
     for (const projectKey of projectKeys) {
       const lastUpdated = options.since ?? (await this.storage.getLastUpdated(projectKey));
       const since = lastUpdated && !options.since
-        ? new Date(new Date(lastUpdated).getTime() - 60_000).toISOString()
+        ? toJiraDateString(new Date(new Date(lastUpdated).getTime() - 60_000))
         : lastUpdated;
       if (since) {
         log(`  Incremental pull: issues updated since ${since}`);
