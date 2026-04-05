@@ -3,7 +3,7 @@ import type { SourceType } from '../../../../src/core/types/config.js';
 
 type SourceMetaMap = Record<SourceType, { label: string; description: string }>;
 
-const ALL_SOURCE_TYPES: SourceType[] = ['jira', 'git', 'github', 'csv', 'db'];
+const ALL_SOURCE_TYPES: SourceType[] = ['jira', 'git', 'github', 'csv', 'db', 'board'];
 
 describe('core/types/config module', () => {
   it('imports without errors', async () => {
@@ -115,8 +115,8 @@ describe('core/types/config module', () => {
       ({ ALL_SOURCES } = await import('../../../../src/core/types/config.js'));
     });
 
-    it('contains exactly 5 source types', () => {
-      expect(ALL_SOURCES).toHaveLength(5);
+    it('contains exactly 6 source types', () => {
+      expect(ALL_SOURCES).toHaveLength(6);
     });
 
     it('contains "jira"', () => {
@@ -140,7 +140,7 @@ describe('core/types/config module', () => {
     });
 
     it('matches exact values in exact order: jira, csv, git, github, db', () => {
-      expect(ALL_SOURCES).toEqual(['jira', 'csv', 'git', 'github', 'db']);
+      expect(ALL_SOURCES).toEqual(['jira', 'csv', 'git', 'github', 'db', 'board']);
     });
 
     it('contains no duplicate values', () => {

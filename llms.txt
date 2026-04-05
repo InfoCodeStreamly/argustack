@@ -42,6 +42,7 @@ argustack sync             # pull all data from configured sources
 argustack sync jira        # pull specific source
 argustack sync github      # pull GitHub PRs/reviews/releases separately
 argustack sync csv         # import from Jira CSV export
+argustack push             # push local board tasks to Jira
 argustack embed            # generate OpenAI embeddings for semantic search
 argustack mcp install      # connect to Claude Desktop as MCP server
 ```

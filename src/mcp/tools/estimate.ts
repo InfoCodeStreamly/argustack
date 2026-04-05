@@ -149,13 +149,31 @@ export function registerEstimateTools(server: McpServer): void {
           [description, maxResults, issueType, comps, excludeKey ?? null],
         );
 
-        const similar = similarResult.rows as unknown as EstimateSimilarRow[];
+        const similar = [...similarResult.rows] as unknown as EstimateSimilarRow[];
 
         if (similar.length === 0) {
-          await storage.close();
-          return textResponse(`No similar completed tasks found for: "${description}"\n\nTry broader terms or different keywords.`);
+          const fallbackResult = await storage.query(
+            `SELECT issue_key, summary, issue_type, status, assignee,
+                    created, resolved, components,
+                    0.0 as composite_score, 0 as type_match, 0.0 as component_overlap,
+                    0.5 as temporal_weight, 0.0 as text_rank
+             FROM issues
+             WHERE resolved IS NOT NULL
+               AND issue_type = COALESCE($1, issue_type)
+               AND ($2::text IS NULL OR issue_key != $2)
+             ORDER BY resolved DESC
+             LIMIT $3`,
+            [issueType, excludeKey ?? null, maxResults],
+          );
+          const fallbackRows = fallbackResult.rows as unknown as EstimateSimilarRow[];
+          if (fallbackRows.length === 0) {
+            await storage.close();
+            return textResponse(`No completed tasks found for estimation.\n\nTry syncing more data: argustack sync jira`);
+          }
+          similar.push(...fallbackRows);
         }
 
+        const usedFallback = similarResult.rows.length === 0 && similar.length > 0;
         const issueKeys = similar.map((r) => r.issue_key);
         const keysParam = issueKeys.map((_, i) => `$${String(i + 1)}`).join(',');
 
@@ -335,6 +353,9 @@ export function registerEstimateTools(server: McpServer): void {
         sections.push(`Query: "${description}"${metaParts.length > 0 ? ` | ${metaParts.join(' | ')}` : ''}`);
         sections.push(`Based on ${String(similar.length)} similar completed tasks`);
         sections.push(`Scoring: text 30% + type ${issueType ? '25%' : '0%'} + component ${comps ? '35%' : '0%'} + recency 10%\n`);
+        if (usedFallback) {
+          sections.push('> Note: No similar tasks found by description. Using project-wide statistics for same issue type.\n');
+        }
 
         const worklogMap = new Map<string, EstimateWorklogRow[]>();
         for (const w of worklogs) {

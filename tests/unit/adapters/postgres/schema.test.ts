@@ -62,6 +62,7 @@ const EXPECTED_INDEX_NAMES = [
   'idx_issues_search',
   'idx_issues_custom',
   'idx_issues_raw',
+  'idx_issues_source',
   'idx_comments_key',
   'idx_changelogs_key',
   'idx_worklogs_key',
@@ -171,12 +172,12 @@ describe('ensureSchema — ALTER TABLE migrations', () => {
     expect(searchVectorMigrations.length).toBe(4);
   });
 
-  it('issues exactly 9 ALTER TABLE statements', async () => {
+  it('issues exactly 10 ALTER TABLE statements', async () => {
     await ensureSchema(mockPool as unknown as pg.Pool);
 
     const queries = allQueriedSql();
     const alterCount = queries.filter(q => q.includes('ALTER TABLE')).length;
-    expect(alterCount).toBe(9);
+    expect(alterCount).toBe(10);
   });
 });
 
@@ -198,17 +199,17 @@ describe('ensureSchema — CREATE INDEX', () => {
 
     const queries = allQueriedSql();
     const indexCount = queries.filter(q => q.includes('CREATE INDEX IF NOT EXISTS')).length;
-    expect(indexCount).toBe(41);
+    expect(indexCount).toBe(42);
   });
 });
 
 // ─── total call count ──────────────────────────────────────────────────────
 
 describe('ensureSchema — total pool.query calls', () => {
-  it('calls pool.query exactly 69 times (1 extension + 18 tables + 9 alters + 41 indexes)', async () => {
+  it('calls pool.query exactly 71 times (1 extension + 18 tables + 10 alters + 42 indexes)', async () => {
     await ensureSchema(mockPool as unknown as pg.Pool);
 
-    expect(mockPool.query).toHaveBeenCalledTimes(69);
+    expect(mockPool.query).toHaveBeenCalledTimes(71);
   });
 
   it('resolves without throwing when pool.query always succeeds', async () => {

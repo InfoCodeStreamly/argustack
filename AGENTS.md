@@ -120,9 +120,12 @@ type SourceType = 'jira' | 'git' | 'github' | 'csv' | 'db';
 - **csv** — Jira CSV export → issues (no API needed, dynamic header detection)
 - **git** — local repos on disk → commits, per-file diffs, issue cross-references (multi-repo via `GIT_REPO_PATHS`)
 - **github** — GitHub REST API → PRs, reviews, comments, releases
-- **db** — coming soon
+- **db** — project database schema introspection
+- **board** — local Docs/Tasks/ markdown files → issues with `source: 'local'`
 
 Each source has: adapter (`src/adapters/`), use case (`src/use-cases/`), CLI command (`src/cli/sync.ts`).
+
+`argustack push` — creates Jira issues from local board tasks (`source: 'local'`), writes jiraKey back to .md frontmatter.
 
 All three providers expose optional `getCount()` methods for progress reporting (total/current/%). Use cases call them with try/catch — progress degrades gracefully if count unavailable.
 

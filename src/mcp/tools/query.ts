@@ -38,12 +38,12 @@ export function registerQueryTools(server: McpServer): void {
 
         let sqlQuery: string;
         let params: unknown[];
+        const conditions: string[] = [];
 
         if (sql) {
           sqlQuery = sql;
           params = [];
         } else {
-          const conditions: string[] = [];
           params = [];
           let paramIdx = 1;
 
@@ -89,7 +89,25 @@ export function registerQueryTools(server: McpServer): void {
           `;
         }
 
-        const result = await storage.query(sqlQuery, params);
+        let result = await storage.query(sqlQuery, params);
+
+        if (result.rows.length === 0 && search && !sql) {
+          const ilikeCond = `(summary ILIKE $1 OR description ILIKE $1)`;
+          const otherConds = params.length > 1
+            ? ` AND ${conditions.slice(1).join(' AND ')}`
+            : '';
+          const fallbackSql = `
+            SELECT issue_key, summary, status, priority, assignee, issue_type,
+                   project_key, created, updated
+            FROM issues
+            WHERE ${ilikeCond}${otherConds}
+            ORDER BY updated DESC NULLS LAST
+            LIMIT ${String(maxResults)}
+          `;
+          const fallbackParams = [`%${search}%`, ...params.slice(1)];
+          result = await storage.query(fallbackSql, fallbackParams);
+        }
+
         await storage.close();
 
         if (result.rows.length === 0) {

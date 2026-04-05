@@ -35,6 +35,8 @@ export interface Issue {
   customFields: Record<string, unknown>;
   /** Full raw response from the source (Jira API JSON, etc.) — stored as-is */
   rawJson: Record<string, unknown>;
+  /** Where this issue came from: 'jira' (synced from Jira) or 'local' (created on board) */
+  source?: 'jira' | 'local';
 }
 
 export interface IssueComment {

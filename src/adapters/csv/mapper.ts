@@ -70,6 +70,7 @@ export function mapCsvRow(row: string[], schema: CsvSchema): CsvRowResult {
     timeSpent: parseIntOrNull(cell(row, sf.get('Time Spent'))),
     customFields: extractCustomFields(row, schema),
     rawJson: buildRawJson(row, schema),
+    source: 'jira',
   };
 
   const comments = extractComments(issueKey, row, schema);
