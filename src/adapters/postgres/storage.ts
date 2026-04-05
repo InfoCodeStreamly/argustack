@@ -1,6 +1,6 @@
 import type pg from 'pg';
 import type { IStorage, QueryResult } from '../../core/ports/storage.js';
-import type { IssueBatch, HybridSearchResult } from '../../core/types/index.js';
+import type { Issue, IssueBatch, HybridSearchResult } from '../../core/types/index.js';
 import type { CommitBatch } from '../../core/types/git.js';
 import type { GitHubBatch, Release } from '../../core/types/github.js';
 import type { DbSchemaBatch } from '../../core/types/database.js';
@@ -37,7 +37,7 @@ export class PostgresStorage implements IStorage {
             assignee, assignee_id, reporter, reporter_id, created, updated, resolved,
             due_date, labels, components, fix_versions, parent_key,
             sprint, story_points, original_estimate, remaining_estimate, time_spent,
-            custom_fields, raw_json, pulled_at,
+            custom_fields, raw_json, source, pulled_at,
             search_vector
           ) VALUES (
             $1, $2, $3, $4, $5,
@@ -45,7 +45,7 @@ export class PostgresStorage implements IStorage {
             $11, $12, $13, $14, $15, $16, $17,
             $18, $19, $20, $21, $22,
             $23, $24, $25, $26, $27,
-            $28, $29, NOW(),
+            $28, $29, $30, NOW(),
             to_tsvector('english', coalesce($4, '') || ' ' || coalesce($5, ''))
           )
           ON CONFLICT (issue_key) DO UPDATE SET
@@ -77,6 +77,7 @@ export class PostgresStorage implements IStorage {
             time_spent = EXCLUDED.time_spent,
             custom_fields = EXCLUDED.custom_fields,
             raw_json = EXCLUDED.raw_json,
+            source = EXCLUDED.source,
             pulled_at = NOW(),
             search_vector = to_tsvector('english', coalesce(EXCLUDED.summary, '') || ' ' || coalesce(EXCLUDED.description, ''))
           `,
@@ -86,7 +87,7 @@ export class PostgresStorage implements IStorage {
             issue.assignee, issue.assigneeId, issue.reporter, issue.reporterId, issue.created, issue.updated, issue.resolved,
             issue.dueDate, issue.labels, issue.components, issue.fixVersions, issue.parentKey,
             issue.sprint, issue.storyPoints, issue.originalEstimate, issue.remainingEstimate, issue.timeSpent,
-            JSON.stringify(issue.customFields), JSON.stringify(issue.rawJson),
+            JSON.stringify(issue.customFields), JSON.stringify(issue.rawJson), issue.source ?? 'jira',
           ]
         );
       }
@@ -591,6 +592,51 @@ export class PostgresStorage implements IStorage {
     await this.pool.query('DELETE FROM db_foreign_keys WHERE source_name = $1', [sourceName]);
     await this.pool.query('DELETE FROM db_columns WHERE source_name = $1', [sourceName]);
     await this.pool.query('DELETE FROM db_tables WHERE source_name = $1', [sourceName]);
+  }
+
+  async getLocalIssues(): Promise<Issue[]> {
+    const result = await this.pool.query(
+      `SELECT * FROM issues WHERE source = 'local' ORDER BY created`
+    );
+    return result.rows.map((r: Record<string, unknown>) => ({
+      key: r['issue_key'] as string,
+      id: r['issue_id'] as string,
+      projectKey: r['project_key'] as string,
+      summary: r['summary'] as string,
+      description: r['description'] as string | null,
+      issueType: r['issue_type'] as string | null,
+      status: r['status'] as string | null,
+      statusCategory: r['status_category'] as string | null,
+      priority: r['priority'] as string | null,
+      resolution: r['resolution'] as string | null,
+      assignee: r['assignee'] as string | null,
+      assigneeId: r['assignee_id'] as string | null,
+      reporter: r['reporter'] as string | null,
+      reporterId: r['reporter_id'] as string | null,
+      created: r['created'] as string | null,
+      updated: r['updated'] as string | null,
+      resolved: r['resolved'] as string | null,
+      dueDate: r['due_date'] as string | null,
+      labels: (r['labels'] as string[] | null) ?? [],
+      components: (r['components'] as string[] | null) ?? [],
+      fixVersions: (r['fix_versions'] as string[] | null) ?? [],
+      parentKey: r['parent_key'] as string | null,
+      sprint: r['sprint'] as string | null,
+      storyPoints: r['story_points'] as number | null,
+      originalEstimate: r['original_estimate'] as number | null,
+      remainingEstimate: r['remaining_estimate'] as number | null,
+      timeSpent: r['time_spent'] as number | null,
+      customFields: (r['custom_fields'] as Record<string, unknown> | null) ?? {},
+      rawJson: (r['raw_json'] as Record<string, unknown> | null) ?? {},
+      source: 'local' as const,
+    }));
+  }
+
+  async updateIssueSource(issueKey: string, source: string): Promise<void> {
+    await this.pool.query(
+      `UPDATE issues SET source = $2 WHERE issue_key = $1`,
+      [issueKey, source]
+    );
   }
 
   async close(): Promise<void> {

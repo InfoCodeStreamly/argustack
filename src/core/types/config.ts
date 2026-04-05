@@ -3,7 +3,7 @@
  * Stored in .argustack/config.json
  */
 
-export type SourceType = 'jira' | 'git' | 'github' | 'csv' | 'db';
+export type SourceType = 'jira' | 'git' | 'github' | 'csv' | 'db' | 'board';
 
 export interface SourceConfig {
   enabled: boolean;
@@ -57,6 +57,13 @@ export const SOURCE_META: Record<SourceType, { label: string; description: strin
       'Supports all standard fields, comments, worklogs, and issue links. ' +
       'Export from Jira: Filters → Export → CSV (All fields)',
   },
+  board: {
+    label: 'Board — local task files',
+    description:
+      'Syncs Markdown task files from Docs/Tasks/ into the database. ' +
+      'Tasks created on the Argustack board or by AI agents get a local source marker. ' +
+      'Use `argustack push` to create Jira issues from local tasks.',
+  },
   db: {
     label: 'Project Database (read-only)',
     description:
@@ -67,4 +74,4 @@ export const SOURCE_META: Record<SourceType, { label: string; description: strin
   },
 };
 
-export const ALL_SOURCES: SourceType[] = ['jira', 'csv', 'git', 'github', 'db'];
+export const ALL_SOURCES: SourceType[] = ['jira', 'csv', 'git', 'github', 'db', 'board'];

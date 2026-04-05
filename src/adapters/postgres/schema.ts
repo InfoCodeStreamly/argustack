@@ -40,9 +40,12 @@ export async function ensureSchema(pool: pg.Pool): Promise<void> {
       raw_json JSONB,
       embedding vector(1536),
       search_vector tsvector,
+      source VARCHAR(10) DEFAULT 'jira',
       pulled_at TIMESTAMP DEFAULT NOW()
     )
   `);
+
+  await pool.query(`ALTER TABLE issues ADD COLUMN IF NOT EXISTS source VARCHAR(10) DEFAULT 'jira'`);
 
   await pool.query(`
     CREATE TABLE IF NOT EXISTS issue_comments (
@@ -289,6 +292,7 @@ export async function ensureSchema(pool: pg.Pool): Promise<void> {
     'CREATE INDEX IF NOT EXISTS idx_issues_assignee ON issues(assignee)',
     'CREATE INDEX IF NOT EXISTS idx_issues_created ON issues(created)',
     'CREATE INDEX IF NOT EXISTS idx_issues_updated ON issues(updated)',
+    'CREATE INDEX IF NOT EXISTS idx_issues_source ON issues(source)',
     'CREATE INDEX IF NOT EXISTS idx_issues_search ON issues USING GIN(search_vector)',
     'CREATE INDEX IF NOT EXISTS idx_issues_custom ON issues USING GIN(custom_fields)',
     'CREATE INDEX IF NOT EXISTS idx_issues_raw ON issues USING GIN(raw_json)',

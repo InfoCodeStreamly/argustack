@@ -449,6 +449,9 @@ export function registerSyncCommand(program: Command): void {
               await syncDb(workspaceRoot, options);
               break;
             }
+            case 'board': {
+              break;
+            }
           }
         }
       } catch (err: unknown) {

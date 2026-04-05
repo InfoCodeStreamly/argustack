@@ -1,6 +1,6 @@
 import type { Version3Client, Version3Parameters as Parameters } from 'jira.js';
 import type { ISourceProvider } from '../../core/ports/source-provider.js';
-import type { IssueBatch, Project } from '../../core/types/index.js';
+import type { Issue, IssueBatch, Project } from '../../core/types/index.js';
 import { createJiraClient, type JiraCredentials } from './client.js';
 import {
   mapJiraIssue,
@@ -36,6 +36,26 @@ export class JiraProvider implements ISourceProvider {
       name: p.name,
       id: p.id,
     }));
+  }
+
+  async createIssue(issue: Issue): Promise<string> {
+    const fields: Parameters.CreateIssue['fields'] = {
+      project: { key: issue.projectKey },
+      summary: issue.summary,
+      issuetype: { name: issue.issueType ?? 'Story' },
+    };
+    if (issue.description) {
+      (fields as Record<string, unknown>)['description'] = {
+        type: 'doc',
+        version: 1,
+        content: [{ type: 'paragraph', content: [{ type: 'text', text: issue.description }] }],
+      };
+    }
+    if (issue.parentKey) {
+      fields.parent = { key: issue.parentKey };
+    }
+    const result = await this.client.issues.createIssue({ fields });
+    return result.key;
   }
 
   async getIssueCount(projectKey: string, since?: string): Promise<number> {

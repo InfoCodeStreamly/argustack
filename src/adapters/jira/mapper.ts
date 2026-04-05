@@ -75,6 +75,7 @@ export function mapJiraIssue(raw: JiraIssue): Issue {
     timeSpent: extractTimeField(fields, 'timespent'),
     customFields,
     rawJson: raw as unknown as Record<string, unknown>,
+    source: 'jira',
   };
 }
 

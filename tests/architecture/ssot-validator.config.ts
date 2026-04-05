@@ -20,6 +20,7 @@ export const EXCLUDED_FILES_COMPLETELY: RegExp[] = [
   /no-hardcoded-ids\.test\.ts$/,
   /ssot-validator\.\w+\.ts$/,
   /builders\/[\w-]+\.ts$/,
+  /fakes\/fake-[\w-]+\.ts$/,
 ];
 
 /**

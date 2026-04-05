@@ -231,6 +231,7 @@ async function setupSources(flags: InitFlags): Promise<{
       case 'github': github = await setupGithubInteractive(git?.githubToken, git?.githubRepos); break;
       case 'csv':    csv = await setupCsvInteractive(); break;
       case 'db':     db = await setupDbInteractive(); break;
+      case 'board':  break;
     }
   }
 
@@ -284,6 +285,8 @@ async function runInitNonInteractive(flags: InitFlags): Promise<void> {
         break;
       case 'db':
         dbResult = setupDbFromFlags(flags);
+        break;
+      case 'board':
         break;
     }
   }

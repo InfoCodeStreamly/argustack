@@ -1,4 +1,4 @@
-import type { IssueBatch, HybridSearchResult } from '../types/index.js';
+import type { Issue, IssueBatch, HybridSearchResult } from '../types/index.js';
 import type { CommitBatch } from '../types/git.js';
 import type { GitHubBatch, Release } from '../types/github.js';
 import type { DbSchemaBatch } from '../types/database.js';
@@ -68,6 +68,12 @@ export interface IStorage {
 
   /** Delete all schema metadata for a given external database source */
   deleteDbSchema(sourceName: string): Promise<void>;
+
+  /** Get all issues with source = 'local' (created on board, not yet pushed to Jira) */
+  getLocalIssues(): Promise<Issue[]>;
+
+  /** Update the source field for an issue (e.g., 'local' → 'jira' after push) */
+  updateIssueSource(issueKey: string, source: string): Promise<void>;
 
   /** Close connection / cleanup */
   close(): Promise<void>;

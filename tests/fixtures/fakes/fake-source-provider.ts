@@ -4,7 +4,7 @@
  */
 
 import type { ISourceProvider } from '../../../src/core/ports/source-provider.js';
-import type { IssueBatch, Project } from '../../../src/core/types/index.js';
+import type { Issue, IssueBatch, Project } from '../../../src/core/types/index.js';
 
 export class FakeSourceProvider implements ISourceProvider {
   readonly name = 'FakeSource';
@@ -43,9 +43,20 @@ export class FakeSourceProvider implements ISourceProvider {
     return Promise.resolve(total);
   }
 
+  private _createCounter = 0;
+  readonly createCalls: Issue[] = [];
+
+  createIssue(issue: Issue): Promise<string> {
+    this.createCalls.push(issue);
+    this._createCounter++;
+    return Promise.resolve(`${issue.projectKey}-${String(1000 + this._createCounter)}`);
+  }
+
   clear(): void {
     this._projects = [];
     this._batches.clear();
     this.pullCalls.length = 0;
+    this.createCalls.length = 0;
+    this._createCounter = 0;
   }
 }

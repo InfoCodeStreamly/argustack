@@ -197,6 +197,26 @@ export class FakeStorage implements IStorage {
     return Promise.resolve();
   }
 
+  // ─── Local issues (board sync) ─────────────────────────────────
+
+  getLocalIssues(): Promise<Issue[]> {
+    const locals: Issue[] = [];
+    for (const issue of this.issues.values()) {
+      if (issue.source === 'local') {
+        locals.push(issue);
+      }
+    }
+    return Promise.resolve(locals);
+  }
+
+  updateIssueSource(issueKey: string, source: string): Promise<void> {
+    const issue = this.issues.get(issueKey);
+    if (issue) {
+      this.issues.set(issueKey, { ...issue, source: source as 'jira' | 'local' });
+    }
+    return Promise.resolve();
+  }
+
   // ─── Test helpers ─────────────────────────────────────────────
 
   seed(issues: Issue[]): void {

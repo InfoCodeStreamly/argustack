@@ -1,4 +1,4 @@
-import type { IssueBatch, Project } from '../types/index.js';
+import type { Issue, IssueBatch, Project } from '../types/index.js';
 
 /**
  * Port: Source Provider — where we pull data FROM.
@@ -27,4 +27,7 @@ export interface ISourceProvider {
    * Optional — providers that don't support this simply won't show percentages.
    */
   getIssueCount?(projectKey: string, since?: string): Promise<number>;
+
+  /** Create an issue in the source system (e.g., Jira). Returns the created issue key. */
+  createIssue?(issue: Issue): Promise<string>;
 }
