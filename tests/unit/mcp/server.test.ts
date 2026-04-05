@@ -62,6 +62,10 @@ vi.mock('../../../src/mcp/tools/database.js', () => ({
   registerDatabaseTools: vi.fn(),
 }));
 
+vi.mock('../../../src/mcp/tools/push.js', () => ({
+  registerPushTools: vi.fn(),
+}));
+
 let existsSync: ReturnType<typeof vi.fn>;
 let readFileSync: ReturnType<typeof vi.fn>;
 

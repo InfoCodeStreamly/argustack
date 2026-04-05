@@ -60,13 +60,14 @@ Claude queries the local database via 15 MCP tools and answers with full project
 
 AI agents can run `argustack init --no-interactive` autonomously — no terminal interaction needed.
 
-## MCP Tools (15 total)
+## MCP Tools (21 total)
 
 **Jira:** query_issues, get_issue, issue_stats, pull_jira, list_projects
 **Git:** query_commits, issue_commits, commit_stats
 **GitHub:** query_prs, issue_prs, query_releases
 **Cross-source:** issue_timeline (full cross-source timeline: changelogs + commits + PRs for one issue), semantic_search (pgvector embeddings)
 **Prediction:** estimate (predict task duration for a specific developer — with effort data: two predictions "without bugs" and "with bugs" based on similar tasks, personal coefficient, and component familiarity; with CSV only: resolution timeline in business days showing lead time from creation to close)
+**Write:** push (push local board tasks to Jira)
 **System:** workspace_info
 
 ## IDE Plugin (plugins/jetbrains/)

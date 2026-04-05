@@ -62,7 +62,8 @@ describe('MCP server tools', () => {
     expect(toolNames).toContain('db_schema');
     expect(toolNames).toContain('db_query');
     expect(toolNames).toContain('db_stats');
-    expect(tools).toHaveLength(20);
+    expect(toolNames).toContain('push');
+    expect(tools).toHaveLength(21);
   });
 
   it('workspace_info tool responds (even without workspace)', async () => {

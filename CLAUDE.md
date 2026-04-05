@@ -9,7 +9,7 @@ Argustack — standalone open-source CLI tool for project analysis. Cross-refere
 - **GitHub** — what was reviewed (PRs, approvals, releases)
 - **DB** — what factually exists in production (coming soon)
 
-Downloads everything into local PostgreSQL, then gives Claude direct access via MCP server (15 tools).
+Downloads everything into local PostgreSQL, then gives Claude direct access via MCP server (21 tools).
 
 ## Tech Stack
 
@@ -249,6 +249,7 @@ argustack sync csv               # import from Jira CSV export
 argustack sync csv -f file.csv   # import specific CSV file
 argustack sync -p PROJ           # pull specific Jira project
 argustack sync --since 2025-01-01  # incremental pull
+argustack push                   # push local board tasks to Jira (source='local' → create Story → source='jira')
 argustack embed                  # generate embeddings for semantic search
 argustack sources                # list configured sources
 argustack status                 # workspace status

@@ -32,7 +32,7 @@ src/
 ├── adapters/          ← Driven adapters (jira/, git/, github/, csv/, postgres/, openai/)
 ├── use-cases/         ← Business logic (pull.ts, pull-git.ts, pull-github.ts, embed.ts)
 ├── cli/               ← Driving adapter — creates adapters, injects into use cases
-├── mcp/               ← Driving adapter — MCP server for Claude Desktop / Claude Code (15 tools)
+├── mcp/               ← Driving adapter — MCP server for Claude Desktop / Claude Code (21 tools)
 │   ├── server.ts      ← Orchestrator — registers tools, starts transport
 │   ├── types.ts       ← Row interfaces for SQL queries
 │   ├── helpers.ts     ← Shared utilities (loadWorkspace, textResponse, etc.)
@@ -160,7 +160,7 @@ All three providers expose optional `getCount()` methods for progress reporting 
 | `src/use-cases/embed.ts` | EmbedUseCase — generate embeddings |
 | `src/cli/init.ts` | Interactive workspace setup |
 | `src/cli/sync.ts` | Sync commands (jira, git, github, csv) |
-| `src/mcp/server.ts` | MCP server orchestrator — registers 15 tools |
+| `src/mcp/server.ts` | MCP server orchestrator — registers 21 tools |
 | `src/mcp/tools/` | Tool modules (workspace, query, issue, search, estimate) |
 | `tests/fixtures/shared/` | SSOT test constants and factories |
 | `tests/fixtures/builders/` | IssueBuilder, PullRequestBuilder |
