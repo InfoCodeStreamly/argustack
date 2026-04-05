@@ -9,7 +9,7 @@
 
 [**Documentation & Examples →**](https://app.paperlink.online/s/0aa7d2d6/argustack)
 
-Argustack downloads your project data into local PostgreSQL, cross-references everything, and gives Claude direct access via 20 MCP tools. All data stays on your machine.
+Argustack downloads your project data into local PostgreSQL, cross-references everything, and gives Claude direct access via 21 MCP tools. All data stays on your machine.
 
 > *Was ticket PROJ-123 implemented as described?*
 > *Who reviewed the PR and what was the feedback?*
@@ -24,7 +24,7 @@ Argustack downloads your project data into local PostgreSQL, cross-references ev
 - **Cross-source timeline** — Jira + Git + GitHub events in chronological order
 - **Semantic search** — find issues by meaning, not just keywords (pgvector)
 - **Task estimation** — predict duration per developer based on actual history
-- **20 MCP tools** — Claude queries your data directly via SQL
+- **21 MCP tools** — Claude queries your data directly via SQL
 - **IDE Plugin** — kanban board for JetBrains IDEs where columns are Claude Code skills
 - **100% local** — no cloud, no accounts, no telemetry
 
@@ -90,6 +90,7 @@ After sync, Claude queries your data through these tools:
 | `issue_timeline` | Full chronological timeline: Jira + Git + GitHub |
 | `semantic_search` | Find similar issues by meaning (pgvector) |
 | `estimate` | Predict task duration per developer |
+| `push` | Push local board tasks to Jira |
 | `workspace_info` | Current workspace configuration |
 
 ## IDE Plugin
