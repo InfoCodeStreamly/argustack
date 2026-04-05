@@ -211,7 +211,7 @@ export function registerDatabaseTools(server: McpServer): void {
   server.registerTool(
     'db_query',
     {
-      description: 'Execute a read-only SQL query against the external database connected to Argustack. Only SELECT, EXPLAIN, SHOW, DESCRIBE, and WITH+SELECT are allowed. Results are limited to 1000 rows with a 30s timeout.',
+      description: 'Execute a read-only SQL query against the PROJECT database (your app\'s DB, not Argustack internal data). Requires TARGET_DB_* in .env. For Jira/Git/GitHub data stored in Argustack, use query_issues or query_commits instead. Only SELECT, EXPLAIN, SHOW, DESCRIBE allowed. 1000 rows limit, 30s timeout.',
       inputSchema: {
         sql: z.string().describe('SQL query to execute (read-only: SELECT, EXPLAIN, SHOW, DESCRIBE)'),
       },
@@ -232,7 +232,7 @@ export function registerDatabaseTools(server: McpServer): void {
         const database = process.env['TARGET_DB_NAME'];
 
         if (!host || !user || !database) {
-          return errorResponse('No target database configured. Add TARGET_DB_HOST, TARGET_DB_USER, TARGET_DB_NAME to .env and run `argustack sync db`.');
+          return errorResponse('No target database configured. Add TARGET_DB_HOST, TARGET_DB_USER, TARGET_DB_NAME to .env and run `argustack sync db`.\n\nTo query Argustack data (Jira issues, Git commits, GitHub PRs), use query_issues(sql:) or query_commits(sql:) instead.');
         }
 
         const { DbProvider } = await import('../../adapters/db/index.js');

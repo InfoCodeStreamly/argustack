@@ -139,12 +139,13 @@ describe('estimate tool', () => {
       ok: true, root: '/test', config: { createdAt: '2025-01-01', sources: {} },
     });
     mockStorage.query.mockResolvedValueOnce({ rows: [] });
+    mockStorage.query.mockResolvedValueOnce({ rows: [] });
 
     const handler = getHandler();
     const result = await handler({ description: 'some task', assignee: ESTIMATE_TEST_IDS.assignee }) as ToolResult;
 
     expect(result.isError).toBeUndefined();
-    expect(getText(result)).toContain('No similar completed tasks found');
+    expect(getText(result)).toContain('No completed tasks found');
     expect(mockStorage.close).toHaveBeenCalled();
   });
 

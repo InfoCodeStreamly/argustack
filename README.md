@@ -63,6 +63,7 @@ argustack init                       # create workspace
 argustack sync                       # pull all sources
 argustack sync jira|git|github|csv   # pull specific source
 argustack sync --since 2025-01-01    # incremental pull
+argustack push                       # push local board tasks to Jira
 argustack embed                      # generate embeddings (requires OpenAI key)
 argustack mcp install                # connect to Claude Desktop
 argustack sources                    # list configured sources
