@@ -159,11 +159,10 @@ export function registerEstimateTools(server: McpServer): void {
                     0.5 as temporal_weight, 0.0 as text_rank
              FROM issues
              WHERE resolved IS NOT NULL
-               AND issue_type = COALESCE($1, issue_type)
-               AND ($2::text IS NULL OR issue_key != $2)
+               AND ($1::text IS NULL OR issue_key != $1)
              ORDER BY resolved DESC
-             LIMIT $3`,
-            [issueType, excludeKey ?? null, maxResults],
+             LIMIT $2`,
+            [excludeKey ?? null, maxResults],
           );
           const fallbackRows = fallbackResult.rows as unknown as EstimateSimilarRow[];
           if (fallbackRows.length === 0) {
