@@ -184,6 +184,15 @@ describe('tool registration on module load', () => {
 
     expect(vi.mocked(registerDatabaseTools)).toHaveBeenCalledOnce();
   });
+
+  it('registers push tools', async () => {
+    existsSync.mockReturnValue(false);
+    const { registerPushTools } = await import('../../../src/mcp/tools/push.js');
+
+    await import('../../../src/mcp/server.js');
+
+    expect(vi.mocked(registerPushTools)).toHaveBeenCalledOnce();
+  });
 });
 
 // ─── startMcpServer ───────────────────────────────────────────────────────
