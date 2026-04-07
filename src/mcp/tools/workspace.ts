@@ -11,6 +11,7 @@ import {
   errorResponse,
   getErrorMessage,
 } from '../helpers.js';
+import { registerWorkspace } from '../../workspace/registry.js';
 
 export function registerWorkspaceTools(server: McpServer): void {
   server.registerTool(
@@ -107,16 +108,21 @@ export function registerWorkspaceTools(server: McpServer): void {
       description: 'List all available Argustack workspaces. Shows which workspace is currently active.',
     },
     () => {
+      const ws = loadWorkspace();
+      if (ws.ok) {
+        registerWorkspace(ws.root, ws.config.name);
+      }
+
       const workspaces = listSiblingWorkspaces();
 
       if (workspaces.length === 0) {
         return textResponse('No workspaces found. Run `argustack init <name>` to create one.');
       }
 
-      const lines = workspaces.map((ws) => {
-        const sources = ws.sources.map((s) => SOURCE_META[s].label).join(', ') || 'no sources';
-        const marker = ws.active ? ' (active)' : '';
-        return `  ${ws.active ? '●' : '○'} ${ws.name}${marker} — ${sources}`;
+      const lines = workspaces.map((w) => {
+        const sources = w.sources.map((s) => SOURCE_META[s].label).join(', ') || 'no sources';
+        const marker = w.active ? ' (active)' : '';
+        return `  ${w.active ? '●' : '○'} ${w.name}${marker} — ${sources}`;
       });
 
       return textResponse(`Workspaces (${String(workspaces.length)}):\n${lines.join('\n')}`);

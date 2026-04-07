@@ -10,8 +10,11 @@ import type {
   GitHubSetupResult,
   CsvSetupResult,
   DbSetupResult,
+  ProxySetupResult,
 } from './types.js';
 import { maskHost, maskOrgRepo, maskPath } from './types.js';
+import { buildDefaultProxyConfig } from '../../adapters/jira-proxy/config-loader.js';
+import { registerWorkspace } from '../../workspace/registry.js';
 
 const currentDir = fileURLToPath(new URL('.', import.meta.url));
 
@@ -30,10 +33,18 @@ export function generateEnv(
   csv: CsvSetupResult | null,
   db: DbSetupResult | null,
   argustackDbPort: number,
+  proxy?: ProxySetupResult | null,
 ): string {
   const lines: string[] = [];
 
-  if (jira) {
+  if (proxy) {
+    lines.push(
+      '# === Jira (via proxy) ===',
+      `JIRA_PROXY_TOKEN=${proxy.proxyToken}`,
+      `JIRA_PROJECTS=${proxy.jiraProjects.join(',')}`,
+      '',
+    );
+  } else if (jira) {
     lines.push(
       '# === Jira ===',
       `JIRA_URL=${jira.jiraUrl}`,
@@ -146,6 +157,7 @@ export function createWorkspaceFiles(
   dbPort: number,
   pgwebPort: number,
   workspaceName?: string,
+  proxy?: ProxySetupResult | null,
 ): void {
   const templatesDir = getTemplatesDir();
 
@@ -155,8 +167,12 @@ export function createWorkspaceFiles(
   mkdirSync(join(workspaceDir, 'data'), { recursive: true });
 
   let config = createEmptyConfig(workspaceName);
-  if (jira) {
+  if (jira || proxy) {
     config = addSource(config, 'jira');
+    const selectedTypes = jira?.issueTypes ?? proxy?.issueTypes;
+    if (selectedTypes && config.sources.jira) {
+      config.sources.jira.issueTypes = selectedTypes;
+    }
   }
   if (git) {
     config = addSource(config, 'git');
@@ -172,7 +188,15 @@ export function createWorkspaceFiles(
   }
   writeConfig(workspaceDir, config);
 
-  writeFileSync(join(workspaceDir, '.env'), generateEnv(jira, git, github, csv, db, dbPort));
+  writeFileSync(join(workspaceDir, '.env'), generateEnv(jira, git, github, csv, db, dbPort, proxy));
+
+  if (proxy) {
+    const proxyConfig = buildDefaultProxyConfig(proxy.proxyUrl);
+    writeFileSync(
+      join(workspaceDir, '.argustack', 'proxy.json'),
+      JSON.stringify(proxyConfig, null, 2) + '\n',
+    );
+  }
 
   writeFileSync(join(workspaceDir, 'docker-compose.yml'), generateDockerCompose(dbPort, pgwebPort, workspaceName));
 
@@ -195,6 +219,8 @@ export function createWorkspaceFiles(
       JSON.stringify(mcpConfig, null, 2) + '\n',
     );
   } catch { /* optional file, ignore */ }
+
+  registerWorkspace(workspaceDir, workspaceName);
 }
 
 export function printSummary(
@@ -206,13 +232,16 @@ export function printSummary(
   db: DbSetupResult | null,
   pgwebPort: number,
   willAutoStart: boolean,
+  proxy?: ProxySetupResult | null,
 ): void {
   console.log('');
   console.log(chalk.green.bold('  Done! Your workspace is ready.'));
   console.log('');
 
   console.log(chalk.dim('  Sources configured:'));
-  if (jira) {
+  if (proxy) {
+    console.log(`    ${chalk.green('✓')} Jira (proxy) — ${maskHost(proxy.proxyUrl.replace(/^https?:\/\//, ''))}`);
+  } else if (jira) {
     console.log(`    ${chalk.green('✓')} Jira — ${maskHost(jira.jiraUrl.replace(/^https?:\/\//, ''))}`);
   }
   if (git) {
@@ -229,7 +258,7 @@ export function printSummary(
   if (db) {
     console.log(`    ${chalk.green('✓')} Database — ${maskHost(db.targetDbHost)}:${db.targetDbPort}`);
   }
-  if (!jira && !git && !github && !csv && !db) {
+  if (!jira && !proxy && !git && !github && !csv && !db) {
     console.log(`    ${chalk.yellow('—')} None yet. Use ${chalk.cyan('argustack source add <type>')}`);
   }
 
@@ -238,7 +267,7 @@ export function printSummary(
     console.log(chalk.dim('  Next steps:'));
     console.log(`  ${chalk.cyan('cd')} ${workspaceDir}`);
     console.log(`  ${chalk.cyan('docker compose up -d')}          # start database`);
-    if (jira) {
+    if (jira || proxy) {
       console.log(`  ${chalk.cyan('argustack sync jira')}            # sync from Jira`);
     }
     console.log(`  ${chalk.cyan(`http://localhost:${pgwebPort}`)}            # browse data in pgweb`);

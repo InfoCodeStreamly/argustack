@@ -11,11 +11,13 @@ import { describe, it, expect, vi, beforeEach } from 'vitest';
 const mockPasswordFn = vi.fn();
 const mockConfirmFn = vi.fn();
 const mockCheckboxFn = vi.fn();
+const mockSelectFn = vi.fn();
 
 vi.mock('@inquirer/prompts', () => ({
   password: mockPasswordFn,
   confirm: mockConfirmFn,
   checkbox: mockCheckboxFn,
+  select: mockSelectFn,
 }));
 
 const mockSpinner = {
@@ -40,8 +42,10 @@ vi.mock('chalk', () => ({
 }));
 
 const mockSearchProjects = vi.fn();
+const mockGetIssueAllTypes = vi.fn().mockResolvedValue([{ name: 'Bug' }, { name: 'Task' }, { name: 'Story' }]);
 const mockVersion3Client = vi.fn(function (this: Record<string, unknown>) {
   this.projects = { searchProjects: mockSearchProjects };
+  this.issueTypes = { getIssueAllTypes: mockGetIssueAllTypes };
 });
 
 vi.mock('jira.js', () => ({
@@ -179,23 +183,26 @@ describe('setupJiraFromFlags', () => {
 
 describe('setupJiraInteractive', () => {
   it('returns result with jiraUrl, email, token, and selected projects on success', async () => {
+    mockSelectFn.mockResolvedValue('direct');
     mockSearchProjects.mockResolvedValue({ values: [{ key: 'PROJ' }, { key: 'OTHER' }] });
     mockPasswordFn
       .mockResolvedValueOnce('https://test.atlassian.net')
       .mockResolvedValueOnce('dev@test.com')
       .mockResolvedValueOnce('tok-abc');
-    mockCheckboxFn.mockResolvedValue(['PROJ']);
+    mockCheckboxFn.mockResolvedValueOnce(['PROJ']).mockResolvedValueOnce(['Bug', 'Task', 'Story']);
 
     const result = await setupJiraInteractive();
 
-    expect(result).not.toBeNull();
-    expect(result?.jiraUrl).toBe('https://test.atlassian.net');
-    expect(result?.jiraEmail).toBe('dev@test.com');
-    expect(result?.jiraToken).toBe('tok-abc');
-    expect(result?.jiraProjects).toEqual(['PROJ']);
+    expect(result.jira).not.toBeNull();
+    expect(result.jira?.jiraUrl).toBe('https://test.atlassian.net');
+    expect(result.jira?.jiraEmail).toBe('dev@test.com');
+    expect(result.jira?.jiraToken).toBe('tok-abc');
+    expect(result.jira?.jiraProjects).toEqual(['PROJ']);
+    expect(result.proxy).toBeNull();
   });
 
-  it('returns null when no projects are selected', async () => {
+  it('returns null jira when no projects are selected', async () => {
+    mockSelectFn.mockResolvedValue('direct');
     mockSearchProjects.mockResolvedValue({ values: [{ key: 'PROJ' }] });
     mockPasswordFn
       .mockResolvedValueOnce('https://test.atlassian.net')
@@ -205,23 +212,25 @@ describe('setupJiraInteractive', () => {
 
     const result = await setupJiraInteractive();
 
-    expect(result).toBeNull();
+    expect(result.jira).toBeNull();
   });
 
   it('calls spinner.succeed when connection succeeds with projects', async () => {
+    mockSelectFn.mockResolvedValue('direct');
     mockSearchProjects.mockResolvedValue({ values: [{ key: 'PROJ' }] });
     mockPasswordFn
       .mockResolvedValueOnce('https://test.atlassian.net')
       .mockResolvedValueOnce('dev@test.com')
       .mockResolvedValueOnce('tok-abc');
-    mockCheckboxFn.mockResolvedValue(['PROJ']);
+    mockCheckboxFn.mockResolvedValueOnce(['PROJ']).mockResolvedValueOnce(['Bug', 'Task', 'Story']);
 
     await setupJiraInteractive();
 
-    expect(mockSpinner.succeed).toHaveBeenCalledOnce();
+    expect(mockSpinner.succeed).toHaveBeenCalled();
   });
 
   it('retries token entry when connection fails and user chooses retry', async () => {
+    mockSelectFn.mockResolvedValue('direct');
     mockSearchProjects
       .mockRejectedValueOnce(new Error('Unauthorized'))
       .mockResolvedValueOnce({ values: [{ key: 'PROJ' }] });
@@ -235,14 +244,15 @@ describe('setupJiraInteractive', () => {
     mockConfirmFn
       .mockResolvedValueOnce(true);
 
-    mockCheckboxFn.mockResolvedValue(['PROJ']);
+    mockCheckboxFn.mockResolvedValueOnce(['PROJ']).mockResolvedValueOnce(['Bug', 'Task', 'Story']);
 
     const result = await setupJiraInteractive();
 
-    expect(result?.jiraToken).toBe('good-token');
+    expect(result.jira?.jiraToken).toBe('good-token');
   });
 
-  it('returns null when connection fails, user declines retry, and skips', async () => {
+  it('returns null jira when connection fails, user declines retry, and skips', async () => {
+    mockSelectFn.mockResolvedValue('direct');
     mockSearchProjects.mockRejectedValue(new Error('Unauthorized'));
     mockPasswordFn
       .mockResolvedValueOnce('https://test.atlassian.net')
@@ -255,10 +265,11 @@ describe('setupJiraInteractive', () => {
 
     const result = await setupJiraInteractive();
 
-    expect(result).toBeNull();
+    expect(result.jira).toBeNull();
   });
 
   it('calls spinner.warn when connection succeeds but 0 projects found', async () => {
+    mockSelectFn.mockResolvedValue('direct');
     mockSearchProjects
       .mockResolvedValueOnce({ values: [] })
       .mockResolvedValueOnce({ values: [{ key: 'PROJ' }] });
@@ -271,7 +282,9 @@ describe('setupJiraInteractive', () => {
 
     mockConfirmFn.mockResolvedValueOnce(false);
 
-    mockCheckboxFn.mockResolvedValue(['PROJ']);
+    mockCheckboxFn
+      .mockResolvedValueOnce(['PROJ'])
+      .mockResolvedValueOnce(['Bug', 'Task', 'Story']);
 
     await setupJiraInteractive();
 

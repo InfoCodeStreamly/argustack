@@ -44,3 +44,11 @@ export type {
   DbIndex,
   DbSchemaBatch,
 } from './database.js';
+
+export type {
+  ProxyConfig,
+  ProxyAuth,
+  ProxyEndpoint,
+  ProxyEndpoints,
+  ProxyFieldMapping,
+} from './proxy-config.js';

@@ -7,8 +7,9 @@ export type SourceType = 'jira' | 'git' | 'github' | 'csv' | 'db' | 'board';
 
 export interface SourceConfig {
   enabled: boolean;
-  addedAt: string;       // ISO date when source was added
-  disabledAt?: string;   // ISO date when source was disabled
+  addedAt: string;
+  disabledAt?: string;
+  issueTypes?: string[];
 }
 
 export interface WorkspaceConfig {
