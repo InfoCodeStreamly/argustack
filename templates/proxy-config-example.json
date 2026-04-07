@@ -1,0 +1,61 @@
+{
+  "name": "Example Jira Proxy",
+  "description": "Example config for a Jira proxy server that sanitizes responses and enforces read-only access. Customize for your proxy.",
+  "base_url": "https://your-proxy.example.com/service/jira",
+  "auth": {
+    "type": "bearer_exchange",
+    "token_endpoint": "/service/auth/exchange",
+    "service_token_env": "JIRA_PROXY_TOKEN",
+    "ttl_minutes": 15
+  },
+  "endpoints": {
+    "search": {
+      "path": "/search",
+      "method": "GET",
+      "params": ["jql", "fields", "maxResults", "startAt"]
+    },
+    "issue": {
+      "path": "/issue/{key}",
+      "method": "GET"
+    },
+    "projects": {
+      "path": "/project/search",
+      "method": "GET",
+      "params": ["maxResults", "startAt", "query"]
+    },
+    "fields": {
+      "path": "/field",
+      "method": "GET"
+    }
+  },
+  "response_mapping": {
+    "issue_key": "key",
+    "summary": "fields.summary",
+    "description": "fields.description",
+    "status": "fields.status.name",
+    "status_category": "fields.status.statusCategory.name",
+    "issue_type": "fields.issuetype.name",
+    "priority": "fields.priority.name",
+    "resolution": "fields.resolution.name",
+    "assignee": "fields.assignee.displayName",
+    "assignee_id": "fields.assignee.accountId",
+    "reporter": "fields.reporter.displayName",
+    "reporter_id": "fields.reporter.accountId",
+    "created": "fields.created",
+    "updated": "fields.updated",
+    "resolved": "fields.resolutiondate",
+    "due_date": "fields.duedate",
+    "labels": "fields.labels",
+    "components": "fields.components[].name",
+    "fix_versions": "fields.fixVersions[].name",
+    "parent_key": "fields.parent.key",
+    "sprint": "fields.sprint.name",
+    "story_points": "fields.story_points"
+  },
+  "notes": {
+    "how_to_use": "1. Copy this file to .argustack/proxy.json in your workspace. 2. Set JIRA_PROXY_TOKEN in .env. 3. Update base_url to your proxy. 4. Adjust response_mapping if your proxy returns different field paths.",
+    "how_to_generate": "Give your proxy's OpenAPI spec (or API docs) and this template to any LLM. Ask it to generate a proxy.json config that maps your proxy's response format to these fields.",
+    "search_note": "Some proxies strip description from search results for performance. Use the issue endpoint to get full descriptions.",
+    "auth_types": "bearer = static token from env var. bearer_exchange = exchange long-lived service token for short-lived access token (recommended)."
+  }
+}

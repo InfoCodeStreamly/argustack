@@ -5,6 +5,7 @@ import dotenv from 'dotenv';
 import { requireWorkspace } from '../workspace/resolver.js';
 import { readConfig, getEnabledSources } from '../workspace/config.js';
 import { JiraProvider } from '../adapters/jira/index.js';
+import { ProxyJiraProvider, loadProxyConfig, proxyConfigExists } from '../adapters/jira-proxy/index.js';
 import { GitProvider } from '../adapters/git/index.js';
 import { CsvProvider } from '../adapters/csv/index.js';
 import { PostgresStorage } from '../adapters/postgres/index.js';
@@ -15,7 +16,9 @@ import { PullGitHubUseCase } from '../use-cases/pull-github.js';
 import { DbProvider } from '../adapters/db/index.js';
 import { PullDbUseCase } from '../use-cases/pull-db.js';
 import type { DbEngine } from '../core/types/database.js';
+import type { ISourceProvider } from '../core/ports/source-provider.js';
 import type { SourceType } from '../core/types/index.js';
+import { registerWorkspace } from '../workspace/registry.js';
 import { ALL_SOURCES, SOURCE_META } from '../core/types/index.js';
 import { maskHost } from './init/types.js';
 
@@ -43,26 +46,38 @@ async function syncJira(
 ): Promise<void> {
   dotenv.config({ path: `${workspaceRoot}/.env`, quiet: true });
 
-  const jiraUrl = process.env['JIRA_URL'];
-  const jiraEmail = process.env['JIRA_EMAIL'];
-  const jiraToken = process.env['JIRA_API_TOKEN'];
+  const config = readConfig(workspaceRoot);
+  const issueTypes = config?.sources.jira?.issueTypes;
 
-  if (!jiraUrl || !jiraEmail || !jiraToken) {
-    console.log(chalk.red('  Missing Jira credentials in .env'));
-    console.log(chalk.dim('  Required: JIRA_URL, JIRA_EMAIL, JIRA_API_TOKEN'));
-    process.exit(1);
+  const useProxy = proxyConfigExists(workspaceRoot);
+  let source: ISourceProvider;
+
+  if (useProxy) {
+    const proxyConfig = loadProxyConfig(workspaceRoot);
+    source = new ProxyJiraProvider(proxyConfig, issueTypes);
+    console.log(chalk.dim(`  Using proxy: ${proxyConfig.name}`));
+  } else {
+    const jiraUrl = process.env['JIRA_URL'];
+    const jiraEmail = process.env['JIRA_EMAIL'];
+    const jiraToken = process.env['JIRA_API_TOKEN'];
+
+    if (!jiraUrl || !jiraEmail || !jiraToken) {
+      console.log(chalk.red('  Missing Jira credentials in .env'));
+      console.log(chalk.dim('  Required: JIRA_URL, JIRA_EMAIL, JIRA_API_TOKEN'));
+      process.exit(1);
+    }
+
+    source = new JiraProvider({
+      host: jiraUrl,
+      email: jiraEmail,
+      apiToken: jiraToken,
+    }, issueTypes);
   }
 
   const configuredProjects = (process.env['JIRA_PROJECTS'] ?? '')
     .split(',')
     .map((p) => p.trim())
     .filter(Boolean);
-
-  const source = new JiraProvider({
-    host: jiraUrl,
-    email: jiraEmail,
-    apiToken: jiraToken,
-  });
 
   const storage = createStorage(workspaceRoot);
   const spinner = ora('Syncing Jira...').start();
@@ -392,6 +407,8 @@ export function registerSyncCommand(program: Command): void {
           console.log(chalk.red('\n  No config found. Run: argustack init'));
           process.exit(1);
         }
+
+        registerWorkspace(workspaceRoot, config.name);
 
         let sourcesToSync: SourceType[];
 

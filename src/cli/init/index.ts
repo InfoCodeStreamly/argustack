@@ -15,6 +15,7 @@ import type {
   GitHubSetupResult,
   CsvSetupResult,
   DbSetupResult,
+  ProxySetupResult,
 } from './types.js';
 import { DEFAULT_DB_PORT, DEFAULT_PGWEB_PORT, validatePort, getErrorMsg, findAvailablePort } from './types.js';
 import { setupJiraInteractive, setupJiraFromFlags } from './setup-jira.js';
@@ -190,6 +191,7 @@ async function startAndSync(
 
 async function setupSources(flags: InitFlags): Promise<{
   jira: JiraSetupResult | null;
+  proxy: ProxySetupResult | null;
   git: GitSetupResult | null;
   github: GitHubSetupResult | null;
   csv: CsvSetupResult | null;
@@ -219,6 +221,7 @@ async function setupSources(flags: InitFlags): Promise<{
   }
 
   let jira: JiraSetupResult | null = null;
+  let proxy: ProxySetupResult | null = null;
   let git: GitSetupResult | null = null;
   let github: GitHubSetupResult | null = null;
   let csv: CsvSetupResult | null = null;
@@ -226,7 +229,12 @@ async function setupSources(flags: InitFlags): Promise<{
 
   for (const source of selectedSources) {
     switch (source) {
-      case 'jira':   jira = await setupJiraInteractive(); break;
+      case 'jira': {
+        const result = await setupJiraInteractive();
+        jira = result.jira;
+        proxy = result.proxy;
+        break;
+      }
       case 'git':    git = await setupGitInteractive(); break;
       case 'github': github = await setupGithubInteractive(git?.githubToken, git?.githubRepos); break;
       case 'csv':    csv = await setupCsvInteractive(); break;
@@ -236,7 +244,7 @@ async function setupSources(flags: InitFlags): Promise<{
   }
 
   void flags;
-  return { jira, git, github, csv, db };
+  return { jira, proxy, git, github, csv, db };
 }
 
 async function runInitNonInteractive(flags: InitFlags): Promise<void> {
@@ -300,14 +308,14 @@ async function runInitNonInteractive(flags: InitFlags): Promise<void> {
 
   const spinner = ora('Creating workspace...').start();
   try {
-    createWorkspaceFiles(workspaceDir, jiraResult, gitResult, githubResult, csvResult, dbResult, dbPort, pgwebPort, workspaceName);
+    createWorkspaceFiles(workspaceDir, jiraResult, gitResult, githubResult, csvResult, dbResult, dbPort, pgwebPort, workspaceName, null);
     spinner.succeed(`Workspace '${workspaceName}' created!`);
   } catch (err: unknown) {
     spinner.fail('Failed');
     throw err;
   }
 
-  printSummary(workspaceDir, jiraResult, gitResult, githubResult, csvResult, dbResult, pgwebPort, false);
+  printSummary(workspaceDir, jiraResult, gitResult, githubResult, csvResult, dbResult, pgwebPort, false, null);
 }
 
 async function runInitInteractive(flags: InitFlags): Promise<void> {
@@ -407,7 +415,7 @@ async function runInitInteractive(flags: InitFlags): Promise<void> {
   }
 
   process.env['ARGUSTACK_INIT_WORKSPACE'] = workspaceName;
-  const { jira, git, github, csv, db } = await setupSources(flags);
+  const { jira, proxy, git, github, csv, db } = await setupSources(flags);
   delete process.env['ARGUSTACK_INIT_WORKSPACE'];
 
   console.log('');
@@ -431,7 +439,7 @@ async function runInitInteractive(flags: InitFlags): Promise<void> {
 
   const spinner = ora('Creating workspace...').start();
   try {
-    createWorkspaceFiles(workspaceDir, jira, git, github, csv, db, dbPort, pgwebPort, workspaceName);
+    createWorkspaceFiles(workspaceDir, jira, git, github, csv, db, dbPort, pgwebPort, workspaceName, proxy);
     spinner.succeed(`Workspace '${workspaceName}' created!`);
   } catch (err: unknown) {
     spinner.fail('Failed to create workspace');
@@ -444,10 +452,10 @@ async function runInitInteractive(flags: InitFlags): Promise<void> {
     default: true,
   });
 
-  printSummary(workspaceDir, jira, git, github, csv, db, pgwebPort, autoStart);
+  printSummary(workspaceDir, jira, git, github, csv, db, pgwebPort, autoStart, proxy);
 
   if (autoStart) {
-    await startAndSync(workspaceDir, jira !== null, git !== null, github !== null, csv, db, pgwebPort);
+    await startAndSync(workspaceDir, jira !== null || proxy !== null, git !== null, github !== null, csv, db, pgwebPort);
   }
 }
 

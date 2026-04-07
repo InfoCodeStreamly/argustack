@@ -27,6 +27,7 @@ import type {
   DbForeignKey,
   DbIndex,
   DbSchemaBatch,
+  ProxyConfig,
 } from '../../../src/core/types/index.js';
 
 // ─── IDs ──────────────────────────────────────────────────────────────
@@ -577,6 +578,82 @@ export function createWorkspaceConfig(overrides?: Partial<WorkspaceConfig>): Wor
     order: [],
     createdAt: '2025-01-01T00:00:00.000Z',
     ...overrides,
+  };
+}
+
+// ─── Proxy ────────────────────────────────────────────────────────────
+
+export const PROXY_TEST_IDS = {
+  baseUrl: 'https://proxy.test.local/service/jira',
+  tokenEndpoint: '/service/auth/exchange',
+  serviceTokenEnv: 'TEST_PROXY_TOKEN',
+  proxyName: 'Test Proxy',
+} as const;
+
+export function createProxyConfig(overrides?: Partial<ProxyConfig>): ProxyConfig {
+  return {
+    name: PROXY_TEST_IDS.proxyName,
+    base_url: PROXY_TEST_IDS.baseUrl,
+    auth: {
+      type: 'bearer_exchange',
+      token_endpoint: PROXY_TEST_IDS.tokenEndpoint,
+      service_token_env: PROXY_TEST_IDS.serviceTokenEnv,
+      ttl_minutes: 15,
+    },
+    endpoints: {
+      search: { path: '/search', method: 'GET', params: ['jql', 'fields', 'maxResults', 'startAt'] },
+      issue: { path: '/issue/{key}', method: 'GET' },
+      projects: { path: '/project/search', method: 'GET', params: ['maxResults', 'startAt', 'query'] },
+      fields: { path: '/field', method: 'GET' },
+    },
+    ...overrides,
+  };
+}
+
+export function createProxySearchResponse(
+  issues: Record<string, unknown>[],
+  options?: { total?: number; nextPageToken?: string; isLast?: boolean },
+): Record<string, unknown> {
+  const result: Record<string, unknown> = { issues };
+  if (options?.total !== undefined) {
+    result['total'] = options.total;
+  }
+  if (options?.nextPageToken !== undefined) {
+    result['nextPageToken'] = options.nextPageToken;
+  }
+  if (options?.isLast !== undefined) {
+    result['isLast'] = options.isLast;
+  } else if (!options?.nextPageToken) {
+    result['isLast'] = true;
+  }
+  return result;
+}
+
+export function createProxyIssueResponse(key: string, overrides?: Record<string, unknown>): Record<string, unknown> {
+  return {
+    key,
+    id: '10001',
+    fields: {
+      summary: `Test issue ${key}`,
+      description: `Description for ${key}`,
+      status: { name: 'Open', statusCategory: { name: 'To Do' } },
+      issuetype: { name: 'Story' },
+      priority: { name: 'Medium' },
+      resolution: null,
+      assignee: { displayName: 'Test User', accountId: 'user-1' },
+      reporter: { displayName: 'Reporter User', accountId: 'user-2' },
+      created: '2025-01-01T00:00:00.000+0000',
+      updated: '2025-01-02T00:00:00.000+0000',
+      resolutiondate: null,
+      duedate: null,
+      labels: ['test-label'],
+      components: [{ name: 'Backend' }],
+      fixVersions: [{ name: 'v1.0' }],
+      parent: { key: `${key.split('-')[0]}-1` },
+      sprint: { name: 'Sprint 1' },
+      story_points: 3,
+      ...overrides,
+    },
   };
 }
 

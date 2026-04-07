@@ -269,7 +269,7 @@ describe('createAdapters', () => {
       host: 'https://example.atlassian.net',
       email: 'user@example.com',
       apiToken: 'secret-token',
-    });
+    }, undefined);
   });
 
   it('creates PostgresStorage with default values when DB env vars are absent', async () => {

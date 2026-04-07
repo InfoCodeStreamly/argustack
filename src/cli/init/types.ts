@@ -6,6 +6,7 @@ export interface JiraSetupResult {
   jiraEmail: string;
   jiraToken: string;
   jiraProjects: string[];
+  issueTypes?: string[];
 }
 
 export interface GitSetupResult {
@@ -33,6 +34,13 @@ export interface DbSetupResult {
   targetDbName: string;
 }
 
+export interface ProxySetupResult {
+  proxyUrl: string;
+  proxyToken: string;
+  jiraProjects: string[];
+  issueTypes?: string[];
+}
+
 export interface InitFlags {
   name?: string;
   source?: string;
@@ -50,6 +58,8 @@ export interface InitFlags {
   targetDbUser?: string;
   targetDbPassword?: string;
   targetDbName?: string;
+  proxyUrl?: string;
+  proxyToken?: string;
   csvFile?: string;
   dbPort?: string;
   pgwebPort?: string;

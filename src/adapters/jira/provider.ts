@@ -24,9 +24,23 @@ const PAGE_SIZE = 50;
 export class JiraProvider implements ISourceProvider {
   readonly name = 'Jira';
   private readonly client: Version3Client;
+  private readonly issueTypes: string[];
 
-  constructor(creds: JiraCredentials) {
+  constructor(creds: JiraCredentials, issueTypes?: string[]) {
     this.client = createJiraClient(creds);
+    this.issueTypes = issueTypes ?? [];
+  }
+
+  private buildJqlFilter(projectKey: string, since?: string): string {
+    let jql = `project = "${projectKey}"`;
+    if (this.issueTypes.length > 0) {
+      const types = this.issueTypes.map((t) => `"${t}"`).join(', ');
+      jql += ` AND issuetype in (${types})`;
+    }
+    if (since) {
+      jql += ` AND updated >= "${since}"`;
+    }
+    return jql;
   }
 
   async getProjects(): Promise<Project[]> {
@@ -59,19 +73,13 @@ export class JiraProvider implements ISourceProvider {
   }
 
   async getIssueCount(projectKey: string, since?: string): Promise<number> {
-    let jql = `project = "${projectKey}"`;
-    if (since) {
-      jql += ` AND updated >= "${since}"`;
-    }
+    const jql = this.buildJqlFilter(projectKey, since);
     const result = await this.client.issueSearch.countIssues({ jql });
     return result.count ?? 0;
   }
 
   async *pullIssues(projectKey: string, since?: string): AsyncGenerator<IssueBatch> {
-    let jql = `project = "${projectKey}" ORDER BY updated ASC`;
-    if (since) {
-      jql = `project = "${projectKey}" AND updated >= "${since}" ORDER BY updated ASC`;
-    }
+    const jql = `${this.buildJqlFilter(projectKey, since)} ORDER BY updated ASC`;
 
     let pageToken: string | undefined = undefined;
 

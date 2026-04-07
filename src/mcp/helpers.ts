@@ -3,6 +3,7 @@ import { readdirSync, existsSync, statSync } from 'node:fs';
 import { join, dirname, basename } from 'node:path';
 import { findWorkspaceRoot } from '../workspace/resolver.js';
 import { readConfig, getEnabledSources } from '../workspace/config.js';
+import { listRegisteredWorkspaces } from '../workspace/registry.js';
 import type { WorkspaceConfig, SourceType } from '../core/types/index.js';
 import type { ISourceProvider } from '../core/ports/source-provider.js';
 import type { IStorage } from '../core/ports/storage.js';
@@ -49,14 +50,26 @@ export function loadWorkspace(): WorkspaceResult {
  */
 export async function switchWorkspace(name: string): Promise<WorkspaceResult> {
   const currentRoot = process.env['ARGUSTACK_WORKSPACE'];
-  if (!currentRoot) {
-    return { ok: false, reason: 'No ARGUSTACK_WORKSPACE set. Cannot determine sibling workspaces.' };
+
+  let targetDir: string | null = null;
+
+  if (currentRoot) {
+    const parentDir = dirname(currentRoot);
+    const siblingDir = join(parentDir, name);
+    if (existsSync(join(siblingDir, '.argustack'))) {
+      targetDir = siblingDir;
+    }
   }
 
-  const parentDir = dirname(currentRoot);
-  const targetDir = join(parentDir, name);
+  if (!targetDir) {
+    const registered = listRegisteredWorkspaces(currentRoot ?? undefined);
+    const match = registered.find((w) => w.name === name || basename(w.path) === name);
+    if (match) {
+      targetDir = match.path;
+    }
+  }
 
-  if (!existsSync(join(targetDir, '.argustack'))) {
+  if (!targetDir) {
     const available = listSiblingWorkspaces();
     const names = available.map((w) => w.name).join(', ');
     return {
@@ -140,6 +153,14 @@ export function listSiblingWorkspaces(): WorkspaceListItem[] {
     });
   }
 
+  const registered = listRegisteredWorkspaces(currentRoot);
+  for (const rw of registered) {
+    const alreadyListed = workspaces.some((w) => w.path === rw.path);
+    if (!alreadyListed) {
+      workspaces.push(rw);
+    }
+  }
+
   return workspaces;
 }
 
@@ -162,13 +183,20 @@ export async function createAdapters(workspaceRoot: string): Promise<{
 
   let source: ISourceProvider | null = null;
 
-  if (JIRA_URL && JIRA_EMAIL && JIRA_API_TOKEN) {
+  const wsConfig = readConfig(workspaceRoot);
+  const issueTypes = wsConfig?.sources.jira?.issueTypes;
+
+  const { proxyConfigExists, loadProxyConfig, ProxyJiraProvider } = await import('../adapters/jira-proxy/index.js');
+  if (proxyConfigExists(workspaceRoot)) {
+    const proxyConfig = loadProxyConfig(workspaceRoot);
+    source = new ProxyJiraProvider(proxyConfig, issueTypes);
+  } else if (JIRA_URL && JIRA_EMAIL && JIRA_API_TOKEN) {
     const { JiraProvider } = await import('../adapters/jira/index.js');
     source = new JiraProvider({
       host: JIRA_URL,
       email: JIRA_EMAIL,
       apiToken: JIRA_API_TOKEN,
-    });
+    }, issueTypes);
   }
 
   const { PostgresStorage } = await import('../adapters/postgres/index.js');
