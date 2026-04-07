@@ -72,6 +72,34 @@ export class JiraProvider implements ISourceProvider {
     return result.key;
   }
 
+  async updateIssue(issueKey: string, fields: Partial<Issue>): Promise<void> {
+    const update: Record<string, unknown> = {};
+    if (fields.summary !== undefined) {
+      update['summary'] = fields.summary;
+    }
+    if (fields.description !== undefined) {
+      update['description'] = fields.description
+        ? { type: 'doc', version: 1, content: [{ type: 'paragraph', content: [{ type: 'text', text: fields.description }] }] }
+        : null;
+    }
+    if (fields.priority !== undefined) {
+      update['priority'] = fields.priority ? { name: fields.priority } : null;
+    }
+    if (fields.assignee !== undefined) {
+      update['assignee'] = fields.assignee ? { accountId: fields.assigneeId ?? fields.assignee } : null;
+    }
+    if (fields.labels !== undefined) {
+      update['labels'] = fields.labels;
+    }
+    if (fields.components !== undefined) {
+      update['components'] = fields.components.map((name) => ({ name }));
+    }
+    if (fields.storyPoints !== undefined) {
+      update['story_points'] = fields.storyPoints;
+    }
+    await this.client.issues.editIssue({ issueIdOrKey: issueKey, fields: update });
+  }
+
   async getIssueCount(projectKey: string, since?: string): Promise<number> {
     const jql = this.buildJqlFilter(projectKey, since);
     const result = await this.client.issueSearch.countIssues({ jql });

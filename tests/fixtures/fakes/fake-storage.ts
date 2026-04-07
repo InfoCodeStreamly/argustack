@@ -217,6 +217,36 @@ export class FakeStorage implements IStorage {
     return Promise.resolve();
   }
 
+  // ─── Update issue fields ──────────────────────────────────────
+
+  private readonly _modifiedKeys = new Set<string>();
+
+  updateIssueFields(issueKey: string, fields: Partial<Issue>): Promise<void> {
+    const issue = this.issues.get(issueKey);
+    if (!issue) {
+      return Promise.reject(new Error(`Issue ${issueKey} not found in local database`));
+    }
+    this.issues.set(issueKey, { ...issue, ...fields });
+    this._modifiedKeys.add(issueKey);
+    return Promise.resolve();
+  }
+
+  getModifiedIssues(): Promise<Issue[]> {
+    const modified: Issue[] = [];
+    for (const key of this._modifiedKeys) {
+      const issue = this.issues.get(key);
+      if (issue) {
+        modified.push(issue);
+      }
+    }
+    return Promise.resolve(modified);
+  }
+
+  clearModifiedFlag(issueKey: string): Promise<void> {
+    this._modifiedKeys.delete(issueKey);
+    return Promise.resolve();
+  }
+
   // ─── Test helpers ─────────────────────────────────────────────
 
   seed(issues: Issue[]): void {

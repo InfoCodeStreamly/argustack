@@ -12,7 +12,8 @@ export function registerPushCommand(program: Command): void {
   program
     .command('push')
     .description('Push local board tasks to Jira')
-    .action(async () => {
+    .option('--updates', 'Push locally modified issues to Jira (update existing)')
+    .action(async (options: { updates?: boolean }) => {
       const workspaceRoot = requireWorkspace();
       dotenv.config({ path: `${workspaceRoot}/.env`, quiet: true });
 
@@ -37,9 +38,35 @@ export function registerPushCommand(program: Command): void {
 
       await storage.initialize();
 
+      const useCase = new PushUseCase(jira, storage);
+
+      if (options.updates) {
+        const spinner = ora('Pushing modified issues to Jira...').start();
+        try {
+          const result = await useCase.executeUpdates({
+            onProgress: (msg) => { spinner.text = msg; },
+          });
+
+          spinner.succeed(
+            `Updated ${String(result.updated.length)} issue(s)` +
+            (result.errors > 0 ? `, ${String(result.errors)} error(s)` : ''),
+          );
+
+          for (const item of result.updated) {
+            console.log(`  ${chalk.green('✓')} ${item.key} — ${item.summary}`);
+          }
+        } catch (err: unknown) {
+          spinner.fail('Push updates failed');
+          console.error(chalk.red(`  ${err instanceof Error ? err.message : String(err)}`));
+          process.exit(1);
+        } finally {
+          await storage.close();
+        }
+        return;
+      }
+
       const spinner = ora('Pushing local tasks to Jira...').start();
       try {
-        const useCase = new PushUseCase(jira, storage);
         const result = await useCase.execute({
           onProgress: (msg) => { spinner.text = msg; },
         });

@@ -34,6 +34,10 @@ export class ProxyJiraProvider implements ISourceProvider {
     return jql;
   }
 
+  updateIssue(_issueKey: string, _fields: Partial<Issue>): Promise<void> {
+    return Promise.reject(new Error('Proxy adapter is read-only. Push updates require direct Jira API credentials.'));
+  }
+
   async getProjects(): Promise<Project[]> {
     const ep = this.config.endpoints.projects;
     const data = await this.client.fetch(ep.path, { maxResults: '200' }) as Record<string, unknown>;
