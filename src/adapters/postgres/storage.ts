@@ -598,44 +598,95 @@ export class PostgresStorage implements IStorage {
     const result = await this.pool.query(
       `SELECT * FROM issues WHERE source = 'local' ORDER BY created`
     );
-    return result.rows.map((r: Record<string, unknown>) => ({
-      key: r['issue_key'] as string,
-      id: r['issue_id'] as string,
-      projectKey: r['project_key'] as string,
-      summary: r['summary'] as string,
-      description: r['description'] as string | null,
-      issueType: r['issue_type'] as string | null,
-      status: r['status'] as string | null,
-      statusCategory: r['status_category'] as string | null,
-      priority: r['priority'] as string | null,
-      resolution: r['resolution'] as string | null,
-      assignee: r['assignee'] as string | null,
-      assigneeId: r['assignee_id'] as string | null,
-      reporter: r['reporter'] as string | null,
-      reporterId: r['reporter_id'] as string | null,
-      created: r['created'] as string | null,
-      updated: r['updated'] as string | null,
-      resolved: r['resolved'] as string | null,
-      dueDate: r['due_date'] as string | null,
-      labels: (r['labels'] as string[] | null) ?? [],
-      components: (r['components'] as string[] | null) ?? [],
-      fixVersions: (r['fix_versions'] as string[] | null) ?? [],
-      parentKey: r['parent_key'] as string | null,
-      sprint: r['sprint'] as string | null,
-      storyPoints: r['story_points'] as number | null,
-      originalEstimate: r['original_estimate'] as number | null,
-      remainingEstimate: r['remaining_estimate'] as number | null,
-      timeSpent: r['time_spent'] as number | null,
-      customFields: (r['custom_fields'] as Record<string, unknown> | null) ?? {},
-      rawJson: (r['raw_json'] as Record<string, unknown> | null) ?? {},
-      source: 'local' as const,
-    }));
+    return result.rows.map((row) => this.mapRowToIssue(row as Record<string, unknown>));
   }
 
   async updateIssueSource(issueKey: string, source: string): Promise<void> {
     await this.pool.query(
       `UPDATE issues SET source = $2 WHERE issue_key = $1`,
       [issueKey, source]
+    );
+  }
+
+  async updateIssueFields(issueKey: string, fields: Partial<Issue>): Promise<void> {
+    const fieldMap: Record<string, unknown> = {};
+    if (fields.summary !== undefined) { fieldMap['summary'] = fields.summary; }
+    if (fields.description !== undefined) { fieldMap['description'] = fields.description; }
+    if (fields.status !== undefined) { fieldMap['status'] = fields.status; }
+    if (fields.priority !== undefined) { fieldMap['priority'] = fields.priority; }
+    if (fields.assignee !== undefined) { fieldMap['assignee'] = fields.assignee; }
+    if (fields.labels !== undefined) { fieldMap['labels'] = fields.labels; }
+    if (fields.components !== undefined) { fieldMap['components'] = fields.components; }
+    if (fields.storyPoints !== undefined) { fieldMap['story_points'] = fields.storyPoints; }
+
+    const keys = Object.keys(fieldMap);
+    if (keys.length === 0) {
+      return;
+    }
+
+    const setClauses = keys.map((col, i) => `${col} = $${String(i + 2)}`);
+    setClauses.push('locally_modified = true', 'modified_at = NOW()');
+
+    const values = keys.map((col) => fieldMap[col]);
+    const sql = `UPDATE issues SET ${setClauses.join(', ')} WHERE issue_key = $1`;
+
+    const result = await this.pool.query(sql, [issueKey, ...values]);
+    if (result.rowCount === 0) {
+      throw new Error(`Issue ${issueKey} not found in local database`);
+    }
+  }
+
+  async getModifiedIssues(): Promise<Issue[]> {
+    const result = await this.pool.query(
+      `SELECT * FROM issues WHERE locally_modified = true ORDER BY modified_at`
+    );
+    return result.rows.map((row) => this.mapRowToIssue(row as Record<string, unknown>));
+  }
+
+  private mapRowToIssue(row: Record<string, unknown>): Issue {
+    const str = (key: string): string => typeof row[key] === 'string' ? row[key] : '';
+    const strNull = (key: string): string | null => typeof row[key] === 'string' ? row[key] : null;
+    const numNull = (key: string): number | null => typeof row[key] === 'number' ? row[key] : null;
+    const arr = (key: string): string[] => Array.isArray(row[key]) ? row[key] as string[] : [];
+
+    return {
+      key: str('issue_key'),
+      id: str('issue_id'),
+      projectKey: str('project_key'),
+      summary: str('summary'),
+      description: strNull('description'),
+      issueType: strNull('issue_type'),
+      status: strNull('status'),
+      statusCategory: strNull('status_category'),
+      priority: strNull('priority'),
+      resolution: strNull('resolution'),
+      assignee: strNull('assignee'),
+      assigneeId: strNull('assignee_id'),
+      reporter: strNull('reporter'),
+      reporterId: strNull('reporter_id'),
+      created: strNull('created'),
+      updated: strNull('updated'),
+      resolved: strNull('resolved'),
+      dueDate: strNull('due_date'),
+      labels: arr('labels'),
+      components: arr('components'),
+      fixVersions: arr('fix_versions'),
+      parentKey: strNull('parent_key'),
+      sprint: strNull('sprint'),
+      storyPoints: numNull('story_points'),
+      originalEstimate: numNull('original_estimate'),
+      remainingEstimate: numNull('remaining_estimate'),
+      timeSpent: numNull('time_spent'),
+      customFields: (row['custom_fields'] as Record<string, unknown> | undefined) ?? {},
+      rawJson: (row['raw_json'] as Record<string, unknown> | undefined) ?? {},
+      source: (row['source'] as 'jira' | 'local' | undefined) ?? 'jira',
+    };
+  }
+
+  async clearModifiedFlag(issueKey: string): Promise<void> {
+    await this.pool.query(
+      `UPDATE issues SET locally_modified = false, modified_at = NULL WHERE issue_key = $1`,
+      [issueKey]
     );
   }
 

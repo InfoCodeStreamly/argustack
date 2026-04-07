@@ -14,6 +14,17 @@ export interface PushResult {
   errors: number;
 }
 
+export interface UpdatedIssue {
+  key: string;
+  summary: string;
+}
+
+export interface PushUpdateResult {
+  updated: UpdatedIssue[];
+  conflicts: string[];
+  errors: number;
+}
+
 export interface PushOptions {
   onProgress?: (message: string) => void;
 }
@@ -52,5 +63,35 @@ export class PushUseCase {
     }
 
     return { created, errors };
+  }
+
+  async executeUpdates(options: PushOptions = {}): Promise<PushUpdateResult> {
+    const log = options.onProgress ?? noop;
+
+    if (!this.source.updateIssue) {
+      throw new Error(`Source '${this.source.name}' does not support updating issues`);
+    }
+
+    const modified = await this.storage.getModifiedIssues();
+    log(`Found ${String(modified.length)} locally modified issue(s) to push`);
+
+    const updated: UpdatedIssue[] = [];
+    const conflicts: string[] = [];
+    let errors = 0;
+
+    for (const issue of modified) {
+      try {
+        await this.source.updateIssue(issue.key, issue);
+        await this.storage.clearModifiedFlag(issue.key);
+        updated.push({ key: issue.key, summary: issue.summary });
+        log(`  Updated ${issue.key} — ${issue.summary}`);
+      } catch (err: unknown) {
+        errors++;
+        const msg = err instanceof Error ? err.message : String(err);
+        log(`  Failed: ${issue.key} — ${msg}`);
+      }
+    }
+
+    return { updated, conflicts, errors };
   }
 }

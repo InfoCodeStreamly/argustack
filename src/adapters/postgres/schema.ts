@@ -46,6 +46,9 @@ export async function ensureSchema(pool: pg.Pool): Promise<void> {
   `);
 
   await pool.query(`ALTER TABLE issues ADD COLUMN IF NOT EXISTS source VARCHAR(10) DEFAULT 'jira'`);
+  await pool.query(`ALTER TABLE issues ADD COLUMN IF NOT EXISTS locally_modified BOOLEAN DEFAULT FALSE`);
+  await pool.query(`ALTER TABLE issues ADD COLUMN IF NOT EXISTS modified_at TIMESTAMP`);
+  await pool.query(`CREATE INDEX IF NOT EXISTS idx_issues_locally_modified ON issues (locally_modified) WHERE locally_modified = true`);
 
   await pool.query(`
     CREATE TABLE IF NOT EXISTS issue_comments (

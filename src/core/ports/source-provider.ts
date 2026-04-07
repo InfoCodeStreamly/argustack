@@ -30,4 +30,7 @@ export interface ISourceProvider {
 
   /** Create an issue in the source system (e.g., Jira). Returns the created issue key. */
   createIssue?(issue: Issue): Promise<string>;
+
+  /** Update fields of an existing issue in the source system (e.g., Jira). */
+  updateIssue?(issueKey: string, fields: Partial<Issue>): Promise<void>;
 }

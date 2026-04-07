@@ -158,4 +158,54 @@ export function registerPushTools(server: McpServer): void {
       }
     },
   );
+
+  server.registerTool(
+    'update_issue',
+    {
+      description: 'Update fields of an existing issue in the local Argustack database. Marks the issue as locally modified. Use push --updates to send changes to Jira.',
+      inputSchema: {
+        issue_key: z.string().describe('Issue key (e.g. "ORG-123")'),
+        summary: z.string().optional().describe('New summary/title'),
+        description: z.string().optional().describe('New description'),
+        status: z.string().optional().describe('New status'),
+        priority: z.string().optional().describe('New priority'),
+        assignee: z.string().optional().describe('New assignee display name'),
+        labels: z.array(z.string()).optional().describe('New labels (replaces existing)'),
+        components: z.array(z.string()).optional().describe('New components (replaces existing)'),
+        story_points: z.number().optional().describe('New story points'),
+      },
+    },
+    async ({ issue_key: issueKey, summary, description, status, priority, assignee, labels, components, story_points: storyPoints }) => {
+      const ws = loadWorkspace();
+      if (!ws.ok) {
+        return errorResponse(`Workspace not found: ${ws.reason}`);
+      }
+
+      dotenv.config({ path: `${ws.root}/.env`, quiet: true });
+      const storage = createStorage();
+
+      try {
+        await storage.initialize();
+
+        const fields: Record<string, unknown> = {};
+        if (summary !== undefined) { fields['summary'] = summary; }
+        if (description !== undefined) { fields['description'] = description; }
+        if (status !== undefined) { fields['status'] = status; }
+        if (priority !== undefined) { fields['priority'] = priority; }
+        if (assignee !== undefined) { fields['assignee'] = assignee; }
+        if (labels !== undefined) { fields['labels'] = labels; }
+        if (components !== undefined) { fields['components'] = components; }
+        if (storyPoints !== undefined) { fields['storyPoints'] = storyPoints; }
+
+        await storage.updateIssueFields(issueKey, fields);
+        await storage.close();
+
+        const updatedFields = Object.keys(fields).join(', ');
+        return textResponse(`Updated ${issueKey}: ${updatedFields}\n\nMarked as locally modified. Use 'push --updates' to send to Jira.`);
+      } catch (err: unknown) {
+        await storage.close();
+        return errorResponse(`Failed to update ${issueKey}: ${getErrorMessage(err)}`);
+      }
+    },
+  );
 }
