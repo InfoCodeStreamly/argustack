@@ -6,6 +6,7 @@ import type {
   IssueWorklog,
   IssueLink,
 } from '../../core/types/index.js';
+import { adfToMarkdown } from '../../workspace/adf.js';
 
 type JiraIssue = Version3Models.Issue;
 
@@ -161,6 +162,10 @@ function extractText(value: unknown): string | null {
   }
   if (typeof value === 'string') {
     return value;
+  }
+
+  if (isAdfNode(value) && value.type === 'doc') {
+    return adfToMarkdown(value as unknown as Record<string, unknown>);
   }
 
   if (isAdfNode(value)) {

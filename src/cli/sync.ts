@@ -3,7 +3,7 @@ import chalk from 'chalk';
 import ora from 'ora';
 import dotenv from 'dotenv';
 import { requireWorkspace } from '../workspace/resolver.js';
-import { readConfig, getEnabledSources } from '../workspace/config.js';
+import { readConfig, writeConfig, getEnabledSources } from '../workspace/config.js';
 import { JiraProvider } from '../adapters/jira/index.js';
 import { ProxyJiraProvider, loadProxyConfig, proxyConfigExists } from '../adapters/jira-proxy/index.js';
 import { GitProvider } from '../adapters/git/index.js';
@@ -47,7 +47,11 @@ async function syncJira(
   dotenv.config({ path: `${workspaceRoot}/.env`, quiet: true });
 
   const config = readConfig(workspaceRoot);
-  const issueTypes = config?.sources.jira?.issueTypes;
+  let issueTypes = config?.sources.jira?.issueTypeIds;
+
+  if (!issueTypes && config?.sources.jira?.issueTypes) {
+    issueTypes = await resolveTypeNamesToIds(config.sources.jira.issueTypes, workspaceRoot);
+  }
 
   const useProxy = proxyConfigExists(workspaceRoot);
   let source: ISourceProvider;
@@ -391,6 +395,39 @@ export async function syncDbFromInit(workspaceRoot: string): Promise<void> {
  *   argustack sync jira -p KEY  — sync specific project
  *   argustack sync jira --since 2024-01-01
  */
+async function resolveTypeNamesToIds(names: string[], workspaceRoot: string): Promise<string[] | undefined> {
+  try {
+    dotenv.config({ path: `${workspaceRoot}/.env`, quiet: true });
+    const jiraUrl = process.env['JIRA_URL'];
+    const jiraEmail = process.env['JIRA_EMAIL'];
+    const jiraToken = process.env['JIRA_API_TOKEN'];
+    if (!jiraUrl || !jiraEmail || !jiraToken) { return undefined; }
+
+    const { Version3Client } = await import('jira.js');
+    const client = new Version3Client({
+      host: jiraUrl,
+      authentication: { basic: { email: jiraEmail, apiToken: jiraToken } },
+    });
+    const allTypes = await client.issueTypes.getIssueAllTypes();
+    const nameSet = new Set(names);
+    const ids = allTypes
+      .filter((t): t is typeof t & { id: string } => typeof t.name === 'string' && typeof t.id === 'string' && nameSet.has(t.name))
+      .map((t) => t.id);
+
+    if (ids.length > 0) {
+      const wsConfig = readConfig(workspaceRoot);
+      if (wsConfig?.sources.jira) {
+        wsConfig.sources.jira.issueTypeIds = ids;
+        writeConfig(workspaceRoot, wsConfig);
+      }
+    }
+
+    return ids.length > 0 ? ids : undefined;
+  } catch {
+    return undefined;
+  }
+}
+
 export function registerSyncCommand(program: Command): void {
   program
     .command('sync [type]')

@@ -10,6 +10,7 @@ export interface SourceConfig {
   addedAt: string;
   disabledAt?: string;
   issueTypes?: string[];
+  issueTypeIds?: string[];
 }
 
 export interface WorkspaceConfig {

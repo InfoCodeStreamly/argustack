@@ -126,6 +126,156 @@ export function markdownToAdf(markdown: string): AdfDoc {
   return { type: 'doc', version: 1, content };
 }
 
+export function adfToMarkdown(input: string | Record<string, unknown>): string {
+  let doc: Record<string, unknown>;
+  if (typeof input === 'string') {
+    try {
+      doc = JSON.parse(input) as Record<string, unknown>;
+    } catch {
+      return input;
+    }
+  } else {
+    doc = input;
+  }
+
+  if (doc['type'] !== 'doc' || !Array.isArray(doc['content'])) {
+    return typeof input === 'string' ? input : JSON.stringify(input);
+  }
+
+  return renderNodes(doc['content'] as AdfNode[]).trim();
+}
+
+function renderNodes(nodes: AdfNode[], indent = ''): string {
+  const parts: string[] = [];
+
+  for (const node of nodes) {
+    switch (node.type) {
+      case 'paragraph': {
+        parts.push(indent + renderInline(node.content ?? []));
+        break;
+      }
+      case 'heading': {
+        const level = typeof node.attrs?.['level'] === 'number' ? node.attrs['level'] : 1;
+        parts.push('#'.repeat(level) + ' ' + renderInline(node.content ?? []));
+        break;
+      }
+      case 'bulletList': {
+        const items: string[] = [];
+        for (const item of node.content ?? []) {
+          items.push(indent + '- ' + renderListItem(item, indent + '  '));
+        }
+        parts.push(items.join('\n'));
+        break;
+      }
+      case 'orderedList': {
+        let num = typeof node.attrs?.['order'] === 'number' ? node.attrs['order'] : 1;
+        const items: string[] = [];
+        for (const item of node.content ?? []) {
+          items.push(indent + String(num) + '. ' + renderListItem(item, indent + '   '));
+          num++;
+        }
+        parts.push(items.join('\n'));
+        break;
+      }
+      case 'taskList': {
+        const items: string[] = [];
+        for (const item of node.content ?? []) {
+          const done = item.attrs?.['state'] === 'DONE';
+          const marker = done ? '[x]' : '[ ]';
+          items.push(indent + '- ' + marker + ' ' + renderListItem(item, indent + '  '));
+        }
+        parts.push(items.join('\n'));
+        break;
+      }
+      case 'codeBlock': {
+        const lang = typeof node.attrs?.['language'] === 'string' ? node.attrs['language'] : '';
+        parts.push('```' + lang + '\n' + renderInline(node.content ?? []) + '\n```');
+        break;
+      }
+      case 'blockquote': {
+        const inner = renderNodes(node.content ?? []);
+        parts.push(inner.split('\n').map((l) => l ? '> ' + l : '>').join('\n'));
+        break;
+      }
+      case 'table': {
+        parts.push(renderTable(node));
+        break;
+      }
+      case 'rule': {
+        parts.push('---');
+        break;
+      }
+      case 'panel': {
+        parts.push(renderNodes(node.content ?? [], indent));
+        break;
+      }
+      default: {
+        if (node.content) {
+          parts.push(renderNodes(node.content, indent));
+        }
+        break;
+      }
+    }
+  }
+
+  return parts.join('\n\n');
+}
+
+function renderListItem(node: AdfNode, indent: string): string {
+  const children = node.content ?? [];
+  if (children.length === 0) {
+    return '';
+  }
+
+  const first = children[0];
+  let text: string;
+  if (first?.type === 'paragraph' || first?.type === 'heading') {
+    text = renderInline(first.content ?? []);
+  } else {
+    text = renderInline(children);
+  }
+
+  const rest = children.filter((c) => c !== first && c.type !== 'text');
+  if (rest.length > 0) {
+    text += '\n' + renderNodes(rest, indent);
+  }
+  return text;
+}
+
+function renderInline(nodes: AdfNode[]): string {
+  return nodes.map((n) => {
+    if (n.type === 'text') {
+      let text = n.text ?? '';
+      for (const mark of n.marks ?? []) {
+        if (mark.type === 'strong') { text = `**${text}**`; }
+        if (mark.type === 'em') { text = `*${text}*`; }
+        if (mark.type === 'code') { text = `\`${text}\``; }
+        if (mark.type === 'link') { text = `[${text}](${typeof mark.attrs?.['href'] === 'string' ? mark.attrs['href'] : ''})`; }
+      }
+      return text;
+    }
+    if (n.type === 'hardBreak') { return '\n'; }
+    if (n.type === 'inlineCard') { return typeof n.attrs?.['url'] === 'string' ? n.attrs['url'] : ''; }
+    if (n.content) { return renderInline(n.content); }
+    return '';
+  }).join('');
+}
+
+function renderTable(node: AdfNode): string {
+  const rows = node.content ?? [];
+  if (rows.length === 0) { return ''; }
+
+  const lines: string[] = [];
+  for (let i = 0; i < rows.length; i++) {
+    const cells = (rows[i]?.content ?? []).map((cell) => renderInline(cell.content?.[0]?.content ?? []));
+    lines.push('| ' + cells.join(' | ') + ' |');
+    if (i === 0) {
+      lines.push('| ' + cells.map(() => '---').join(' | ') + ' |');
+    }
+  }
+  return lines.join('\n');
+}
+
 function buildTable(rows: string[][]): AdfNode {
   const tableRows: AdfNode[] = rows.map((row, rowIndex) => ({
     type: 'tableRow',

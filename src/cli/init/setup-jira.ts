@@ -140,17 +140,22 @@ async function setupJiraDirectInteractive(): Promise<JiraSetupResult | null> {
     return null;
   }
 
-  const issueTypes = await selectIssueTypes(async () => {
+  const typeSelection = await selectIssueTypes(async () => {
     const { Version3Client } = await import('jira.js');
     const client = new Version3Client({
       host: jiraUrl,
       authentication: { basic: { email: jiraEmail, apiToken: jiraToken } },
     });
     const types = await client.issueTypes.getIssueAllTypes();
-    return types.map((t) => t.name).filter((n): n is string => n !== undefined);
+    return types
+      .filter((t): t is typeof t & { name: string; id: string } => typeof t.name === 'string' && typeof t.id === 'string')
+      .map((t) => ({ id: t.id, name: t.name }));
   });
 
-  return { jiraUrl, jiraEmail, jiraToken, jiraProjects, ...(issueTypes ? { issueTypes } : {}) };
+  return {
+    jiraUrl, jiraEmail, jiraToken, jiraProjects,
+    ...(typeSelection ? { issueTypes: typeSelection.names, issueTypeIds: typeSelection.ids } : {}),
+  };
 }
 
 async function setupJiraProxyInteractive(): Promise<ProxySetupResult | null> {
@@ -238,7 +243,7 @@ async function setupJiraProxyInteractive(): Promise<ProxySetupResult | null> {
     return null;
   }
 
-  const issueTypes = await selectIssueTypes(async () => {
+  const typeSelection = await selectIssueTypes(async () => {
     const { ProxyClient, buildDefaultProxyConfig } = await import('../../adapters/jira-proxy/index.js');
     const config = buildDefaultProxyConfig(proxyUrl);
     process.env[config.auth.service_token_env] = proxyToken;
@@ -249,21 +254,39 @@ async function setupJiraProxyInteractive(): Promise<ProxySetupResult | null> {
       return [];
     }
     return data
-      .map((t) => (t as Record<string, unknown>)['name'])
-      .filter((n): n is string => typeof n === 'string');
+      .filter((t): t is Record<string, unknown> => typeof t === 'object' && t !== null)
+      .filter((t) => typeof t['name'] === 'string' && typeof t['id'] === 'string')
+      .map((t) => ({ id: String(t['id']), name: String(t['name']) }));
   });
 
-  return { proxyUrl, proxyToken, jiraProjects, ...(issueTypes ? { issueTypes } : {}) };
+  return {
+    proxyUrl, proxyToken, jiraProjects,
+    ...(typeSelection ? { issueTypes: typeSelection.names, issueTypeIds: typeSelection.ids } : {}),
+  };
 }
 
-async function selectIssueTypes(fetchTypes: () => Promise<string[]>): Promise<string[] | undefined> {
+interface IssueTypeOption {
+  id: string;
+  name: string;
+}
+
+interface IssueTypeSelection {
+  names: string[];
+  ids: string[];
+}
+
+async function selectIssueTypes(fetchTypes: () => Promise<IssueTypeOption[]>): Promise<IssueTypeSelection | undefined> {
   const spinner = ora('Fetching issue types...').start();
 
-  let types: string[];
+  let types: IssueTypeOption[];
   try {
-    types = await fetchTypes();
-    const unique = [...new Set(types)].sort();
-    types = unique;
+    const raw = await fetchTypes();
+    const seen = new Set<string>();
+    types = raw.filter((t) => {
+      if (seen.has(t.name)) { return false; }
+      seen.add(t.name);
+      return true;
+    }).sort((a, b) => a.name.localeCompare(b.name));
   } catch {
     spinner.warn('Could not fetch issue types — all types will be synced');
     return undefined;
@@ -279,8 +302,8 @@ async function selectIssueTypes(fetchTypes: () => Promise<string[]>): Promise<st
   const selected = await checkbox<string>({
     message: 'Which issue types to sync?',
     choices: types.map((t) => ({
-      value: t,
-      name: t,
+      value: t.id,
+      name: t.name,
       checked: true,
     })),
   });
@@ -294,7 +317,13 @@ async function selectIssueTypes(fetchTypes: () => Promise<string[]>): Promise<st
     return undefined;
   }
 
-  return selected;
+  const selectedSet = new Set(selected);
+  const selectedTypes = types.filter((t) => selectedSet.has(t.id));
+
+  return {
+    names: selectedTypes.map((t) => t.name),
+    ids: selectedTypes.map((t) => t.id),
+  };
 }
 
 async function testProxyConnection(proxyUrl: string, token: string): Promise<string[]> {

@@ -170,8 +170,10 @@ export function createWorkspaceFiles(
   if (jira || proxy) {
     config = addSource(config, 'jira');
     const selectedTypes = jira?.issueTypes ?? proxy?.issueTypes;
-    if (selectedTypes && config.sources.jira) {
-      config.sources.jira.issueTypes = selectedTypes;
+    const selectedTypeIds = jira?.issueTypeIds ?? proxy?.issueTypeIds;
+    if (config.sources.jira) {
+      if (selectedTypes) { config.sources.jira.issueTypes = selectedTypes; }
+      if (selectedTypeIds) { config.sources.jira.issueTypeIds = selectedTypeIds; }
     }
   }
   if (git) {
