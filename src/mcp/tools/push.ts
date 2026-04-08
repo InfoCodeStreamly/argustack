@@ -12,6 +12,26 @@ import { PostgresStorage } from '../../adapters/postgres/index.js';
 import { PushUseCase } from '../../use-cases/push.js';
 import { updateMdFrontmatter } from '../../adapters/board/md-parser.js';
 
+function hasMarkdownFormatting(text: string): boolean {
+  if (text.length < 30) {
+    return true;
+  }
+  const markers = [
+    /^#{1,6}\s/m,
+    /^[-*]\s/m,
+    /^\d+\.\s/m,
+    /\*\*.+?\*\*/,
+    /\*.+?\*/,
+    /`.+?`/,
+    /^>/m,
+    /\[.+?\]\(.+?\)/,
+    /^\|.+\|$/m,
+    /^```/m,
+    /^---+$/m,
+  ];
+  return markers.some((r) => r.test(text));
+}
+
 function createStorage(): PostgresStorage {
   return new PostgresStorage({
     host: process.env['DB_HOST'] ?? 'localhost',
@@ -41,6 +61,13 @@ export function registerPushTools(server: McpServer): void {
       },
     },
     async ({ summary, description, project_key: projectKeyParam, issue_type: issueType, status, priority, assignee, parent_key: parentKey, labels, components }) => {
+      if (description !== undefined && !hasMarkdownFormatting(description)) {
+        return errorResponse(
+          `REJECTED: description must use MARKDOWN formatting, not plain text.\n\n` +
+          `Rewrite with: ## headings, - bullet lists, **bold**, \`code\`. See update_issue tool description for full format guide.`
+        );
+      }
+
       const ws = loadWorkspace();
       if (!ws.ok) {
         return errorResponse(`Workspace not found: ${ws.reason}`);
@@ -190,7 +217,7 @@ export function registerPushTools(server: McpServer): void {
       inputSchema: {
         issue_key: z.string().describe('Issue key (e.g. "ORG-123")'),
         summary: z.string().optional().describe('New summary/title'),
-        description: z.string().optional().describe('New description in MARKDOWN format — automatically converted to Jira rich text (ADF). Write like a README. Supported: ## headings, **bold**, *italic*, `code`, ```code blocks```, - bullet lists, 1. numbered lists, > blockquotes, [links](url), | tables |, --- rules. All renders beautifully in Jira.'),
+        description: z.string().optional().describe('New description — MUST use MARKDOWN formatting, never plain text. Converted to rich Jira ADF automatically. ALWAYS structure with: ## headings for sections, - bullet lists for items, 1. numbered lists for steps, **bold** for key terms, `code` for technical names. Also supports: *italic*, ```code blocks```, > blockquotes, [links](url), | tables |, --- rules. Think of it as writing a mini-README for each issue.'),
         status: z.string().optional().describe('New status'),
         priority: z.string().optional().describe('New priority'),
         assignee: z.string().optional().describe('New assignee display name'),
@@ -200,6 +227,18 @@ export function registerPushTools(server: McpServer): void {
       },
     },
     async ({ issue_key: issueKey, summary, description, status, priority, assignee, labels, components, story_points: storyPoints }) => {
+      if (description !== undefined && !hasMarkdownFormatting(description)) {
+        return errorResponse(
+          `REJECTED: description must use MARKDOWN formatting, not plain text.\n\n` +
+          `Your description has no markdown elements (no headings, lists, bold, or code).\n\n` +
+          `Rewrite using this structure:\n` +
+          `## Overview\nBrief summary with **key terms** in bold.\n\n` +
+          `## Requirements\n- Bullet point 1\n- Bullet point 2\n\n` +
+          `## Technical Details\n1. Step one\n2. Step two\n\n` +
+          `Use \`code\` for technical names, **bold** for emphasis.`
+        );
+      }
+
       const ws = loadWorkspace();
       if (!ws.ok) {
         return errorResponse(`Workspace not found: ${ws.reason}`);
