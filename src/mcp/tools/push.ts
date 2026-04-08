@@ -29,7 +29,7 @@ export function registerPushTools(server: McpServer): void {
       description: 'Create a NEW issue in local Argustack database (source=local). Only summary is required, all other fields optional. Returns local key. NEXT STEP: call push(mode=create) to send to Jira and get real Jira key. All changes LOCAL ONLY until pushed. Related: update_issue (for existing), push.',
       inputSchema: {
         summary: z.string().describe('Issue title (required)'),
-        description: z.string().optional().describe('Full description / requirements / acceptance criteria'),
+        description: z.string().optional().describe('Full description in MARKDOWN format. Supports: headings (#), bullet lists (-), numbered lists (1.), **bold**, `code`, code blocks. Converted to Jira ADF automatically.'),
         project_key: z.string().optional().describe('Jira project key (e.g. PAP). Defaults to first project in JIRA_PROJECTS env'),
         issue_type: z.string().optional().describe('Issue type (Story, Bug, Task, or localized name)'),
         status: z.string().optional().describe('Status name'),
@@ -190,7 +190,7 @@ export function registerPushTools(server: McpServer): void {
       inputSchema: {
         issue_key: z.string().describe('Issue key (e.g. "ORG-123")'),
         summary: z.string().optional().describe('New summary/title'),
-        description: z.string().optional().describe('New description'),
+        description: z.string().optional().describe('New description in MARKDOWN format — automatically converted to Jira rich text (ADF). Write like a README. Supported: ## headings, **bold**, *italic*, `code`, ```code blocks```, - bullet lists, 1. numbered lists, > blockquotes, [links](url), | tables |, --- rules. All renders beautifully in Jira.'),
         status: z.string().optional().describe('New status'),
         priority: z.string().optional().describe('New priority'),
         assignee: z.string().optional().describe('New assignee display name'),

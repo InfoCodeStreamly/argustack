@@ -1,5 +1,6 @@
 import type { ISourceProvider } from '../core/ports/source-provider.js';
 import type { IStorage } from '../core/ports/storage.js';
+import type { Issue } from '../core/types/issue.js';
 
 function noop(_message: string): void { /* intentional */ }
 
@@ -79,9 +80,22 @@ export class PushUseCase {
     const conflicts: string[] = [];
     let errors = 0;
 
+    const DB_TO_ISSUE_FIELD: Record<string, string> = {
+      summary: 'summary', description: 'description', status: 'status',
+      priority: 'priority', assignee: 'assignee', labels: 'labels',
+      components: 'components', story_points: 'storyPoints',
+    };
+
     for (const issue of modified) {
       try {
-        await this.source.updateIssue(issue.key, issue);
+        const changedFields: Partial<Issue> = {};
+        for (const dbCol of issue.modifiedFields) {
+          const issueField = DB_TO_ISSUE_FIELD[dbCol] ?? dbCol;
+          if (issueField in issue) {
+            (changedFields as Record<string, unknown>)[issueField] = (issue as unknown as Record<string, unknown>)[issueField];
+          }
+        }
+        await this.source.updateIssue(issue.key, changedFields);
         await this.storage.clearModifiedFlag(issue.key);
         updated.push({ key: issue.key, summary: issue.summary });
         log(`  Updated ${issue.key} — ${issue.summary}`);

@@ -626,8 +626,10 @@ export class PostgresStorage implements IStorage {
 
     const setClauses = keys.map((col, i) => `${col} = $${String(i + 2)}`);
     setClauses.push('locally_modified = true', 'modified_at = NOW()');
+    setClauses.push(`modified_fields = $${String(keys.length + 2)}`);
 
     const values = keys.map((col) => fieldMap[col]);
+    values.push(keys);
     const sql = `UPDATE issues SET ${setClauses.join(', ')} WHERE issue_key = $1`;
 
     const result = await this.pool.query(sql, [issueKey, ...values]);
@@ -636,11 +638,17 @@ export class PostgresStorage implements IStorage {
     }
   }
 
-  async getModifiedIssues(): Promise<Issue[]> {
+  async getModifiedIssues(): Promise<(Issue & { modifiedFields: string[] })[]> {
     const result = await this.pool.query(
       `SELECT * FROM issues WHERE locally_modified = true ORDER BY modified_at`
     );
-    return result.rows.map((row) => this.mapRowToIssue(row as Record<string, unknown>));
+    return result.rows.map((row) => {
+      const r = row as Record<string, unknown>;
+      return {
+        ...this.mapRowToIssue(r),
+        modifiedFields: (r['modified_fields'] as string[] | null) ?? [],
+      };
+    });
   }
 
   private mapRowToIssue(row: Record<string, unknown>): Issue {

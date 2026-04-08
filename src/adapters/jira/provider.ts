@@ -9,6 +9,7 @@ import {
   mapJiraWorklogs,
   mapJiraLinks,
 } from './mapper.js';
+import { markdownToAdf } from './adf.js';
 
 const PAGE_SIZE = 50;
 
@@ -59,11 +60,7 @@ export class JiraProvider implements ISourceProvider {
       issuetype: { name: issue.issueType ?? 'Story' },
     };
     if (issue.description) {
-      (fields as Record<string, unknown>)['description'] = {
-        type: 'doc',
-        version: 1,
-        content: [{ type: 'paragraph', content: [{ type: 'text', text: issue.description }] }],
-      };
+      (fields as Record<string, unknown>)['description'] = markdownToAdf(issue.description);
     }
     if (issue.parentKey) {
       fields.parent = { key: issue.parentKey };
@@ -79,7 +76,7 @@ export class JiraProvider implements ISourceProvider {
     }
     if (fields.description !== undefined) {
       update['description'] = fields.description
-        ? { type: 'doc', version: 1, content: [{ type: 'paragraph', content: [{ type: 'text', text: fields.description }] }] }
+        ? markdownToAdf(fields.description)
         : null;
     }
     if (fields.priority !== undefined) {
