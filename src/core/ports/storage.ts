@@ -1,4 +1,4 @@
-import type { Issue, IssueBatch, HybridSearchResult } from '../types/index.js';
+import type { Issue, IssueBatch, HybridSearchResult, GraphEntity, GraphRelationship, GraphObservation, GraphQueryResult, GraphStats } from '../types/index.js';
 import type { CommitBatch } from '../types/git.js';
 import type { GitHubBatch, Release } from '../types/github.js';
 import type { DbSchemaBatch } from '../types/database.js';
@@ -83,6 +83,27 @@ export interface IStorage {
 
   /** Clear the locally_modified flag after successful push to Jira */
   clearModifiedFlag(issueKey: string): Promise<void>;
+
+  /** Save graph entities (UPSERT by name+type) */
+  saveGraphEntities(entities: GraphEntity[]): Promise<void>;
+
+  /** Save graph relationships (UPSERT by source_id+target_id+type) */
+  saveGraphRelationships(rels: GraphRelationship[]): Promise<void>;
+
+  /** Add an observation to an entity (append-only) */
+  saveGraphObservation(entityId: number, content: string, author: string): Promise<void>;
+
+  /** Get all observations for an entity */
+  getObservations(entityId: number): Promise<GraphObservation[]>;
+
+  /** Traverse graph from entity name, N levels deep */
+  queryGraph(entityName: string, depth: number): Promise<GraphQueryResult>;
+
+  /** Get graph statistics */
+  getGraphStats(): Promise<GraphStats>;
+
+  /** Clear structural graph data (preserves claude-sourced) */
+  clearGraph(): Promise<void>;
 
   /** Close connection / cleanup */
   close(): Promise<void>;

@@ -9,7 +9,7 @@
 
 [**Documentation & Examples →**](https://app.paperlink.online/s/0aa7d2d6/argustack)
 
-Argustack downloads your project data into local PostgreSQL, cross-references everything, and gives Claude direct access via 23 MCP tools. All data stays on your machine.
+Argustack downloads your project data into local PostgreSQL, cross-references everything, and gives Claude direct access via 31 MCP tools. All data stays on your machine.
 
 > *Was ticket PROJ-123 implemented as described?*
 > *Who reviewed the PR and what was the feedback?*
@@ -28,7 +28,8 @@ Argustack downloads your project data into local PostgreSQL, cross-references ev
 - **Task estimation** — predict duration per developer based on actual history
 - **Update & push** — modify issues locally, push changes back to Jira (Markdown descriptions auto-converted to rich ADF)
 - **Global workspace registry** — `~/.argustack/workspaces.json`, switch between workspaces from any directory
-- **23 MCP tools** — Claude queries your data directly via SQL
+- **Knowledge graph** — entity-relationship graph (issues, developers, modules, PRs) with impact analysis and code dependencies
+- **31 MCP tools** — Claude queries your data directly via SQL
 - **IDE Plugin** — kanban board for JetBrains IDEs where columns are Claude Code skills
 - **100% local** — no cloud, no accounts, no telemetry
 
@@ -74,6 +75,8 @@ argustack mcp install                # connect to Claude Desktop
 argustack sources                    # list configured sources
 argustack status                     # workspace info
 argustack workspaces                 # list all known workspaces
+argustack graph build                # build knowledge graph from synced data
+argustack graph stats                # show graph entity/relationship counts
 ```
 
 ## MCP Tools
@@ -105,6 +108,14 @@ After sync, Claude queries your data through these tools:
 | `db_schema` | Browse external database schema (tables, columns, FKs) |
 | `db_query` | Execute read-only SQL on your application database |
 | `db_stats` | External database statistics |
+| `impact_analysis` | What issues, developers, PRs are connected to a file/module |
+| `developer_expertise` | Who knows this area best (by commits, reviews) |
+| `related_issues` | Find issues connected through code, not just Jira links |
+| `code_dependencies` | Co-change analysis, imports, package deps |
+| `business_context` | Which business processes involve a topic |
+| `build_business_graph` | Claude identifies business processes from issue data |
+| `add_relationship` | Manually add semantic relationships (survives rebuild) |
+| `add_observation` | Add knowledge notes to any entity |
 
 ## IDE Plugin
 
@@ -129,7 +140,7 @@ Full documentation available at **[Argustack DataRoom](https://app.paperlink.onl
 
 - **Quick Start Guide** — from zero to first query in 5 minutes
 - **Use Cases & Examples** — real scenarios for PMs, team leads, developers, CTOs
-- **MCP Tools Reference** — all 23 tools with parameters and examples
+- **MCP Tools Reference** — all 31 tools with parameters and examples
 - **Estimate Tool Deep Dive** — algorithm, scoring, data sources
 - **Architecture Guide** — hexagonal architecture, directory structure, extending
 

@@ -52,6 +52,49 @@ export async function ensureSchema(pool: pg.Pool): Promise<void> {
   await pool.query(`CREATE INDEX IF NOT EXISTS idx_issues_locally_modified ON issues (locally_modified) WHERE locally_modified = true`);
 
   await pool.query(`
+    CREATE TABLE IF NOT EXISTS graph_entities (
+      id SERIAL PRIMARY KEY,
+      name TEXT NOT NULL,
+      type VARCHAR(50) NOT NULL,
+      properties JSONB DEFAULT '{}',
+      created_at TIMESTAMP DEFAULT NOW(),
+      UNIQUE(name, type)
+    )
+  `);
+
+  await pool.query(`
+    CREATE TABLE IF NOT EXISTS graph_relationships (
+      id SERIAL PRIMARY KEY,
+      source_id INTEGER REFERENCES graph_entities(id) ON DELETE CASCADE,
+      target_id INTEGER REFERENCES graph_entities(id) ON DELETE CASCADE,
+      type VARCHAR(50) NOT NULL,
+      weight NUMERIC DEFAULT 1,
+      source VARCHAR(20) DEFAULT 'structural',
+      properties JSONB DEFAULT '{}',
+      created_at TIMESTAMP DEFAULT NOW(),
+      UNIQUE(source_id, target_id, type)
+    )
+  `);
+
+  await pool.query(`
+    CREATE TABLE IF NOT EXISTS graph_observations (
+      id SERIAL PRIMARY KEY,
+      entity_id INTEGER REFERENCES graph_entities(id) ON DELETE CASCADE,
+      content TEXT NOT NULL,
+      author VARCHAR(50) DEFAULT 'claude',
+      created_at TIMESTAMP DEFAULT NOW()
+    )
+  `);
+
+  await pool.query(`CREATE INDEX IF NOT EXISTS idx_graph_entities_name ON graph_entities (name)`);
+  await pool.query(`CREATE INDEX IF NOT EXISTS idx_graph_entities_type ON graph_entities (type)`);
+  await pool.query(`CREATE INDEX IF NOT EXISTS idx_graph_rel_source ON graph_relationships (source_id)`);
+  await pool.query(`CREATE INDEX IF NOT EXISTS idx_graph_rel_target ON graph_relationships (target_id)`);
+  await pool.query(`CREATE INDEX IF NOT EXISTS idx_graph_rel_type ON graph_relationships (type)`);
+  await pool.query(`CREATE INDEX IF NOT EXISTS idx_graph_rel_origin ON graph_relationships (source)`);
+  await pool.query(`CREATE INDEX IF NOT EXISTS idx_graph_obs_entity ON graph_observations (entity_id)`);
+
+  await pool.query(`
     CREATE TABLE IF NOT EXISTS issue_comments (
       id SERIAL PRIMARY KEY,
       issue_key TEXT NOT NULL,

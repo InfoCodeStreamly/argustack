@@ -10,7 +10,7 @@ Argustack — standalone open-source CLI tool for project analysis. Cross-refere
 - **DB** — what factually exists in production (schema introspection + read-only queries)
 - **Jira Proxy** — connect through company proxy/gateway for restricted Jira instances
 
-Downloads everything into local PostgreSQL, then gives Claude direct access via MCP server (23 tools).
+Downloads everything into local PostgreSQL, then gives Claude direct access via MCP server (31 tools).
 
 ## Tech Stack
 
@@ -42,6 +42,7 @@ src/
 │   │   ├── git.ts                    Commit, CommitFile, CommitIssueRef, CommitBatch, GitRef
 │   │   ├── project.ts                Project
 │   │   ├── config.ts                 WorkspaceConfig, SourceConfig, SourceType
+│   │   ├── graph.ts                  GraphEntity, GraphRelationship, GraphObservation, GraphQueryResult, GraphStats
 │   │   └── index.ts                  re-exports
 │   └── ports/
 │       ├── source-provider.ts        ISourceProvider — where data comes from
@@ -55,7 +56,8 @@ src/
 │   ├── pull.ts                       PullUseCase: Jira → PostgreSQL
 │   ├── pull-git.ts                   PullGitUseCase: Git → PostgreSQL
 │   ├── pull-github.ts                PullGitHubUseCase: GitHub → PostgreSQL
-│   └── embed.ts                      EmbedUseCase: issues → OpenAI → pgvector
+│   ├── embed.ts                      EmbedUseCase: issues → OpenAI → pgvector
+│   └── build-graph.ts                BuildGraphUseCase: synced data → knowledge graph
 │
 ├── adapters/                      ← IMPLEMENTATIONS: implements core/ports
 │   ├── jira/                         JiraProvider implements ISourceProvider
@@ -102,7 +104,8 @@ src/
 │       ├── search.ts                    hybrid_search
 │       ├── estimate.ts                  estimate
 │       ├── push.ts                      create_issue, update_issue, push
-│       └── database.ts                  db_schema, db_query, db_stats
+│       ├── database.ts                  db_schema, db_query, db_stats
+│       └── graph.ts                     impact_analysis, developer_expertise, related_issues, code_dependencies, business_context, build_business_graph, add_relationship, add_observation
 │
 └── cli/                           ← ENTRY POINT: commands, UX, wiring
     ├── index.ts                      Commander.js setup, registers all commands
@@ -117,6 +120,7 @@ src/
     │   └── setup-db.ts                 Database source setup prompts
     ├── sync.ts                       argustack sync (jira, git, github, csv, db)
     ├── push.ts                       argustack push / push --updates
+    ├── graph.ts                      argustack graph build / graph stats
     ├── workspaces.ts                 argustack workspaces (list all from global registry)
     ├── embed.ts                      argustack embed (generate embeddings)
     ├── sources.ts                    argustack sources (list configured sources)
@@ -198,6 +202,9 @@ Argustack uses a workspace pattern like git. Each workspace is a directory with 
 | `pr_files` | Per-file changes in each PR |
 | `pr_issue_refs` | Cross-reference: PR ↔ Jira issue |
 | `releases` | GitHub releases with tags and notes |
+| `graph_entities` | Knowledge graph nodes (issues, developers, modules, PRs, components) |
+| `graph_relationships` | Edges between entities (references, authored, co_changes, imports) |
+| `graph_observations` | Knowledge notes attached to entities by Claude |
 
 ## Configuration
 
@@ -262,6 +269,8 @@ argustack embed                  # generate embeddings for semantic search
 argustack sources                # list configured sources
 argustack status                 # workspace status
 argustack workspaces             # list all workspaces (global registry)
+argustack graph build            # build knowledge graph from synced data
+argustack graph stats            # show graph entity/relationship counts
 argustack mcp install            # install MCP server into Claude Desktop
 ```
 

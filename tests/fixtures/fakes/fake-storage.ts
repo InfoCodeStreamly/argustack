@@ -7,7 +7,7 @@
  */
 
 import type { IStorage, QueryResult } from '../../../src/core/ports/storage.js';
-import type { IssueBatch, Issue, PullRequest, Release, GitHubBatch, HybridSearchResult } from '../../../src/core/types/index.js';
+import type { IssueBatch, Issue, PullRequest, Release, GitHubBatch, HybridSearchResult, GraphEntity, GraphRelationship, GraphObservation, GraphQueryResult, GraphStats } from '../../../src/core/types/index.js';
 import type { CommitBatch, Commit } from '../../../src/core/types/git.js';
 import type { DbSchemaBatch } from '../../../src/core/types/database.js';
 
@@ -244,6 +244,73 @@ export class FakeStorage implements IStorage {
 
   clearModifiedFlag(issueKey: string): Promise<void> {
     this._modifiedKeys.delete(issueKey);
+    return Promise.resolve();
+  }
+
+  // ─── Graph methods ────────────────────────────────────────────
+
+  private readonly _graphEntities: GraphEntity[] = [];
+  private readonly _graphRelationships: GraphRelationship[] = [];
+  private readonly _graphObservations: GraphObservation[] = [];
+
+  saveGraphEntities(entities: GraphEntity[]): Promise<void> {
+    for (const entity of entities) {
+      const existing = this._graphEntities.find((e) => e.name === entity.name && e.type === entity.type);
+      if (existing) {
+        existing.properties = entity.properties;
+      } else {
+        this._graphEntities.push({ ...entity, id: this._graphEntities.length + 1 });
+      }
+    }
+    return Promise.resolve();
+  }
+
+  saveGraphRelationships(rels: GraphRelationship[]): Promise<void> {
+    for (const rel of rels) {
+      this._graphRelationships.push({ ...rel, id: this._graphRelationships.length + 1 });
+    }
+    return Promise.resolve();
+  }
+
+  saveGraphObservation(entityId: number, content: string, author: string): Promise<void> {
+    this._graphObservations.push({ id: this._graphObservations.length + 1, entityId, content, author });
+    return Promise.resolve();
+  }
+
+  getObservations(entityId: number): Promise<GraphObservation[]> {
+    return Promise.resolve(this._graphObservations.filter((o) => o.entityId === entityId));
+  }
+
+  queryGraph(entityName: string, _depth: number): Promise<GraphQueryResult> {
+    const matched = this._graphEntities.filter((e) => e.name.includes(entityName));
+    const ids = new Set(matched.map((e) => e.id));
+    const rels = this._graphRelationships.filter((r) => ids.has(r.sourceId) || ids.has(r.targetId));
+    const obs = this._graphObservations.filter((o) => ids.has(o.entityId));
+    return Promise.resolve({ entities: matched, relationships: rels, observations: obs });
+  }
+
+  getGraphStats(): Promise<GraphStats> {
+    const byEntityType: Record<string, number> = {};
+    for (const e of this._graphEntities) {
+      byEntityType[e.type] = (byEntityType[e.type] ?? 0) + 1;
+    }
+    const byRelationshipType: Record<string, number> = {};
+    for (const r of this._graphRelationships) {
+      byRelationshipType[r.type] = (byRelationshipType[r.type] ?? 0) + 1;
+    }
+    return Promise.resolve({
+      entityCount: this._graphEntities.length,
+      relationshipCount: this._graphRelationships.length,
+      observationCount: this._graphObservations.length,
+      byEntityType,
+      byRelationshipType,
+    });
+  }
+
+  clearGraph(): Promise<void> {
+    const claudeRels = this._graphRelationships.filter((r) => r.source === 'claude');
+    this._graphRelationships.length = 0;
+    this._graphRelationships.push(...claudeRels);
     return Promise.resolve();
   }
 
