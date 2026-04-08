@@ -243,39 +243,14 @@ async function setupJiraProxyInteractive(): Promise<ProxySetupResult | null> {
     const config = buildDefaultProxyConfig(proxyUrl);
     process.env[config.auth.service_token_env] = proxyToken;
     const client = new ProxyClient(config);
-    const types = new Set<string>();
-    const jql = jiraProjects.map((p) => `project = "${p}"`).join(' OR ');
-    let nextPageToken: string | undefined;
 
-    for (let page = 0; page < 5; page++) {
-      const params: Record<string, string> = { jql, maxResults: '200', fields: 'issuetype' };
-      if (nextPageToken) {
-        params['nextPageToken'] = nextPageToken;
-      } else if (page > 0) {
-        params['startAt'] = String(page * 200);
-      }
-
-      const data = await client.fetch(config.endpoints.search.path, params) as Record<string, unknown>;
-      const issues = data['issues'] as Record<string, unknown>[] | undefined;
-      if (!Array.isArray(issues) || issues.length === 0) {
-        break;
-      }
-
-      for (const issue of issues) {
-        const fields = issue['fields'] as Record<string, unknown> | undefined;
-        const typeName = (fields?.['issuetype'] as Record<string, unknown> | undefined)?.['name'];
-        if (typeof typeName === 'string') {
-          types.add(typeName);
-        }
-      }
-
-      nextPageToken = typeof data['nextPageToken'] === 'string' ? data['nextPageToken'] : undefined;
-      if (data['isLast'] === true || !nextPageToken) {
-        break;
-      }
+    const data = await client.fetch('/issuetype') as unknown[];
+    if (!Array.isArray(data)) {
+      return [];
     }
-
-    return [...types];
+    return data
+      .map((t) => (t as Record<string, unknown>)['name'])
+      .filter((n): n is string => typeof n === 'string');
   });
 
   return { proxyUrl, proxyToken, jiraProjects, ...(issueTypes ? { issueTypes } : {}) };

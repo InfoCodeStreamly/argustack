@@ -78,8 +78,8 @@ export interface IStorage {
   /** Update specific fields of an issue in local DB. Marks as locally_modified. */
   updateIssueFields(issueKey: string, fields: Partial<Issue>): Promise<void>;
 
-  /** Get all issues that were modified locally (locally_modified = true) */
-  getModifiedIssues(): Promise<Issue[]>;
+  /** Get all issues that were modified locally (locally_modified = true). Returns issues with modifiedFields indicating which fields changed. */
+  getModifiedIssues(): Promise<(Issue & { modifiedFields: string[] })[]>;
 
   /** Clear the locally_modified flag after successful push to Jira */
   clearModifiedFlag(issueKey: string): Promise<void>;

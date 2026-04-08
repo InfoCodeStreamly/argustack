@@ -1,6 +1,6 @@
 {
   "name": "argustack",
-  "version": "0.1.22",
+  "version": "0.1.23",
   "description": "Project analysis platform — Jira + Git + DB",
   "type": "module",
   "bin": {

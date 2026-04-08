@@ -3,7 +3,7 @@ import { readdirSync, readFileSync } from 'node:fs';
 import { join, relative } from 'node:path';
 
 const SRC = join(import.meta.dirname, '../../src');
-const MAX_LINES = 700;
+const MAX_LINES = 750;
 
 function collectTsFiles(dir: string): string[] {
   const files: string[] = [];

@@ -173,12 +173,12 @@ describe('ensureSchema — ALTER TABLE migrations', () => {
     expect(searchVectorMigrations.length).toBe(4);
   });
 
-  it('issues exactly 12 ALTER TABLE statements', async () => {
+  it('issues exactly 13 ALTER TABLE statements', async () => {
     await ensureSchema(mockPool as unknown as pg.Pool);
 
     const queries = allQueriedSql();
     const alterCount = queries.filter(q => q.includes('ALTER TABLE')).length;
-    expect(alterCount).toBe(12);
+    expect(alterCount).toBe(13);
   });
 });
 
@@ -207,10 +207,10 @@ describe('ensureSchema — CREATE INDEX', () => {
 // ─── total call count ──────────────────────────────────────────────────────
 
 describe('ensureSchema — total pool.query calls', () => {
-  it('calls pool.query exactly 74 times (1 extension + 18 tables + 12 alters + 43 indexes)', async () => {
+  it('calls pool.query exactly 75 times (1 extension + 18 tables + 13 alters + 43 indexes)', async () => {
     await ensureSchema(mockPool as unknown as pg.Pool);
 
-    expect(mockPool.query).toHaveBeenCalledTimes(74);
+    expect(mockPool.query).toHaveBeenCalledTimes(75);
   });
 
   it('resolves without throwing when pool.query always succeeds', async () => {

@@ -231,12 +231,12 @@ export class FakeStorage implements IStorage {
     return Promise.resolve();
   }
 
-  getModifiedIssues(): Promise<Issue[]> {
-    const modified: Issue[] = [];
+  getModifiedIssues(): Promise<(Issue & { modifiedFields: string[] })[]> {
+    const modified: (Issue & { modifiedFields: string[] })[] = [];
     for (const key of this._modifiedKeys) {
       const issue = this.issues.get(key);
       if (issue) {
-        modified.push(issue);
+        modified.push({ ...issue, modifiedFields: ['description'] });
       }
     }
     return Promise.resolve(modified);
