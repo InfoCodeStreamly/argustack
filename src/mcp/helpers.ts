@@ -184,7 +184,7 @@ export async function createAdapters(workspaceRoot: string): Promise<{
   let source: ISourceProvider | null = null;
 
   const wsConfig = readConfig(workspaceRoot);
-  const issueTypes = wsConfig?.sources.jira?.issueTypes;
+  const issueTypes = wsConfig?.sources.jira?.issueTypeIds;
 
   const { proxyConfigExists, loadProxyConfig, ProxyJiraProvider } = await import('../adapters/jira-proxy/index.js');
   if (proxyConfigExists(workspaceRoot)) {

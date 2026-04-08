@@ -42,7 +42,7 @@ vi.mock('chalk', () => ({
 }));
 
 const mockSearchProjects = vi.fn();
-const mockGetIssueAllTypes = vi.fn().mockResolvedValue([{ name: 'Bug' }, { name: 'Task' }, { name: 'Story' }]);
+const mockGetIssueAllTypes = vi.fn().mockResolvedValue([{ id: '1', name: 'Bug' }, { id: '2', name: 'Task' }, { id: '3', name: 'Story' }]);
 const mockVersion3Client = vi.fn(function (this: Record<string, unknown>) {
   this.projects = { searchProjects: mockSearchProjects };
   this.issueTypes = { getIssueAllTypes: mockGetIssueAllTypes };
@@ -208,7 +208,9 @@ describe('setupJiraInteractive', () => {
       .mockResolvedValueOnce('https://test.atlassian.net')
       .mockResolvedValueOnce('dev@test.com')
       .mockResolvedValueOnce('tok-abc');
-    mockCheckboxFn.mockResolvedValue([]);
+    mockCheckboxFn
+      .mockResolvedValueOnce([])
+      .mockResolvedValueOnce([]);
 
     const result = await setupJiraInteractive();
 

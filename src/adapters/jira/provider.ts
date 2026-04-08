@@ -9,7 +9,7 @@ import {
   mapJiraWorklogs,
   mapJiraLinks,
 } from './mapper.js';
-import { markdownToAdf } from './adf.js';
+import { markdownToAdf } from '../../workspace/adf.js';
 
 const PAGE_SIZE = 50;
 
@@ -25,18 +25,21 @@ const PAGE_SIZE = 50;
 export class JiraProvider implements ISourceProvider {
   readonly name = 'Jira';
   private readonly client: Version3Client;
-  private readonly issueTypes: string[];
+  private readonly issueTypeIds: string[];
 
-  constructor(creds: JiraCredentials, issueTypes?: string[]) {
+  constructor(creds: JiraCredentials, issueTypeIds?: string[]) {
     this.client = createJiraClient(creds);
-    this.issueTypes = issueTypes ?? [];
+    this.issueTypeIds = issueTypeIds ?? [];
   }
 
   private buildJqlFilter(projectKey: string, since?: string): string {
     let jql = `project = "${projectKey}"`;
-    if (this.issueTypes.length > 0) {
-      const types = this.issueTypes.map((t) => `"${t}"`).join(', ');
-      jql += ` AND issuetype in (${types})`;
+    if (this.issueTypeIds.length > 0) {
+      const allNumeric = this.issueTypeIds.every((v) => /^\d+$/.test(v));
+      const values = allNumeric
+        ? this.issueTypeIds.join(', ')
+        : this.issueTypeIds.map((t) => `"${t}"`).join(', ');
+      jql += ` AND issuetype in (${values})`;
     }
     if (since) {
       jql += ` AND updated >= "${since}"`;

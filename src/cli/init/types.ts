@@ -7,6 +7,7 @@ export interface JiraSetupResult {
   jiraToken: string;
   jiraProjects: string[];
   issueTypes?: string[];
+  issueTypeIds?: string[];
 }
 
 export interface GitSetupResult {
@@ -39,6 +40,7 @@ export interface ProxySetupResult {
   proxyToken: string;
   jiraProjects: string[];
   issueTypes?: string[];
+  issueTypeIds?: string[];
 }
 
 export interface InitFlags {

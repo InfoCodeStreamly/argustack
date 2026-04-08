@@ -6,6 +6,7 @@ import type { GitHubBatch, Release } from '../../core/types/github.js';
 import type { DbSchemaBatch } from '../../core/types/database.js';
 import { createPool, type DbConfig } from './connection.js';
 import { ensureSchema } from './schema.js';
+import { adfToMarkdown } from '../../workspace/adf.js';
 
 /**
  * PostgreSQL adapter — implements IStorage.
@@ -82,7 +83,7 @@ export class PostgresStorage implements IStorage {
             search_vector = to_tsvector('english', coalesce(EXCLUDED.summary, '') || ' ' || coalesce(EXCLUDED.description, ''))
           `,
           [
-            issue.key, issue.id, issue.projectKey, issue.summary, issue.description,
+            issue.key, issue.id, issue.projectKey, issue.summary, normalizeDescription(issue.description),
             issue.issueType, issue.status, issue.statusCategory, issue.priority, issue.resolution,
             issue.assignee, issue.assigneeId, issue.reporter, issue.reporterId, issue.created, issue.updated, issue.resolved,
             issue.dueDate, issue.labels, issue.components, issue.fixVersions, issue.parentKey,
@@ -701,4 +702,14 @@ export class PostgresStorage implements IStorage {
   async close(): Promise<void> {
     await this.pool.end();
   }
+}
+
+function normalizeDescription(desc: string | null): string | null {
+  if (!desc) {
+    return desc;
+  }
+  if (desc.startsWith('{"type":"doc"')) {
+    return adfToMarkdown(desc);
+  }
+  return desc;
 }

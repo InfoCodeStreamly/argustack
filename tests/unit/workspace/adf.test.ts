@@ -1,5 +1,5 @@
 import { describe, it, expect } from 'vitest';
-import { markdownToAdf } from '../../../../src/adapters/jira/adf.js';
+import { markdownToAdf } from '../../../src/workspace/adf.js';
 
 describe('markdownToAdf', () => {
   it('converts plain text to paragraph', () => {
