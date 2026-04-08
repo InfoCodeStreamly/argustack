@@ -7,9 +7,10 @@ Argustack — standalone open-source CLI tool for project analysis. Cross-refere
 - **Jira CSV** — import from CSV export for teams without API access
 - **Git** — what was coded (commits, diffs, authors)
 - **GitHub** — what was reviewed (PRs, approvals, releases)
-- **DB** — what factually exists in production (coming soon)
+- **DB** — what factually exists in production (schema introspection + read-only queries)
+- **Jira Proxy** — connect through company proxy/gateway for restricted Jira instances
 
-Downloads everything into local PostgreSQL, then gives Claude direct access via MCP server (21 tools).
+Downloads everything into local PostgreSQL, then gives Claude direct access via MCP server (23 tools).
 
 ## Tech Stack
 
@@ -29,7 +30,7 @@ Downloads everything into local PostgreSQL, then gives Claude direct access via 
 ## Architecture — Hexagonal (Ports & Adapters)
 
 Driving adapters (входи): `cli/` (Commander.js), `mcp/` (Claude MCP)
-Driven adapters (зовнішні системи): `adapters/jira/`, `adapters/git/`, `adapters/github/`, `adapters/postgres/`
+Driven adapters (зовнішні системи): `adapters/jira/`, `adapters/jira-proxy/`, `adapters/git/`, `adapters/github/`, `adapters/db/`, `adapters/postgres/`
 Dependency Rule: `cli/,mcp/ → use-cases/ → core/ports` ← `adapters/`
 
 ```
@@ -87,18 +88,21 @@ src/
 │
 ├── workspace/                     ← INFRA: workspace management
 │   ├── config.ts                     loadConfig(), parseConfig()
-│   └── resolver.ts                   find .argustack/ walking up from cwd
+│   ├── resolver.ts                   find .argustack/ walking up from cwd
+│   └── registry.ts                   global workspace registry (~/.argustack/workspaces.json)
 │
 ├── mcp/                           ← MCP SERVER: Claude Desktop integration
 │   ├── server.ts                     McpServer setup + tool registration
 │   ├── helpers.ts                    Shared DB connection helper
 │   ├── types.ts                      Row types for query results
 │   └── tools/                        Tool modules (one per domain)
-│       ├── workspace.ts                 workspace_info, list_projects
+│       ├── workspace.ts                 workspace_info, list_projects, list_workspaces, switch_workspace
 │       ├── query.ts                     query_commits, query_issues, query_prs, query_releases
 │       ├── issue.ts                     get_issue, issue_commits, issue_prs, issue_stats, issue_timeline
-│       ├── search.ts                    semantic_search
-│       └── estimate.ts                  estimate
+│       ├── search.ts                    hybrid_search
+│       ├── estimate.ts                  estimate
+│       ├── push.ts                      create_issue, update_issue, push
+│       └── database.ts                  db_schema, db_query, db_stats
 │
 └── cli/                           ← ENTRY POINT: commands, UX, wiring
     ├── index.ts                      Commander.js setup, registers all commands
@@ -111,7 +115,9 @@ src/
     │   ├── setup-github.ts             GitHub source setup prompts
     │   ├── setup-csv.ts                CSV source setup prompts
     │   └── setup-db.ts                 Database source setup prompts
-    ├── sync.ts                       argustack sync (jira, git, github — separate functions)
+    ├── sync.ts                       argustack sync (jira, git, github, csv, db)
+    ├── push.ts                       argustack push / push --updates
+    ├── workspaces.ts                 argustack workspaces (list all from global registry)
     ├── embed.ts                      argustack embed (generate embeddings)
     ├── sources.ts                    argustack sources (list configured sources)
     ├── status.ts                     argustack status (workspace status)
@@ -247,12 +253,15 @@ argustack sync git               # pull Git only
 argustack sync github            # pull GitHub only (PRs, reviews, releases)
 argustack sync csv               # import from Jira CSV export
 argustack sync csv -f file.csv   # import specific CSV file
+argustack sync db                # sync external database schema
 argustack sync -p PROJ           # pull specific Jira project
 argustack sync --since 2025-01-01  # incremental pull
 argustack push                   # push local board tasks to Jira (source='local' → create Story → source='jira')
+argustack push --updates         # push locally modified issues to Jira
 argustack embed                  # generate embeddings for semantic search
 argustack sources                # list configured sources
 argustack status                 # workspace status
+argustack workspaces             # list all workspaces (global registry)
 argustack mcp install            # install MCP server into Claude Desktop
 ```
 
