@@ -152,8 +152,8 @@ export class PostgresStorage implements IStorage {
       for (const commit of batch.commits) {
         await client.query(
           `INSERT INTO commits (hash, message, author, email, committed_at, parents, repo_path, pulled_at, search_vector)
-           VALUES ($1, $2::text, $3::text, $4::text, $5, $6::text[], $7::text, NOW(),
-             to_tsvector('english', coalesce($2::text, '') || ' ' || coalesce($3::text, ''))
+           VALUES ($1, $2, $3, $4, $5, $6::text[], $7, NOW(),
+             to_tsvector('english', coalesce($2, '') || ' ' || coalesce($3, ''))
            )
            ON CONFLICT (hash) DO UPDATE SET
              message = EXCLUDED.message,
@@ -241,12 +241,12 @@ export class PostgresStorage implements IStorage {
             labels, reviewers, additions, deletions, changed_files,
             raw_json, pulled_at, search_vector
           ) VALUES (
-            $1, $2, $3::text, $4::text, $5, $6,
+            $1, $2, $3, $4, $5, $6,
             $7, $8, $9, $10,
             $11, $12, $13,
             $14::text[], $15::text[], $16, $17, $18,
             $19, NOW(),
-            to_tsvector('english', coalesce($3::text, '') || ' ' || coalesce($4::text, ''))
+            to_tsvector('english', coalesce($3, '') || ' ' || coalesce($4, ''))
           )
           ON CONFLICT (repo_full_name, number) DO UPDATE SET
             title = EXCLUDED.title,
@@ -354,10 +354,10 @@ export class PostgresStorage implements IStorage {
             draft, prerelease, created_at, published_at,
             raw_json, pulled_at, search_vector
           ) VALUES (
-            $1, $2, $3, $4::text, $5::text, $6,
+            $1, $2, $3, $4, $5, $6,
             $7, $8, $9, $10,
             $11, NOW(),
-            to_tsvector('english', coalesce($4::text, '') || ' ' || coalesce($5::text, '') || ' ' || coalesce($3, ''))
+            to_tsvector('english', coalesce($4, '') || ' ' || coalesce($5, '') || ' ' || coalesce($3, ''))
           )
           ON CONFLICT (repo_full_name, id) DO UPDATE SET
             tag_name = EXCLUDED.tag_name,
