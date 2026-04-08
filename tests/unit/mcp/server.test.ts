@@ -66,6 +66,10 @@ vi.mock('../../../src/mcp/tools/push.js', () => ({
   registerPushTools: vi.fn(),
 }));
 
+vi.mock('../../../src/mcp/tools/graph.js', () => ({
+  registerGraphTools: vi.fn(),
+}));
+
 let existsSync: ReturnType<typeof vi.fn>;
 let readFileSync: ReturnType<typeof vi.fn>;
 
@@ -192,6 +196,15 @@ describe('tool registration on module load', () => {
     await import('../../../src/mcp/server.js');
 
     expect(vi.mocked(registerPushTools)).toHaveBeenCalledOnce();
+  });
+
+  it('registers graph tools', async () => {
+    existsSync.mockReturnValue(false);
+    const { registerGraphTools } = await import('../../../src/mcp/tools/graph.js');
+
+    await import('../../../src/mcp/server.js');
+
+    expect(vi.mocked(registerGraphTools)).toHaveBeenCalledOnce();
   });
 });
 

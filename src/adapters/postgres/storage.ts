@@ -1,6 +1,6 @@
 import type pg from 'pg';
 import type { IStorage, QueryResult } from '../../core/ports/storage.js';
-import type { Issue, IssueBatch, HybridSearchResult } from '../../core/types/index.js';
+import type { Issue, IssueBatch, HybridSearchResult, GraphEntity, GraphRelationship, GraphObservation, GraphQueryResult, GraphStats } from '../../core/types/index.js';
 import type { CommitBatch } from '../../core/types/git.js';
 import type { GitHubBatch, Release } from '../../core/types/github.js';
 import type { DbSchemaBatch } from '../../core/types/database.js';
@@ -696,6 +696,154 @@ export class PostgresStorage implements IStorage {
     await this.pool.query(
       `UPDATE issues SET locally_modified = false, modified_at = NULL WHERE issue_key = $1`,
       [issueKey]
+    );
+  }
+
+  async saveGraphEntities(entities: GraphEntity[]): Promise<void> {
+    for (const entity of entities) {
+      await this.pool.query(
+        `INSERT INTO graph_entities (name, type, properties)
+         VALUES ($1, $2, $3)
+         ON CONFLICT (name, type) DO UPDATE SET properties = EXCLUDED.properties`,
+        [entity.name, entity.type, JSON.stringify(entity.properties)]
+      );
+    }
+  }
+
+  async saveGraphRelationships(rels: GraphRelationship[]): Promise<void> {
+    for (const rel of rels) {
+      await this.pool.query(
+        `INSERT INTO graph_relationships (source_id, target_id, type, weight, source, properties)
+         VALUES ($1, $2, $3, $4, $5, $6)
+         ON CONFLICT (source_id, target_id, type) DO UPDATE SET weight = EXCLUDED.weight, properties = EXCLUDED.properties`,
+        [rel.sourceId, rel.targetId, rel.type, rel.weight, rel.source, JSON.stringify(rel.properties)]
+      );
+    }
+  }
+
+  async saveGraphObservation(entityId: number, content: string, author: string): Promise<void> {
+    await this.pool.query(
+      `INSERT INTO graph_observations (entity_id, content, author) VALUES ($1, $2, $3)`,
+      [entityId, content, author]
+    );
+  }
+
+  async getObservations(entityId: number): Promise<GraphObservation[]> {
+    const result = await this.pool.query(
+      `SELECT id, entity_id, content, author, created_at FROM graph_observations WHERE entity_id = $1 ORDER BY created_at`,
+      [entityId]
+    );
+    return result.rows.map((r: Record<string, unknown>) => ({
+      id: r['id'] as number,
+      entityId: r['entity_id'] as number,
+      content: r['content'] as string,
+      author: r['author'] as string,
+      createdAt: r['created_at'] as string,
+    }));
+  }
+
+  async queryGraph(entityName: string, depth: number): Promise<GraphQueryResult> {
+    const result = await this.pool.query(
+      `WITH RECURSIVE graph_walk AS (
+        SELECT id, name, type, properties, 0 as depth
+        FROM graph_entities WHERE name ILIKE $1
+        UNION
+        SELECT e.id, e.name, e.type, e.properties, gw.depth + 1
+        FROM graph_walk gw
+        JOIN graph_relationships r ON r.source_id = gw.id OR r.target_id = gw.id
+        JOIN graph_entities e ON e.id = CASE WHEN r.source_id = gw.id THEN r.target_id ELSE r.source_id END
+        WHERE gw.depth < $2
+      )
+      SELECT DISTINCT id, name, type, properties FROM graph_walk LIMIT 200`,
+      [`%${entityName}%`, depth]
+    );
+
+    const entityIds = result.rows.map((r: Record<string, unknown>) => r['id'] as number);
+    const entities: GraphEntity[] = result.rows.map((r: Record<string, unknown>) => ({
+      id: r['id'] as number,
+      name: r['name'] as string,
+      type: r['type'] as string,
+      properties: r['properties'] as Record<string, unknown>,
+    }));
+
+    let relationships: GraphRelationship[] = [];
+    let observations: GraphObservation[] = [];
+
+    if (entityIds.length > 0) {
+      const idList = entityIds.map((_, i) => `$${String(i + 1)}`).join(',');
+
+      const relResult = await this.pool.query(
+        `SELECT id, source_id, target_id, type, weight, source, properties
+         FROM graph_relationships WHERE source_id IN (${idList}) OR target_id IN (${idList})`,
+        entityIds
+      );
+      relationships = relResult.rows.map((r: Record<string, unknown>) => ({
+        id: r['id'] as number,
+        sourceId: r['source_id'] as number,
+        targetId: r['target_id'] as number,
+        type: r['type'] as string,
+        weight: Number(r['weight']),
+        source: r['source'] as 'structural' | 'claude',
+        properties: r['properties'] as Record<string, unknown>,
+      }));
+
+      const obsResult = await this.pool.query(
+        `SELECT id, entity_id, content, author, created_at
+         FROM graph_observations WHERE entity_id IN (${idList})`,
+        entityIds
+      );
+      observations = obsResult.rows.map((r: Record<string, unknown>) => ({
+        id: r['id'] as number,
+        entityId: r['entity_id'] as number,
+        content: r['content'] as string,
+        author: r['author'] as string,
+        createdAt: r['created_at'] as string,
+      }));
+    }
+
+    return { entities, relationships, observations };
+  }
+
+  async getGraphStats(): Promise<GraphStats> {
+    const entityResult = await this.pool.query(
+      `SELECT type, COUNT(*) as cnt FROM graph_entities GROUP BY type`
+    );
+    const relResult = await this.pool.query(
+      `SELECT type, COUNT(*) as cnt FROM graph_relationships GROUP BY type`
+    );
+    const obsResult = await this.pool.query(
+      `SELECT COUNT(*) as cnt FROM graph_observations`
+    );
+
+    const byEntityType: Record<string, number> = {};
+    let entityCount = 0;
+    for (const row of entityResult.rows as Record<string, unknown>[]) {
+      const count = Number(row['cnt']);
+      byEntityType[row['type'] as string] = count;
+      entityCount += count;
+    }
+
+    const byRelationshipType: Record<string, number> = {};
+    let relationshipCount = 0;
+    for (const row of relResult.rows as Record<string, unknown>[]) {
+      const count = Number(row['cnt']);
+      byRelationshipType[row['type'] as string] = count;
+      relationshipCount += count;
+    }
+
+    const firstRow = obsResult.rows[0] as Record<string, unknown> | undefined;
+    const observationCount = Number(firstRow?.['cnt'] ?? 0);
+
+    return { entityCount, relationshipCount, observationCount, byEntityType, byRelationshipType };
+  }
+
+  async clearGraph(): Promise<void> {
+    await this.pool.query(`DELETE FROM graph_relationships WHERE source = 'structural'`);
+    await this.pool.query(
+      `DELETE FROM graph_entities WHERE id NOT IN (
+        SELECT DISTINCT source_id FROM graph_relationships
+        UNION SELECT DISTINCT target_id FROM graph_relationships
+      ) AND id NOT IN (SELECT DISTINCT entity_id FROM graph_observations)`
     );
   }
 

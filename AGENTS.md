@@ -30,13 +30,13 @@ src/
 ├── core/types/        ← Domain types (Issue, PullRequest, Commit, Config) — zero dependencies
 ├── core/ports/        ← Interfaces (ISourceProvider, IGitProvider, IGitHubProvider, IDbProvider, IStorage) — contracts only
 ├── adapters/          ← Driven adapters (jira/, jira-proxy/, git/, github/, csv/, db/, board/, postgres/, openai/)
-├── use-cases/         ← Business logic (pull.ts, pull-git.ts, pull-github.ts, pull-db.ts, push.ts, embed.ts, sync-board.ts, move-task.ts)
+├── use-cases/         ← Business logic (pull.ts, pull-git.ts, pull-github.ts, pull-db.ts, push.ts, embed.ts, build-graph.ts, sync-board.ts, move-task.ts)
 ├── cli/               ← Driving adapter — creates adapters, injects into use cases
-├── mcp/               ← Driving adapter — MCP server for Claude Desktop / Claude Code (23 tools)
+├── mcp/               ← Driving adapter — MCP server for Claude Desktop / Claude Code (31 tools)
 │   ├── server.ts      ← Orchestrator — registers tools, starts transport
 │   ├── types.ts       ← Row interfaces for SQL queries
 │   ├── helpers.ts     ← Shared utilities (loadWorkspace, textResponse, etc.)
-│   └── tools/         ← Tool modules (workspace, query, issue, search, estimate, database, push, formatters)
+│   └── tools/         ← Tool modules (workspace, query, issue, search, estimate, database, push, graph, formatters)
 └── workspace/         ← Config management, workspace resolver, global registry
 ```
 

@@ -96,6 +96,13 @@ const EXPECTED_INDEX_NAMES = [
   'idx_db_fk_source',
   'idx_db_indexes_source',
   'idx_issues_locally_modified',
+  'idx_graph_entities_name',
+  'idx_graph_entities_type',
+  'idx_graph_rel_source',
+  'idx_graph_rel_target',
+  'idx_graph_rel_type',
+  'idx_graph_rel_origin',
+  'idx_graph_obs_entity',
 ] as const;
 
 beforeEach(async () => {
@@ -137,12 +144,12 @@ describe('ensureSchema — CREATE TABLE', () => {
     expect(hasTable).toBe(true);
   });
 
-  it('creates exactly 18 tables', async () => {
+  it('creates exactly 21 tables', async () => {
     await ensureSchema(mockPool as unknown as pg.Pool);
 
     const queries = allQueriedSql();
     const tableCount = queries.filter(q => q.includes('CREATE TABLE IF NOT EXISTS')).length;
-    expect(tableCount).toBe(18);
+    expect(tableCount).toBe(21);
   });
 });
 
@@ -195,22 +202,22 @@ describe('ensureSchema — CREATE INDEX', () => {
     expect(hasIndex).toBe(true);
   });
 
-  it('creates exactly 43 indexes', async () => {
+  it('creates exactly 50 indexes', async () => {
     await ensureSchema(mockPool as unknown as pg.Pool);
 
     const queries = allQueriedSql();
     const indexCount = queries.filter(q => q.includes('CREATE INDEX IF NOT EXISTS')).length;
-    expect(indexCount).toBe(43);
+    expect(indexCount).toBe(50);
   });
 });
 
 // ─── total call count ──────────────────────────────────────────────────────
 
 describe('ensureSchema — total pool.query calls', () => {
-  it('calls pool.query exactly 75 times (1 extension + 18 tables + 13 alters + 43 indexes)', async () => {
+  it('calls pool.query exactly 85 times (1 extension + 21 tables + 13 alters + 50 indexes)', async () => {
     await ensureSchema(mockPool as unknown as pg.Pool);
 
-    expect(mockPool.query).toHaveBeenCalledTimes(75);
+    expect(mockPool.query).toHaveBeenCalledTimes(85);
   });
 
   it('resolves without throwing when pool.query always succeeds', async () => {

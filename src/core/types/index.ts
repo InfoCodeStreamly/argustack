@@ -52,3 +52,11 @@ export type {
   ProxyEndpoints,
   ProxyFieldMapping,
 } from './proxy-config.js';
+
+export type {
+  GraphEntity,
+  GraphRelationship,
+  GraphObservation,
+  GraphQueryResult,
+  GraphStats,
+} from './graph.js';
