@@ -17,7 +17,7 @@ export function registerWorkspaceTools(server: McpServer): void {
   server.registerTool(
     'workspace_info',
     {
-      description: 'Get information about the current Argustack workspace — configured sources, paths, database connection',
+      description: 'Get current workspace status: name, root path, creation date, enabled sources (Jira/Git/GitHub/Database) and their order. Use to verify setup or check what data is available. Related: list_workspaces, switch_workspace.',
     },
     () => {
       const ws = loadWorkspace();
@@ -80,7 +80,7 @@ export function registerWorkspaceTools(server: McpServer): void {
   server.registerTool(
     'switch_workspace',
     {
-      description: 'Switch to a different Argustack workspace. All subsequent queries will use the new workspace database. Use list_workspaces to see available workspaces.',
+      description: 'Switch active workspace. All subsequent queries will use the new workspace database and .env credentials. Use list_workspaces first to see available names. Related: list_workspaces, workspace_info.',
       inputSchema: {
         name: z.string().describe('Workspace name to switch to (e.g. "beautybooking", "paperlink")'),
       },
@@ -105,7 +105,7 @@ export function registerWorkspaceTools(server: McpServer): void {
   server.registerTool(
     'list_workspaces',
     {
-      description: 'List all available Argustack workspaces. Shows which workspace is currently active.',
+      description: 'List all Argustack workspaces (local + global registry). Shows name, enabled sources, and which is active (●). Use before switch_workspace to find available names. Related: switch_workspace, workspace_info.',
     },
     () => {
       const ws = loadWorkspace();
@@ -132,7 +132,7 @@ export function registerWorkspaceTools(server: McpServer): void {
   server.registerTool(
     'pull_jira',
     {
-      description: 'Pull all issues from Jira into Argustack PostgreSQL database. Supports incremental pulls (only new/updated issues). Use project parameter to pull a specific project.',
+      description: 'Sync Jira issues into local database. Fetches issues with all fields, comments, changelogs, worklogs, links. Supports incremental sync (only new/updated). Input: project (optional, e.g. "PAP"), since (optional date YYYY-MM-DD). Requires Jira credentials in .env.',
       inputSchema: {
         project: z.string().optional().describe('Specific project key (e.g. "PROJ"). Omit to pull all configured projects.'),
         since: z.string().optional().describe('Pull issues updated since this date (YYYY-MM-DD). Omit for auto-incremental.'),
