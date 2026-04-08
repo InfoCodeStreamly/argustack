@@ -43,8 +43,12 @@ export function registerPushCommand(program: Command): void {
       if (options.updates) {
         const spinner = ora('Pushing modified issues to Jira...').start();
         try {
+          const progressLines: string[] = [];
           const result = await useCase.executeUpdates({
-            onProgress: (msg) => { spinner.text = msg; },
+            onProgress: (msg) => {
+              progressLines.push(msg);
+              spinner.text = msg;
+            },
           });
 
           spinner.succeed(
@@ -54,6 +58,12 @@ export function registerPushCommand(program: Command): void {
 
           for (const item of result.updated) {
             console.log(`  ${chalk.green('✓')} ${item.key} — ${item.summary}`);
+          }
+
+          if (result.errors > 0) {
+            for (const line of progressLines.filter((l) => l.includes('Failed'))) {
+              console.log(`  ${chalk.red('✗')} ${line.trim()}`);
+            }
           }
         } catch (err: unknown) {
           spinner.fail('Push updates failed');

@@ -211,7 +211,7 @@ export function registerDatabaseTools(server: McpServer): void {
   server.registerTool(
     'db_query',
     {
-      description: 'Execute a read-only SQL query against the PROJECT database (your app\'s DB, not Argustack internal data). Requires TARGET_DB_* in .env. For Jira/Git/GitHub data stored in Argustack, use query_issues or query_commits instead. Only SELECT, EXPLAIN, SHOW, DESCRIBE allowed. 1000 rows limit, 30s timeout.',
+      description: 'Execute read-only SQL on your APPLICATION database (not Argustack). IMPORTANT: this queries YOUR app DB (TARGET_DB_* in .env), not Jira/Git data. For Argustack data use query_issues/query_commits/query_prs. Only SELECT/EXPLAIN/SHOW/DESCRIBE allowed. Max 1000 rows, 30s timeout. Requires TARGET_DB_HOST, TARGET_DB_USER, TARGET_DB_NAME in .env.',
       inputSchema: {
         sql: z.string().describe('SQL query to execute (read-only: SELECT, EXPLAIN, SHOW, DESCRIBE)'),
       },

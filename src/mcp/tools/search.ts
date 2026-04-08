@@ -14,7 +14,7 @@ export function registerSearchTools(server: McpServer): void {
   server.registerTool(
     'hybrid_search',
     {
-      description: 'Hybrid search across issues combining full-text keyword matching and semantic vector similarity using Reciprocal Rank Fusion. Works without embeddings (text-only fallback). For best results, run "argustack embed" first.',
+      description: 'Search issues by meaning (semantic search). Finds related issues by concept, not just exact keywords. Example: "authentication timeout" finds auth-related issues. Uses keyword matching + optional AI embeddings. Works without OPENAI_API_KEY (text-only fallback). Use query_issues for filter-based search (status, assignee, type); use hybrid_search for natural language questions.',
       inputSchema: {
         query: z.string().describe('Natural language search query (e.g. "authentication timeout problems")'),
         limit: z.number().optional().describe('Max results (default: 10)'),

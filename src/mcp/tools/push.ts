@@ -26,7 +26,7 @@ export function registerPushTools(server: McpServer): void {
   server.registerTool(
     'create_issue',
     {
-      description: 'Create an issue in Argustack local database (source=local). Agent reads task content, determines fields, passes what it can. Only summary is required. Use push tool after to send to Jira.',
+      description: 'Create a NEW issue in local Argustack database (source=local). Only summary is required, all other fields optional. Returns local key. NEXT STEP: call push(mode=create) to send to Jira and get real Jira key. All changes LOCAL ONLY until pushed. Related: update_issue (for existing), push.',
       inputSchema: {
         summary: z.string().describe('Issue title (required)'),
         description: z.string().optional().describe('Full description / requirements / acceptance criteria'),
@@ -110,10 +110,12 @@ export function registerPushTools(server: McpServer): void {
   server.registerTool(
     'push',
     {
-      description: 'Push local board tasks to Jira. Creates Stories for tasks with source=local in the Argustack database. Updates .md frontmatter with the new Jira key.',
-      inputSchema: {},
+      description: 'Push issues to Jira. Default (mode=create): sends NEW local issues (source=local) to Jira, returns new Jira keys. With mode=updates: sends locally MODIFIED issues (changed via update_issue) to Jira. Requires Jira credentials in .env. Related: create_issue → push(create), update_issue → push(updates).',
+      inputSchema: {
+        mode: z.enum(['create', 'updates']).optional().describe('create (default) = push new local issues. updates = push locally modified issues to Jira.'),
+      },
     },
-    async () => {
+    async ({ mode }) => {
       const ws = loadWorkspace();
       if (!ws.ok) {
         return errorResponse(`Workspace not found: ${ws.reason}`);
@@ -135,6 +137,28 @@ export function registerPushTools(server: McpServer): void {
       try {
         await storage.initialize();
         const useCase = new PushUseCase(jira, storage);
+
+        if (mode === 'updates') {
+          const progressLines: string[] = [];
+          const result = await useCase.executeUpdates({
+            onProgress: (msg) => progressLines.push(msg),
+          });
+          await storage.close();
+
+          if (result.updated.length === 0 && result.errors === 0) {
+            return textResponse('No locally modified issues to push.');
+          }
+
+          const lines = result.updated.map((item) => `✓ ${item.key} — ${item.summary}`);
+          const errorLines = progressLines.filter((l) => l.includes('Failed')).map((l) => `✗ ${l.trim()}`);
+          return textResponse([
+            `Push updates: ${String(result.updated.length)} updated, ${String(result.errors)} error(s)`,
+            '',
+            ...lines,
+            ...errorLines,
+          ].join('\n'));
+        }
+
         const result = await useCase.execute();
 
         for (const item of result.created) {
@@ -162,7 +186,7 @@ export function registerPushTools(server: McpServer): void {
   server.registerTool(
     'update_issue',
     {
-      description: 'Update fields of an existing issue in the local Argustack database. Marks the issue as locally modified. Use push --updates to send changes to Jira.',
+      description: 'Update fields of an existing issue in the local Argustack database. Changes are LOCAL ONLY until you call push(mode="updates") to send them to Jira. Useful for: filling missing descriptions, correcting statuses, enriching data after sync. Jira is SSOT — next sync overwrites local changes unless pushed first.',
       inputSchema: {
         issue_key: z.string().describe('Issue key (e.g. "ORG-123")'),
         summary: z.string().optional().describe('New summary/title'),
