@@ -28,16 +28,16 @@ Core knows nothing about adapters. Driving adapters (entries): cli/, mcp/. Drive
 ```
 src/
 ├── core/types/        ← Domain types (Issue, PullRequest, Commit, Config) — zero dependencies
-├── core/ports/        ← Interfaces (ISourceProvider, IGitProvider, IGitHubProvider, IStorage) — contracts only
-├── adapters/          ← Driven adapters (jira/, git/, github/, csv/, postgres/, openai/)
-├── use-cases/         ← Business logic (pull.ts, pull-git.ts, pull-github.ts, embed.ts)
+├── core/ports/        ← Interfaces (ISourceProvider, IGitProvider, IGitHubProvider, IDbProvider, IStorage) — contracts only
+├── adapters/          ← Driven adapters (jira/, jira-proxy/, git/, github/, csv/, db/, board/, postgres/, openai/)
+├── use-cases/         ← Business logic (pull.ts, pull-git.ts, pull-github.ts, pull-db.ts, push.ts, embed.ts, sync-board.ts, move-task.ts)
 ├── cli/               ← Driving adapter — creates adapters, injects into use cases
-├── mcp/               ← Driving adapter — MCP server for Claude Desktop / Claude Code (21 tools)
+├── mcp/               ← Driving adapter — MCP server for Claude Desktop / Claude Code (23 tools)
 │   ├── server.ts      ← Orchestrator — registers tools, starts transport
 │   ├── types.ts       ← Row interfaces for SQL queries
 │   ├── helpers.ts     ← Shared utilities (loadWorkspace, textResponse, etc.)
-│   └── tools/         ← Tool modules (workspace, query, issue, search, estimate)
-└── workspace/         ← Config management, workspace resolver
+│   └── tools/         ← Tool modules (workspace, query, issue, search, estimate, database, push, formatters)
+└── workspace/         ← Config management, workspace resolver, global registry
 ```
 
 **Dependency Rule:** `cli/,mcp/ → use-cases/ → core/ports` ← `adapters/`
@@ -113,10 +113,11 @@ plugins/jetbrains/webview/src/
 ## Source Types
 
 ```typescript
-type SourceType = 'jira' | 'git' | 'github' | 'csv' | 'db';
+type SourceType = 'jira' | 'git' | 'github' | 'csv' | 'db' | 'board';
 ```
 
 - **jira** — Jira Cloud/Server API → issues, comments, changelogs, worklogs, links
+- **jira-proxy** — Jira via corporate proxy (configurable endpoints, auth, field mapping via `proxy-config.json`)
 - **csv** — Jira CSV export → issues (no API needed, dynamic header detection)
 - **git** — local repos on disk → commits, per-file diffs, issue cross-references (multi-repo via `GIT_REPO_PATHS`)
 - **github** — GitHub REST API → PRs, reviews, comments, releases
@@ -124,6 +125,8 @@ type SourceType = 'jira' | 'git' | 'github' | 'csv' | 'db';
 - **board** — local Docs/Tasks/ markdown files → issues with `source: 'local'`
 
 Each source has: adapter (`src/adapters/`), use case (`src/use-cases/`), CLI command (`src/cli/sync.ts`).
+
+`SourceConfig.issueTypes` — optional filter to pull only specific Jira issue types (Story, Bug, etc.).
 
 `argustack push` — creates Jira issues from local board tasks (`source: 'local'`), writes jiraKey back to .md frontmatter.
 
@@ -146,22 +149,34 @@ All three providers expose optional `getCount()` methods for progress reporting 
 
 | Path | Purpose |
 |------|---------|
-| `src/core/types/` | Domain types — Issue, PullRequest, Commit, Config |
-| `src/core/ports/` | Interfaces — ISourceProvider, IGitProvider, IGitHubProvider, IStorage |
-| `src/adapters/jira/` | Jira API client, mapper, provider |
+| `src/core/types/` | Domain types — Issue, PullRequest, Commit, Config, ProxyConfig |
+| `src/core/types/proxy-config.ts` | ProxyConfig, ProxyAuth, ProxyEndpoints — jira-proxy adapter config |
+| `src/core/ports/` | Interfaces — ISourceProvider, IGitProvider, IGitHubProvider, IDbProvider, IStorage |
+| `src/adapters/jira/` | Jira API client, mapper, provider, ADF converter (adf.ts) |
+| `src/adapters/jira-proxy/` | Jira via corporate proxy — client, mapper, provider, config-loader |
 | `src/adapters/csv/` | Jira CSV import — parser, mapper, provider |
 | `src/adapters/git/` | Git repo reader (es-git / libgit2) |
 | `src/adapters/github/` | GitHub REST API (Octokit) |
+| `src/adapters/db/` | Project database schema introspection (client, mapper, provider, sql-validator) |
+| `src/adapters/board/` | Local board — md-parser, board-sync, skill-discovery, store |
 | `src/adapters/postgres/` | PostgreSQL storage, schema, UPSERT |
 | `src/adapters/openai/` | OpenAI embeddings (text-embedding-3-small) |
 | `src/use-cases/pull.ts` | PullUseCase — Jira → PostgreSQL |
 | `src/use-cases/pull-git.ts` | PullGitUseCase — Git → PostgreSQL |
 | `src/use-cases/pull-github.ts` | PullGitHubUseCase — GitHub → PostgreSQL |
+| `src/use-cases/pull-db.ts` | PullDbUseCase — DB schema → PostgreSQL |
+| `src/use-cases/push.ts` | PushUseCase — local issues → Jira |
 | `src/use-cases/embed.ts` | EmbedUseCase — generate embeddings |
-| `src/cli/init.ts` | Interactive workspace setup |
-| `src/cli/sync.ts` | Sync commands (jira, git, github, csv) |
-| `src/mcp/server.ts` | MCP server orchestrator — registers 21 tools |
-| `src/mcp/tools/` | Tool modules (workspace, query, issue, search, estimate) |
+| `src/use-cases/sync-board.ts` | SyncBoardUseCase — board tasks sync |
+| `src/use-cases/move-task.ts` | MoveTaskUseCase — board task column transitions |
+| `src/cli/init/` | Interactive workspace setup (directory with generators, source setups) |
+| `src/cli/sync.ts` | Sync commands (jira, git, github, csv, db) |
+| `src/cli/workspaces.ts` | argustack workspaces — list all registered workspaces |
+| `src/cli/push.ts` | argustack push — push local issues to Jira |
+| `src/cli/board.ts` | argustack board — start local Kanban board UI |
+| `src/workspace/registry.ts` | Global workspace registry (~/.argustack/workspaces.json) |
+| `src/mcp/server.ts` | MCP server orchestrator — registers 23 tools |
+| `src/mcp/tools/` | Tool modules (workspace, query, issue, search, estimate, database, push, formatters) |
 | `tests/fixtures/shared/` | SSOT test constants and factories |
 | `tests/fixtures/builders/` | IssueBuilder, PullRequestBuilder |
 | `tests/fixtures/fakes/` | In-memory fakes for integration tests |

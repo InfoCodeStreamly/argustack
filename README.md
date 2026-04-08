@@ -9,7 +9,7 @@
 
 [**Documentation & Examples →**](https://app.paperlink.online/s/0aa7d2d6/argustack)
 
-Argustack downloads your project data into local PostgreSQL, cross-references everything, and gives Claude direct access via 21 MCP tools. All data stays on your machine.
+Argustack downloads your project data into local PostgreSQL, cross-references everything, and gives Claude direct access via 23 MCP tools. All data stays on your machine.
 
 > *Was ticket PROJ-123 implemented as described?*
 > *Who reviewed the PR and what was the feedback?*
@@ -18,13 +18,17 @@ Argustack downloads your project data into local PostgreSQL, cross-references ev
 ## Features
 
 - **Jira** — issues, comments, changelogs, worklogs, links, all custom fields
+- **Jira Proxy** — connect through company proxy/gateway, not just direct API
 - **Git** — commits, per-file diffs, automatic issue cross-references
 - **GitHub** — PRs, reviews, comments, releases, automatic issue cross-references
 - **CSV import** — Jira CSV export for teams without API access
+- **DB** — external database schema introspection and read-only queries
 - **Cross-source timeline** — Jira + Git + GitHub events in chronological order
 - **Semantic search** — find issues by meaning, not just keywords (pgvector)
 - **Task estimation** — predict duration per developer based on actual history
-- **21 MCP tools** — Claude queries your data directly via SQL
+- **Update & push** — modify issues locally, push changes back to Jira (Markdown descriptions auto-converted to rich ADF)
+- **Global workspace registry** — `~/.argustack/workspaces.json`, switch between workspaces from any directory
+- **23 MCP tools** — Claude queries your data directly via SQL
 - **IDE Plugin** — kanban board for JetBrains IDEs where columns are Claude Code skills
 - **100% local** — no cloud, no accounts, no telemetry
 
@@ -61,13 +65,15 @@ argustack init --no-interactive \
 ```bash
 argustack init                       # create workspace
 argustack sync                       # pull all sources
-argustack sync jira|git|github|csv   # pull specific source
+argustack sync jira|git|github|csv|db  # pull specific source
 argustack sync --since 2025-01-01    # incremental pull
 argustack push                       # push local board tasks to Jira
+argustack push --updates             # push locally modified issues to Jira
 argustack embed                      # generate embeddings (requires OpenAI key)
 argustack mcp install                # connect to Claude Desktop
 argustack sources                    # list configured sources
 argustack status                     # workspace info
+argustack workspaces                 # list all known workspaces
 ```
 
 ## MCP Tools
@@ -88,10 +94,17 @@ After sync, Claude queries your data through these tools:
 | `issue_prs` | All PRs mentioning a Jira issue key |
 | `query_releases` | List releases with search |
 | `issue_timeline` | Full chronological timeline: Jira + Git + GitHub |
-| `semantic_search` | Find similar issues by meaning (pgvector) |
+| `hybrid_search` | Find similar issues by meaning (keyword + optional pgvector) |
 | `estimate` | Predict task duration per developer |
-| `push` | Push local board tasks to Jira |
+| `create_issue` | Create new issue locally, then push to Jira |
+| `update_issue` | Update issue fields locally, then push to Jira |
+| `push` | Push local/modified issues to Jira (mode: create or updates) |
 | `workspace_info` | Current workspace configuration |
+| `switch_workspace` | Switch active workspace by name |
+| `list_workspaces` | List all workspaces (local + global registry) |
+| `db_schema` | Browse external database schema (tables, columns, FKs) |
+| `db_query` | Execute read-only SQL on your application database |
+| `db_stats` | External database statistics |
 
 ## IDE Plugin
 
@@ -116,7 +129,7 @@ Full documentation available at **[Argustack DataRoom](https://app.paperlink.onl
 
 - **Quick Start Guide** — from zero to first query in 5 minutes
 - **Use Cases & Examples** — real scenarios for PMs, team leads, developers, CTOs
-- **MCP Tools Reference** — all 15 tools with parameters and examples
+- **MCP Tools Reference** — all 23 tools with parameters and examples
 - **Estimate Tool Deep Dive** — algorithm, scoring, data sources
 - **Architecture Guide** — hexagonal architecture, directory structure, extending
 

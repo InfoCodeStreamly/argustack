@@ -6,12 +6,13 @@
 
 CLI tool that downloads your project data into a local database, then gives Claude / any LLM direct access to query it.
 
-Five sources of truth:
+Six sources of truth:
 - **Jira** — issues, comments, changelogs, worklogs, links (what was planned)
 - **Jira CSV** — import from CSV export for teams without Jira API access
+- **Jira Proxy** — connect through corporate API gateways / middleware (bearer or bearer_exchange auth, configurable endpoints via `.argustack/proxy.json`)
 - **Git** — commits, per-file diffs, issue cross-references (what was coded)
 - **GitHub** — PRs, reviews, comments, releases (what was reviewed)
-- **Database** — coming soon (what actually exists in production)
+- **Database** — connects to your application DB, pulls schema (tables/columns/FKs/indexes), supports read-only SQL queries against live DB
 
 Each source is independent — own adapter, own use case, own sync command.
 
@@ -42,12 +43,15 @@ argustack sync             # pull all data from configured sources
 argustack sync jira        # pull specific source
 argustack sync github      # pull GitHub PRs/reviews/releases separately
 argustack sync csv         # import from Jira CSV export
+argustack sync db          # pull schema from application database
 argustack push             # push local board tasks to Jira
+argustack push --updates   # push locally modified issues to Jira (update existing)
 argustack embed            # generate OpenAI embeddings for semantic search
+argustack workspaces       # list all known workspaces (global registry)
 argustack mcp install      # connect to Claude Desktop as MCP server
 ```
 
-Non-interactive flags: `--no-interactive`, `--dir`, `--source`, `--jira-url`, `--jira-email`, `--jira-token`, `--jira-projects`, `--git-repo`, `--github-token`, `--github-owner`, `--github-repo`, `--csv-file`, `--db-port`, `--pgweb-port`.
+Non-interactive flags: `--no-interactive`, `--dir`, `--source`, `--jira-url`, `--jira-email`, `--jira-token`, `--jira-projects`, `--git-repo`, `--github-token`, `--github-owner`, `--github-repo`, `--csv-file`, `--db-port`, `--pgweb-port`, `--target-db-engine`, `--target-db-host`, `--target-db-port`, `--target-db-user`, `--target-db-password`, `--target-db-name`.
 
 ### Estimate Tool — Data Source Awareness
 
@@ -56,19 +60,20 @@ The estimate tool adapts its output based on available data:
 - **With CSV only**: no effort data → shows **Resolution Timeline** in business days (weekdays only) with clear warning that this is lead time (backlog wait + development + review), not active development time
 
 After sync, users open Claude Desktop or Claude Code and ask questions in natural language.
-Claude queries the local database via 15 MCP tools and answers with full project context.
+Claude queries the local database via 23 MCP tools and answers with full project context.
 
 AI agents can run `argustack init --no-interactive` autonomously — no terminal interaction needed.
 
-## MCP Tools (21 total)
+## MCP Tools (23 total)
 
-**Jira:** query_issues, get_issue, issue_stats, pull_jira, list_projects
+**Jira:** query_issues (with issue_type filter), get_issue, issue_stats, pull_jira, list_projects
 **Git:** query_commits, issue_commits, commit_stats
 **GitHub:** query_prs, issue_prs, query_releases
-**Cross-source:** issue_timeline (full cross-source timeline: changelogs + commits + PRs for one issue), semantic_search (pgvector embeddings)
+**Cross-source:** issue_timeline (full cross-source timeline: changelogs + commits + PRs for one issue), hybrid_search (keyword matching + optional pgvector semantic search, works without OPENAI_API_KEY)
 **Prediction:** estimate (predict task duration for a specific developer — with effort data: two predictions "without bugs" and "with bugs" based on similar tasks, personal coefficient, and component familiarity; with CSV only: resolution timeline in business days showing lead time from creation to close)
-**Write:** push (push local board tasks to Jira)
-**System:** workspace_info
+**Write:** create_issue (create local issue with Markdown description, auto-converted to Jira ADF), update_issue (modify existing issue fields locally), push (push new or modified issues to Jira, supports mode=create and mode=updates)
+**Database:** db_schema (browse external app DB schema), db_query (read-only SQL on app DB), db_stats (schema statistics)
+**Workspace:** workspace_info, list_workspaces (global registry), switch_workspace
 
 ## IDE Plugin (plugins/jetbrains/)
 
@@ -86,16 +91,17 @@ Install: download ZIP from GitHub Releases, Settings > Plugins > Install from Di
 ## Architecture — Hexagonal (Ports & Adapters)
 
 Driving adapters (entries): cli/, mcp/
-Driven adapters (external systems): adapters/jira/, adapters/git/, adapters/github/, adapters/postgres/
+Driven adapters (external systems): adapters/jira/, adapters/jira-proxy/, adapters/git/, adapters/github/, adapters/db/, adapters/postgres/
 Dependency Rule: cli/,mcp/ → use-cases/ → core/ports ← adapters/
 
 ```
-src/core/types/    — Domain types (Issue, PullRequest, Commit, Config) — zero dependencies
+src/core/types/    — Domain types (Issue, PullRequest, Commit, Config, ProxyConfig) — zero dependencies
 src/core/ports/    — Interfaces (ISourceProvider, IGitProvider, IGitHubProvider, IStorage)
-src/adapters/      — Driven adapters (jira/, git/, github/, csv/, postgres/, openai/)
-src/use-cases/     — Business logic (PullUseCase, PullGitUseCase, PullGitHubUseCase, EmbedUseCase)
+src/adapters/      — Driven adapters (jira/, jira-proxy/, git/, github/, csv/, db/, postgres/, openai/)
+src/use-cases/     — Business logic (PullUseCase, PullGitUseCase, PullGitHubUseCase, PullDbUseCase, PushUseCase, EmbedUseCase)
+src/workspace/     — Config, resolver, global registry (~/.argustack/workspaces.json)
 src/cli/           — Driving adapter — CLI entry point, commands
-src/mcp/           — Driving adapter — MCP server for Claude Desktop / Claude Code (15 tools)
+src/mcp/           — Driving adapter — MCP server for Claude Desktop / Claude Code (23 tools)
 ```
 
 ## Database tables
@@ -103,6 +109,7 @@ src/mcp/           — Driving adapter — MCP server for Claude Desktop / Claud
 **Jira:** issues (including original_estimate, time_spent, assignee_id, reporter_id), issue_comments, issue_changelogs, issue_worklogs, issue_links
 **Git:** commits, commit_files, commit_issue_refs
 **GitHub:** pull_requests, pr_reviews, pr_comments, pr_files, pr_issue_refs, releases
+**External DB:** db_tables, db_columns, db_foreign_keys, db_indexes (schema metadata from your application database)
 
 Cross-references: commit messages and PR titles mentioning `PROJ-123` are automatically linked to Jira issues.
 
@@ -115,6 +122,10 @@ Cross-references: commit messages and PR titles mentioning `PROJ-123` are automa
 - Progress indicators during sync — ports expose optional count methods (`getIssueCount()`, `getCommitCount()`, `getPrCount()`) for displaying `150/506 issues (30%)`
 - Git MCP tools (`query_commits`, `issue_commits`, `commit_stats`) accept optional `repo_path` filter for multi-repo workspaces
 - Each workspace is isolated — own Docker, own credentials, own database
+- Global workspace registry (`~/.argustack/workspaces.json`) — tracks all workspaces, supports switching between them via MCP or CLI
+- Jira Proxy adapter — connects through corporate API gateways via `.argustack/proxy.json` config (bearer or bearer_exchange auth, configurable endpoints and response mapping)
+- Issue type filter — `issueTypes` in workspace config filters Jira sync to specific types (e.g. Story, Bug, Task)
+- Markdown-to-ADF converter — issue descriptions written in Markdown are automatically converted to Atlassian Document Format when pushed to Jira
 - Jira CSV import — universal adapter for any Jira instance, dynamic header detection, supports worklogs/comments/links/custom fields
 - ESM modules, TypeScript strict mode, Vitest for testing
 
