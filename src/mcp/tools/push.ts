@@ -49,7 +49,7 @@ export function registerPushTools(server: McpServer): void {
       description: 'Create a NEW issue in local Argustack database (source=local). Only summary is required, all other fields optional. Returns local key. NEXT STEP: call push(mode=create) to send to Jira and get real Jira key. All changes LOCAL ONLY until pushed. Related: update_issue (for existing), push.',
       inputSchema: {
         summary: z.string().describe('Issue title (required)'),
-        description: z.string().optional().describe('Full description in MARKDOWN format. Supports: headings (#), bullet lists (-), numbered lists (1.), **bold**, `code`, code blocks. Converted to Jira ADF automatically.'),
+        description: z.string().optional().describe('description — MUST use MARKDOWN formatting, never plain text. Converted to rich Jira ADF automatically. ALWAYS structure with: ## headings for sections, - bullet lists for items, 1. numbered lists for steps, **bold** for key terms, `code` for technical names. Also supports: *italic*, ```code blocks```, > blockquotes, [links](url), | tables |, --- rules. Think of it as writing a mini-README for each issue.'),
         project_key: z.string().optional().describe('Jira project key (e.g. PAP). Defaults to first project in JIRA_PROJECTS env'),
         issue_type: z.string().optional().describe('Issue type (Story, Bug, Task, or localized name)'),
         status: z.string().optional().describe('Status name'),
@@ -60,7 +60,8 @@ export function registerPushTools(server: McpServer): void {
         components: z.array(z.string()).optional().describe('Component names'),
       },
     },
-    async ({ summary, description, project_key: projectKeyParam, issue_type: issueType, status, priority, assignee, parent_key: parentKey, labels, components }) => {
+    async ({ summary, description: rawDesc, project_key: projectKeyParam, issue_type: issueType, status, priority, assignee, parent_key: parentKey, labels, components }) => {
+      const description = rawDesc?.replaceAll('\\n', '\n');
       if (description !== undefined && !hasMarkdownFormatting(description)) {
         return errorResponse(
           `REJECTED: description must use MARKDOWN formatting, not plain text.\n\n` +
@@ -226,7 +227,8 @@ export function registerPushTools(server: McpServer): void {
         story_points: z.number().optional().describe('New story points'),
       },
     },
-    async ({ issue_key: issueKey, summary, description, status, priority, assignee, labels, components, story_points: storyPoints }) => {
+    async ({ issue_key: issueKey, summary, description: rawDescription, status, priority, assignee, labels, components, story_points: storyPoints }) => {
+      const description = rawDescription?.replaceAll('\\n', '\n');
       if (description !== undefined && !hasMarkdownFormatting(description)) {
         return errorResponse(
           `REJECTED: description must use MARKDOWN formatting, not plain text.\n\n` +
