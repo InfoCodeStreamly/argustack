@@ -47,7 +47,7 @@ export class PostgresStorage implements IStorage {
             $18, $19, $20, $21, $22,
             $23, $24, $25, $26, $27,
             $28, $29, $30, NOW(),
-            to_tsvector('english', coalesce($4, '') || ' ' || coalesce($5, ''))
+            to_tsvector('english', $31)
           )
           ON CONFLICT (issue_key) DO UPDATE SET
             issue_id = EXCLUDED.issue_id,
@@ -89,6 +89,7 @@ export class PostgresStorage implements IStorage {
             issue.dueDate, issue.labels, issue.components, issue.fixVersions, issue.parentKey,
             issue.sprint, issue.storyPoints, issue.originalEstimate, issue.remainingEstimate, issue.timeSpent,
             JSON.stringify(issue.customFields), JSON.stringify(issue.rawJson), issue.source ?? 'jira',
+            [issue.summary, normalizeDescription(issue.description)].filter(Boolean).join(' '),
           ]
         );
       }
@@ -153,7 +154,7 @@ export class PostgresStorage implements IStorage {
         await client.query(
           `INSERT INTO commits (hash, message, author, email, committed_at, parents, repo_path, pulled_at, search_vector)
            VALUES ($1, $2, $3, $4, $5, $6::text[], $7, NOW(),
-             to_tsvector('english', coalesce($2, '') || ' ' || coalesce($3, ''))
+             to_tsvector('english', $8)
            )
            ON CONFLICT (hash) DO UPDATE SET
              message = EXCLUDED.message,
@@ -164,7 +165,7 @@ export class PostgresStorage implements IStorage {
              repo_path = EXCLUDED.repo_path,
              pulled_at = NOW(),
              search_vector = to_tsvector('english', coalesce(EXCLUDED.message, '') || ' ' || coalesce(EXCLUDED.author, ''))`,
-          [commit.hash, commit.message, commit.author, commit.email, commit.committedAt, commit.parents, commit.repoPath]
+          [commit.hash, commit.message, commit.author, commit.email, commit.committedAt, commit.parents, commit.repoPath, `${commit.message || ''} ${commit.author || ''}`]
         );
       }
 
@@ -246,7 +247,7 @@ export class PostgresStorage implements IStorage {
             $11, $12, $13,
             $14::text[], $15::text[], $16, $17, $18,
             $19, NOW(),
-            to_tsvector('english', coalesce($3, '') || ' ' || coalesce($4, ''))
+            to_tsvector('english', $20)
           )
           ON CONFLICT (repo_full_name, number) DO UPDATE SET
             title = EXCLUDED.title,
@@ -274,6 +275,7 @@ export class PostgresStorage implements IStorage {
             pr.mergeCommitSha, pr.headRef, pr.baseRef,
             pr.labels, pr.reviewers, pr.additions, pr.deletions, pr.changedFiles,
             JSON.stringify(pr.rawJson),
+            [pr.title, pr.body].filter(Boolean).join(' '),
           ]
         );
       }
@@ -357,7 +359,7 @@ export class PostgresStorage implements IStorage {
             $1, $2, $3, $4, $5, $6,
             $7, $8, $9, $10,
             $11, NOW(),
-            to_tsvector('english', coalesce($4, '') || ' ' || coalesce($5, '') || ' ' || coalesce($3, ''))
+            to_tsvector('english', $12)
           )
           ON CONFLICT (repo_full_name, id) DO UPDATE SET
             tag_name = EXCLUDED.tag_name,
@@ -375,6 +377,7 @@ export class PostgresStorage implements IStorage {
             rel.id, rel.repoFullName, rel.tagName, rel.name, rel.body, rel.author,
             rel.draft, rel.prerelease, rel.createdAt, rel.publishedAt,
             JSON.stringify(rel.rawJson),
+            [rel.name, rel.body, rel.tagName].filter(Boolean).join(' '),
           ]
         );
       }

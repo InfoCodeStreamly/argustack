@@ -94,12 +94,12 @@ export class BuildGraphUseCase {
 
     log('Extracting entities from commits...');
     const commitResult = await this.storage.query(
-      `SELECT hash, author_name, message FROM commits ${options.since ? 'WHERE committed_at >= $1' : ''} ORDER BY committed_at`,
+      `SELECT hash, author, message FROM commits ${options.since ? 'WHERE committed_at >= $1' : ''} ORDER BY committed_at`,
       options.since ? [options.since] : []
     );
 
     for (const row of commitResult.rows) {
-      const author = row['author_name'] as string | null;
+      const author = row['author'] as string | null;
       if (author) {
         getOrCreateEntity(author, 'developer', {});
       }
@@ -108,14 +108,14 @@ export class BuildGraphUseCase {
 
     log('Extracting commit→issue references...');
     const refResult = await this.storage.query(
-      `SELECT cr.commit_hash, cr.issue_key, c.author_name
+      `SELECT cr.commit_hash, cr.issue_key, c.author
        FROM commit_issue_refs cr JOIN commits c ON c.hash = cr.commit_hash`,
       []
     );
 
     for (const row of refResult.rows) {
       const issueKey = row['issue_key'] as string;
-      const author = row['author_name'] as string | null;
+      const author = row['author'] as string | null;
       const issueId = getOrCreateEntity(issueKey, 'issue', {});
       if (author) {
         const devId = getOrCreateEntity(author, 'developer', {});
@@ -126,14 +126,14 @@ export class BuildGraphUseCase {
 
     log('Extracting commit→file modules...');
     const fileResult = await this.storage.query(
-      `SELECT cf.commit_hash, cf.file_path, c.author_name
+      `SELECT cf.commit_hash, cf.file_path, c.author
        FROM commit_files cf JOIN commits c ON c.hash = cf.commit_hash`,
       []
     );
 
     for (const row of fileResult.rows) {
       const filePath = row['file_path'] as string;
-      const author = row['author_name'] as string | null;
+      const author = row['author'] as string | null;
       const moduleName = extractModuleName(filePath);
       const moduleId = getOrCreateEntity(moduleName, 'module', {});
 
