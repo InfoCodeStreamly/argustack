@@ -786,7 +786,7 @@ export class PostgresStorage implements IStorage {
         targetId: r['target_id'] as number,
         type: r['type'] as string,
         weight: Number(r['weight']),
-        source: r['source'] as 'structural' | 'claude',
+        source: r['source'] as 'structural' | 'claude' | 'auto',
         properties: r['properties'] as Record<string, unknown>,
       }));
 
@@ -841,7 +841,7 @@ export class PostgresStorage implements IStorage {
   }
 
   async clearGraph(): Promise<void> {
-    await this.pool.query(`DELETE FROM graph_relationships WHERE source = 'structural'`);
+    await this.pool.query(`DELETE FROM graph_relationships WHERE source IN ('structural', 'auto')`);
     await this.pool.query(
       `DELETE FROM graph_entities WHERE id NOT IN (
         SELECT DISTINCT source_id FROM graph_relationships
