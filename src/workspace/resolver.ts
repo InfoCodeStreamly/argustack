@@ -1,5 +1,6 @@
 import { existsSync } from 'node:fs';
 import { join, dirname, resolve } from 'node:path';
+import { listRegisteredWorkspaces } from './registry.js';
 
 const WORKSPACE_MARKER = '.argustack';
 
@@ -25,18 +26,62 @@ export function findWorkspaceRoot(startDir?: string): string | null {
 
     const parent = dirname(dir);
     if (parent === dir) {
-      return null;
+      break;
     }
     dir = parent;
   }
+
+  return findWorkspaceFromRegistry(resolve(from));
+}
+
+/**
+ * Try to find a workspace from the global registry (~/.argustack/workspaces.json).
+ * - If exactly one workspace registered → return it
+ * - If multiple → match cwd (exact or child directory)
+ * - If no match → return null
+ */
+export function findWorkspaceFromRegistry(cwd: string): string | null {
+  const workspaces = listRegisteredWorkspaces();
+  if (workspaces.length === 0) {
+    return null;
+  }
+
+  if (workspaces.length === 1) {
+    const first = workspaces[0];
+    return first ? first.path : null;
+  }
+
+  const resolvedCwd = resolve(cwd);
+  const matches = workspaces.filter((w) => {
+    const resolvedPath = resolve(w.path);
+    return resolvedCwd === resolvedPath || resolvedCwd.startsWith(resolvedPath + '/');
+  });
+
+  if (matches.length === 0) {
+    return null;
+  }
+
+  matches.sort((a, b) => b.path.length - a.path.length);
+  const deepest = matches[0];
+  return deepest ? deepest.path : null;
 }
 
 /**
  * Require workspace — throws user-friendly error if not found.
+ * Includes available workspace names from registry in the error message.
  */
 export function requireWorkspace(startDir?: string): string {
   const root = findWorkspaceRoot(startDir);
   if (!root) {
+    const workspaces = listRegisteredWorkspaces();
+    if (workspaces.length > 0) {
+      const names = workspaces.map((w) => w.name).join(', ');
+      throw new Error(
+        'Not inside an Argustack workspace.\n' +
+        `Available workspaces: ${names}\n` +
+        'Use "argustack sync" from inside a workspace directory.'
+      );
+    }
     throw new Error(
       'Not inside an Argustack workspace.\n' +
       'Run "argustack init" to create one.'

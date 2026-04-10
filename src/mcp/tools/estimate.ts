@@ -81,7 +81,7 @@ export function registerEstimateTools(server: McpServer): void {
   server.registerTool(
     'estimate',
     {
-      description: 'Estimate task duration for a developer. Returns TWO predictions: (1) "without bugs" = pure dev time, (2) "with bugs" = real cost including bug aftermath. Based on similar completed tasks, developer personal coefficient, and component familiarity. INPUT: description (task summary) + assignee (REQUIRED, developer name). OPTIONAL: issue_type, components, exclude_key. Returns breakdown with similar tasks and developer profile.',
+      description: 'Estimate task duration for a developer. Returns TWO predictions: (1) "without bugs" = pure dev time, (2) "with bugs" = real cost including bug aftermath. Based on similar completed tasks, developer coefficient, and component familiarity. Requires: description + assignee. Optional: issue_type, components (improve accuracy). If 0 similar tasks found, try broader description or omit components. Present both estimates to the user with the "with bugs" as the realistic one.',
       inputSchema: {
         description: z.string().describe('Description of the new task (e.g. "Stripe payment integration with subscriptions")'),
         assignee: z.string().describe('Developer name to predict for (e.g. "John Smith")'),

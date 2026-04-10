@@ -28,7 +28,7 @@ export function registerIssueTools(server: McpServer): void {
   server.registerTool(
     'get_issue',
     {
-      description: 'Get full details of a specific issue by key, including description, comments, changelogs, and all custom fields.',
+      description: 'Get full details of a specific issue by key — description, comments, changelogs, worklogs, links, all custom fields. Use for deep-dive into a single issue. For cross-source timeline use issue_timeline instead.',
       inputSchema: {
         issue_key: z.string().describe('Issue key (e.g. "PROJ-123")'),
       },
@@ -130,7 +130,7 @@ export function registerIssueTools(server: McpServer): void {
   server.registerTool(
     'issue_stats',
     {
-      description: 'Get aggregate statistics about issues in the database — counts by status, type, project, assignee. Useful for project health overview.',
+      description: 'Get aggregate statistics about issues — counts by status, type, project, assignee. Use for project health overview, sprint planning, or answering "how many bugs do we have?" Returns grouped counts, not individual issues.',
       inputSchema: {
         project: z.string().optional().describe('Filter stats by project key'),
       },
@@ -202,7 +202,7 @@ export function registerIssueTools(server: McpServer): void {
   server.registerTool(
     'issue_commits',
     {
-      description: 'Cross-reference: find all Git commits that mention a Jira issue key. Shows what code was actually changed for a ticket.',
+      description: 'Cross-reference: find all Git commits that mention a Jira issue key in commit message. Shows what code was actually changed. Requires Git sync. For full timeline with PRs use issue_timeline.',
       inputSchema: {
         issue_key: z.string().describe('Issue key (e.g. "PROJ-123")'),
         repo_path: z.string().optional().describe('Filter by repository path (substring match)'),
@@ -281,7 +281,7 @@ export function registerIssueTools(server: McpServer): void {
   server.registerTool(
     'issue_prs',
     {
-      description: 'Cross-reference: find all GitHub pull requests that mention a Jira issue key. Shows which PRs implemented a ticket.',
+      description: 'Cross-reference: find all GitHub PRs that mention a Jira issue key. Shows which PRs implemented a ticket, with review status and merge info. Requires GitHub sync.',
       inputSchema: {
         issue_key: z.string().describe('Issue key (e.g. "PROJ-123")'),
       },
@@ -357,7 +357,7 @@ export function registerIssueTools(server: McpServer): void {
   server.registerTool(
     'issue_timeline',
     {
-      description: 'Full cross-source timeline for a Jira issue: changelog events, Git commits, GitHub PRs with reviews — all in chronological order. Combines get_issue + issue_commits + issue_prs into a single view.',
+      description: 'Full cross-source timeline for a Jira issue: changelog events, Git commits, GitHub PRs with reviews — all in chronological order. Best tool for understanding the complete history of a ticket. Combines data from Jira + Git + GitHub in one call.',
       inputSchema: {
         issue_key: z.string().describe('Issue key (e.g. "PROJ-123")'),
       },
@@ -542,7 +542,7 @@ export function registerIssueTools(server: McpServer): void {
   server.registerTool(
     'commit_stats',
     {
-      description: 'Aggregate statistics about Git commits — total count, top authors, most changed files, commits per day.',
+      description: 'Aggregate statistics about Git commits — total count, top authors, most changed files, commits per day/week. Use for "who is most active?" or "what files change most?" questions. Requires Git sync.',
       inputSchema: {
         since: z.string().optional().describe('Stats from this date (YYYY-MM-DD)'),
         author: z.string().optional().describe('Filter stats by author name'),

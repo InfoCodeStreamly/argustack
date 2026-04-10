@@ -27,10 +27,21 @@ export function loadWorkspace(): WorkspaceResult {
   const root = findWorkspaceRoot();
 
   if (!root) {
-    const hint = envVar
-      ? `ARGUSTACK_WORKSPACE is set to "${envVar}" but no .argustack/ marker found there or in parent directories.`
-      : 'No ARGUSTACK_WORKSPACE env var set and no .argustack/ found from cwd.';
-    return { ok: false, reason: hint };
+    if (envVar) {
+      return {
+        ok: false,
+        reason: `ARGUSTACK_WORKSPACE is set to "${envVar}" but no .argustack/ marker found there or in parent directories.`,
+      };
+    }
+    const registered = listRegisteredWorkspaces();
+    if (registered.length > 0) {
+      const names = registered.map((w) => w.name).join(', ');
+      return {
+        ok: false,
+        reason: `Workspace not found from current directory. Available workspaces: ${names}. Use switch_workspace("name") to connect.`,
+      };
+    }
+    return { ok: false, reason: 'No workspaces found. Run "argustack init" to create one.' };
   }
 
   const config = readConfig(root);
