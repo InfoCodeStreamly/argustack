@@ -288,7 +288,7 @@ export function registerDatabaseTools(server: McpServer): void {
   server.registerTool(
     'db_stats',
     {
-      description: 'Get statistics about the external database schema stored in Argustack — total tables, columns, foreign keys, indexes.',
+      description: 'Get statistics about the external database schema — total tables, columns, foreign keys, indexes, row counts. Use for "how big is the database?" or "what tables exist?" overview. Run `argustack sync db` first to populate schema data.',
       inputSchema: {
         source: z.string().optional().describe('Filter by source name (if multiple databases synced)'),
       },

@@ -14,7 +14,7 @@ export function registerSearchTools(server: McpServer): void {
   server.registerTool(
     'hybrid_search',
     {
-      description: 'Search issues by meaning (semantic search). Finds related issues by concept, not just exact keywords. Example: "authentication timeout" finds auth-related issues. Uses keyword matching + optional AI embeddings. Works without OPENAI_API_KEY (text-only fallback). Use query_issues for filter-based search (status, assignee, type); use hybrid_search for natural language questions.',
+      description: 'Search issues by meaning — finds related issues by concept, not just exact keywords. Example: "authentication timeout" finds auth-related issues even if titled differently. Combines keyword matching + AI embeddings (if OPENAI_API_KEY set). Falls back to text-only search without embeddings. If 0 results, try broader terms or use query_issues with SQL ILIKE. Use query_issues for structured filters (status, assignee); use hybrid_search for natural language questions.',
       inputSchema: {
         query: z.string().describe('Natural language search query (e.g. "authentication timeout problems")'),
         limit: z.number().optional().describe('Max results (default: 10)'),

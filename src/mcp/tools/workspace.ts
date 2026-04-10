@@ -52,7 +52,7 @@ export function registerWorkspaceTools(server: McpServer): void {
   server.registerTool(
     'list_projects',
     {
-      description: 'List all Jira projects available in the configured Jira instance',
+      description: 'List all Jira projects available in the configured Jira instance. Returns project keys and names. Use to find valid project keys for query_issues or pull_jira.',
     },
     async () => {
       const ws = loadWorkspace();
@@ -132,7 +132,7 @@ export function registerWorkspaceTools(server: McpServer): void {
   server.registerTool(
     'pull_jira',
     {
-      description: 'Sync Jira issues into local database. Fetches issues with all fields, comments, changelogs, worklogs, links. Supports incremental sync (only new/updated). Input: project (optional, e.g. "PAP"), since (optional date YYYY-MM-DD). Requires Jira credentials in .env.',
+      description: 'Sync Jira issues into local database. Fetches ALL fields, comments, changelogs, worklogs, links. Auto-incremental: only fetches new/updated issues since last sync. Run this before querying if data seems stale. Next step: use query_issues or hybrid_search to explore synced data.',
       inputSchema: {
         project: z.string().optional().describe('Specific project key (e.g. "PROJ"). Omit to pull all configured projects.'),
         since: z.string().optional().describe('Pull issues updated since this date (YYYY-MM-DD). Omit for auto-incremental.'),

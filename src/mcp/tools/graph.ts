@@ -12,7 +12,7 @@ export function registerGraphTools(server: McpServer): void {
   server.registerTool(
     'impact_analysis',
     {
-      description: 'Analyze impact of changing a file or module. Returns connected issues, developers, PRs via knowledge graph traversal. Run `argustack graph build` first. Use to assess risk before making changes.',
+      description: 'Analyze impact of changing a file or module. Returns connected issues, developers, PRs via knowledge graph. Requires graph data — run `argustack graph build` if results are empty. Use before refactoring to assess risk and identify who to consult.',
       inputSchema: {
         file_or_module: z.string().describe('File path or module name (e.g. "src/adapters/payment", "payment")'),
         depth: z.number().optional().describe('Graph traversal depth (default: 2)'),
@@ -85,7 +85,7 @@ export function registerGraphTools(server: McpServer): void {
   server.registerTool(
     'developer_expertise',
     {
-      description: 'Find developers who know a specific area. Ranks by commits, reviews, issue assignments via knowledge graph. Run `argustack graph build` first.',
+      description: 'Find developers who know a specific area. Ranks by commits, reviews, issue assignments via knowledge graph. If no Git data synced, falls back to Jira assignee-based ranking. Run `argustack graph build` if results are empty.',
       inputSchema: {
         area: z.string().describe('Topic, module, or component name (e.g. "payment", "authentication")'),
         limit: z.number().optional().describe('Max developers to return (default: 10)'),
@@ -253,7 +253,7 @@ export function registerGraphTools(server: McpServer): void {
   server.registerTool(
     'business_context',
     {
-      description: 'Show business context for a topic — business processes, features, related issues. Based on semantic graph built by Claude. Run `build_business_graph` first for best results.',
+      description: 'Show business context for a topic — business processes, features, related issues. Based on semantic graph built by Claude. If graph is empty, falls back to keyword search across issues. Run `build_business_graph` first for richer results.',
       inputSchema: {
         topic: z.string().describe('Business topic (e.g. "refund", "payment", "onboarding")'),
         depth: z.number().optional().describe('Traversal depth (default: 2)'),
@@ -319,7 +319,7 @@ export function registerGraphTools(server: McpServer): void {
   server.registerTool(
     'build_business_graph',
     {
-      description: 'Claude analyzes issue descriptions to discover business processes and features, then saves them to the knowledge graph. Returns entities found for Claude to confirm and save. No external API cost — uses Claude Max subscription.',
+      description: 'Analyze synced issues to discover business processes and features. Returns entities and suggested relationships. NEXT STEP: review the results, then call add_relationship for each connection you confirm. Call add_observation to annotate entities with business context. No external API cost.',
       inputSchema: {
         project: z.string().optional().describe('Project key to analyze (default: all)'),
         batch_size: z.number().optional().describe('Issues per batch (default: 50)'),
@@ -381,7 +381,7 @@ export function registerGraphTools(server: McpServer): void {
   server.registerTool(
     'add_relationship',
     {
-      description: 'Add a relationship between two entities in the knowledge graph. Claude discovers connections and records them. Marked as source=claude — survives graph rebuild.',
+      description: 'Add a relationship between two entities in the knowledge graph. Use after build_business_graph to save confirmed connections. Types: implements, depends_on, related_to, caused_by, co_changes, root_causes. Marked source=claude — survives graph rebuild.',
       inputSchema: {
         source_name: z.string().describe('Source entity name (e.g. "Refund Flow")'),
         source_type: z.string().describe('Source entity type (e.g. "business_process", "feature", "issue", "developer", "module")'),
@@ -438,7 +438,7 @@ export function registerGraphTools(server: McpServer): void {
   server.registerTool(
     'add_observation',
     {
-      description: 'Add a text note/observation to any entity in the knowledge graph. Multiple observations per entity — append only, never overwrites. Use to record business knowledge, warnings, tips.',
+      description: 'Add a text note/observation to any entity in the knowledge graph. Append only — never overwrites existing observations. Use to record: key decisions with WHY, root cause analysis, business process descriptions, out-of-scope decisions. Survives graph rebuild.',
       inputSchema: {
         entity_name: z.string().describe('Entity name (e.g. "ORG-16999", "Refund Flow", "Dmitry Kislitsyn")'),
         content: z.string().describe('Observation text (e.g. "After refund, must sync to OrgMeter within same business day")'),

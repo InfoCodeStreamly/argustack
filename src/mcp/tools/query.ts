@@ -14,7 +14,7 @@ export function registerQueryTools(server: McpServer): void {
   server.registerTool(
     'query_issues',
     {
-      description: 'Search and query Jira issues stored in the local Argustack database. Supports full-text search, filtering by project/status/assignee, and SQL for complex queries.',
+      description: 'Query Jira issues in local database. Use "search" for text search, filters (project, status, assignee) for structured queries, or "sql" for complex queries. For natural language search prefer hybrid_search. If search returns 0 results, try ILIKE in sql param: WHERE summary ILIKE \'%keyword%\'.',
       inputSchema: {
         search: z.string().optional().describe('Full-text search query (e.g. "payment bug", "template recipients")'),
         project: z.string().optional().describe('Filter by project key (e.g. "PROJ")'),
@@ -136,7 +136,7 @@ export function registerQueryTools(server: McpServer): void {
   server.registerTool(
     'query_commits',
     {
-      description: 'Search and query Git commits stored in the local database. Supports full-text search, filtering by author/date, and raw SQL.',
+      description: 'Query Git commits in local database. Use "search" for text search in commit messages, filters (author, since, until) for structured queries, or "sql" for complex queries. Requires Git sync. For commits related to a specific Jira issue use issue_commits instead.',
       inputSchema: {
         search: z.string().optional().describe('Full-text search in commit messages (e.g. "fix login", "PROJ-123")'),
         author: z.string().optional().describe('Filter by author name'),
@@ -248,7 +248,7 @@ export function registerQueryTools(server: McpServer): void {
   server.registerTool(
     'query_prs',
     {
-      description: 'Search GitHub pull requests stored in the local database. Supports full-text search, filtering by state/author/base branch, and raw SQL.',
+      description: 'Query GitHub pull requests in local database. Use "search" for text search in PR titles, filters (state, author, base) for structured queries, or "sql" for complex queries. Requires GitHub sync. For PRs related to a specific Jira issue use issue_prs instead.',
       inputSchema: {
         search: z.string().optional().describe('Full-text search in PR title and body'),
         state: z.string().optional().describe('Filter by state: open, closed, merged'),
@@ -343,7 +343,7 @@ export function registerQueryTools(server: McpServer): void {
   server.registerTool(
     'query_releases',
     {
-      description: 'List GitHub releases for the repository. Useful for understanding release cadence and what was shipped.',
+      description: 'List GitHub releases — tags, dates, release notes. Use for "when was this shipped?" or "what was in the last release?" questions. Requires GitHub sync with releases enabled.',
       inputSchema: {
         search: z.string().optional().describe('Full-text search in release name/body'),
         limit: z.number().optional().describe('Max results (default: 20)'),
