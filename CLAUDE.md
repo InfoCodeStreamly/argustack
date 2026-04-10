@@ -10,7 +10,7 @@ Argustack — standalone open-source CLI tool for project analysis. Cross-refere
 - **DB** — what factually exists in production (schema introspection + read-only queries)
 - **Jira Proxy** — connect through company proxy/gateway for restricted Jira instances
 
-Downloads everything into local PostgreSQL, then gives Claude direct access via MCP server (31 tools).
+Downloads everything into local PostgreSQL, then gives Claude direct access via MCP server (32 tools).
 
 ## Tech Stack
 
@@ -105,7 +105,7 @@ src/
 │       ├── estimate.ts                  estimate
 │       ├── push.ts                      create_issue, update_issue, push
 │       ├── database.ts                  db_schema, db_query, db_stats
-│       └── graph.ts                     impact_analysis, developer_expertise, related_issues, code_dependencies, business_context, build_business_graph, add_relationship, add_observation
+│       └── graph.ts                     impact_analysis, developer_expertise, related_issues, code_dependencies, business_context, build_business_graph, root_cause_analysis, add_relationship, add_observation
 │
 └── cli/                           ← ENTRY POINT: commands, UX, wiring
     ├── index.ts                      Commander.js setup, registers all commands

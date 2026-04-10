@@ -9,7 +9,7 @@
 
 [**Documentation & Examples →**](https://app.paperlink.online/s/0aa7d2d6/argustack)
 
-Argustack downloads your project data into local PostgreSQL, cross-references everything, and gives Claude direct access via 31 MCP tools. All data stays on your machine.
+Argustack downloads your project data into local PostgreSQL, cross-references everything, and gives Claude direct access via 32 MCP tools. All data stays on your machine.
 
 > *Was ticket PROJ-123 implemented as described?*
 > *Who reviewed the PR and what was the feedback?*
@@ -29,7 +29,7 @@ Argustack downloads your project data into local PostgreSQL, cross-references ev
 - **Update & push** — modify issues locally, push changes back to Jira (Markdown descriptions auto-converted to rich ADF)
 - **Global workspace registry** — `~/.argustack/workspaces.json`, switch between workspaces from any directory
 - **Knowledge graph** — entity-relationship graph (issues, developers, modules, PRs) with impact analysis and code dependencies
-- **31 MCP tools** — Claude queries your data directly via SQL
+- **32 MCP tools** — Claude queries your data directly via SQL
 - **IDE Plugin** — kanban board for JetBrains IDEs where columns are Claude Code skills
 - **100% local** — no cloud, no accounts, no telemetry
 
@@ -140,7 +140,7 @@ Full documentation available at **[Argustack DataRoom](https://app.paperlink.onl
 
 - **Quick Start Guide** — from zero to first query in 5 minutes
 - **Use Cases & Examples** — real scenarios for PMs, team leads, developers, CTOs
-- **MCP Tools Reference** — all 31 tools with parameters and examples
+- **MCP Tools Reference** — all 32 tools with parameters and examples
 - **Estimate Tool Deep Dive** — algorithm, scoring, data sources
 - **Architecture Guide** — hexagonal architecture, directory structure, extending
 

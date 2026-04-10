@@ -32,7 +32,7 @@ src/
 ├── adapters/          ← Driven adapters (jira/, jira-proxy/, git/, github/, csv/, db/, board/, postgres/, openai/)
 ├── use-cases/         ← Business logic (pull.ts, pull-git.ts, pull-github.ts, pull-db.ts, push.ts, embed.ts, build-graph.ts, sync-board.ts, move-task.ts)
 ├── cli/               ← Driving adapter — creates adapters, injects into use cases
-├── mcp/               ← Driving adapter — MCP server for Claude Desktop / Claude Code (31 tools)
+├── mcp/               ← Driving adapter — MCP server for Claude Desktop / Claude Code (32 tools)
 │   ├── server.ts      ← Orchestrator — registers tools, starts transport
 │   ├── types.ts       ← Row interfaces for SQL queries
 │   ├── helpers.ts     ← Shared utilities (loadWorkspace, textResponse, etc.)
