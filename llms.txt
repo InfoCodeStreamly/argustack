@@ -60,11 +60,11 @@ The estimate tool adapts its output based on available data:
 - **With CSV only**: no effort data → shows **Resolution Timeline** in business days (weekdays only) with clear warning that this is lead time (backlog wait + development + review), not active development time
 
 After sync, users open Claude Desktop or Claude Code and ask questions in natural language.
-Claude queries the local database via 31 MCP tools and answers with full project context.
+Claude queries the local database via 32 MCP tools and answers with full project context.
 
 AI agents can run `argustack init --no-interactive` autonomously — no terminal interaction needed.
 
-## MCP Tools (31 total)
+## MCP Tools (32 total)
 
 **Jira:** query_issues (with issue_type filter), get_issue, issue_stats, pull_jira, list_projects
 **Git:** query_commits, issue_commits, commit_stats
@@ -72,7 +72,7 @@ AI agents can run `argustack init --no-interactive` autonomously — no terminal
 **Cross-source:** issue_timeline (full cross-source timeline: changelogs + commits + PRs for one issue), hybrid_search (keyword matching + optional pgvector semantic search, works without OPENAI_API_KEY)
 **Prediction:** estimate (predict task duration for a specific developer — with effort data: two predictions "without bugs" and "with bugs" based on similar tasks, personal coefficient, and component familiarity; with CSV only: resolution timeline in business days showing lead time from creation to close)
 **Write:** create_issue (create local issue with Markdown description, auto-converted to Jira ADF), update_issue (modify existing issue fields locally), push (push new or modified issues to Jira, supports mode=create and mode=updates)
-**Knowledge Graph:** impact_analysis (what's connected to a file/module), developer_expertise (who knows this area), related_issues (connected through code), code_dependencies (co-changes, imports, packages), business_context (business process connections), build_business_graph (Claude identifies processes from issues), add_relationship (manual semantic links), add_observation (knowledge notes on entities)
+**Knowledge Graph:** impact_analysis (what's connected to a file/module), developer_expertise (who knows this area), related_issues (connected through code), code_dependencies (co-changes, imports, packages), business_context (business process connections), build_business_graph (Claude identifies processes from issues), root_cause_analysis (trace bug causal chain — confirmed from Jira links, probable from git timeline, Claude-identified), add_relationship (manual semantic links), add_observation (knowledge notes on entities)
 **Database:** db_schema (browse external app DB schema), db_query (read-only SQL on app DB), db_stats (schema statistics)
 **Workspace:** workspace_info, list_workspaces (global registry), switch_workspace
 
@@ -102,7 +102,7 @@ src/adapters/      — Driven adapters (jira/, jira-proxy/, git/, github/, csv/,
 src/use-cases/     — Business logic (PullUseCase, PullGitUseCase, PullGitHubUseCase, PullDbUseCase, PushUseCase, EmbedUseCase, BuildGraphUseCase)
 src/workspace/     — Config, resolver, global registry (~/.argustack/workspaces.json)
 src/cli/           — Driving adapter — CLI entry point, commands
-src/mcp/           — Driving adapter — MCP server for Claude Desktop / Claude Code (31 tools)
+src/mcp/           — Driving adapter — MCP server for Claude Desktop / Claude Code (32 tools)
 ```
 
 ## Database tables
