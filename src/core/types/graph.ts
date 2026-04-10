@@ -11,7 +11,7 @@ export interface GraphRelationship {
   targetId: number;
   type: string;
   weight: number;
-  source: 'structural' | 'claude';
+  source: 'structural' | 'claude' | 'auto';
   properties: Record<string, unknown>;
 }
 

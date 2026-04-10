@@ -196,6 +196,98 @@ export class BuildGraphUseCase {
     }
     log(`  ${String(coChangeResult.rows.length)} co-change pairs`);
 
+    log('Extracting causal relationships from issue links...');
+    const causalLinkResult = await this.storage.query(
+      `SELECT source_key, target_key, link_type FROM issue_links
+       WHERE link_type IN ('Cause', 'Blocked', 'is caused by', 'is blocked by', 'Causes', 'Blocks')`,
+      []
+    );
+
+    for (const row of causalLinkResult.rows) {
+      const sourceKey = row['source_key'] as string;
+      const targetKey = row['target_key'] as string;
+      const linkType = row['link_type'] as string;
+      const sourceId = getOrCreateEntity(sourceKey, 'issue', {});
+      const targetId = getOrCreateEntity(targetKey, 'issue', {});
+      const relType = linkType.toLowerCase().includes('block') ? 'blocked_by' : 'root_causes';
+      relationships.push({ sourceId, targetId, type: relType, weight: 1, source: 'auto', properties: { jira_link_type: linkType } });
+    }
+    log(`  ${String(causalLinkResult.rows.length)} causal links from Jira`);
+
+    log('Detecting regressions (Reopened after Done)...');
+    const regressionResult = await this.storage.query(
+      `SELECT DISTINCT ic.issue_key, ic.to_value as reopen_status,
+              ic.created as reopen_date
+       FROM issue_changelogs ic
+       WHERE ic.field = 'status' AND ic.to_value = 'Reopened'
+       ORDER BY ic.created DESC`,
+      []
+    );
+
+    for (const row of regressionResult.rows) {
+      const issueKey = row['issue_key'] as string;
+      const reopenDate = row['reopen_date'] as string;
+      const issueId = getOrCreateEntity(issueKey, 'issue', {});
+
+      const suspectPrs = await this.storage.query(
+        `SELECT pr.number FROM pull_requests pr
+         WHERE pr.merged_at IS NOT NULL
+           AND pr.merged_at < $1
+           AND pr.merged_at > ($1::timestamp - interval '14 days')
+         LIMIT 5`,
+        [reopenDate]
+      );
+
+      for (const prRow of suspectPrs.rows) {
+        const prNumber = String(prRow['number']);
+        const prId = getOrCreateEntity(`#${prNumber}`, 'pr', {});
+        relationships.push({ sourceId: prId, targetId: issueId, type: 'probably_caused_by', weight: 1, source: 'auto', properties: { evidence: 'regression', reopen_date: reopenDate } });
+      }
+    }
+    log(`  ${String(regressionResult.rows.length)} regressions checked`);
+
+    log('Detecting probable causes (bug after PR merge)...');
+    const bugResult = await this.storage.query(
+      `SELECT i.issue_key, i.created, i.components
+       FROM issues i
+       WHERE i.issue_type IN ('Bug', 'bug', 'Defect', 'defect')
+         AND i.created > NOW() - interval '6 months'
+       ORDER BY i.created DESC`,
+      []
+    );
+
+    for (const bugRow of bugResult.rows) {
+      const bugKey = bugRow['issue_key'] as string;
+      const bugCreated = bugRow['created'] as string;
+      const bugComponents = bugRow['components'] as string | null;
+      const bugId = getOrCreateEntity(bugKey, 'issue', {});
+
+      if (!bugComponents) { continue; }
+
+      const suspectPrs = await this.storage.query(
+        `SELECT DISTINCT pr.number FROM pull_requests pr
+         JOIN pr_issue_refs pri ON pri.pr_number = pr.number AND pri.repo_full_name = pr.repo_full_name
+         JOIN issues ref_issue ON ref_issue.issue_key = pri.issue_key
+         WHERE pr.merged_at IS NOT NULL
+           AND pr.merged_at < $1
+           AND pr.merged_at > ($1::timestamp - interval '14 days')
+           AND ref_issue.components IS NOT NULL
+           AND ref_issue.components && $2::text[]
+         LIMIT 5`,
+        [bugCreated, bugComponents]
+      );
+
+      for (const prRow of suspectPrs.rows) {
+        const prNumber = String(prRow['number']);
+        const prId = getOrCreateEntity(`#${prNumber}`, 'pr', {});
+        const existing = relationships.find((r) => r.sourceId === prId && r.targetId === bugId && r.type === 'probably_caused_by');
+        if (!existing) {
+          relationships.push({ sourceId: prId, targetId: bugId, type: 'probably_caused_by', weight: 1, source: 'auto', properties: { evidence: 'component_overlap', bug_created: bugCreated } });
+        }
+      }
+    }
+    log(`  ${String(bugResult.rows.length)} bugs checked for probable causes`);
+
     if (options.repoPaths) {
       for (const repoPath of options.repoPaths) {
         log(`Import analysis: ${repoPath}...`);

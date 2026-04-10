@@ -436,6 +436,107 @@ export function registerGraphTools(server: McpServer): void {
   );
 
   server.registerTool(
+    'root_cause_analysis',
+    {
+      description: 'Trace root cause chain for a bug. Returns confirmed causes (from Jira issue links), probable causes (from git timeline — PRs merged before bug creation that touched same modules), and Claude-identified causes. Requires graph data — run `argustack graph build` first.',
+      inputSchema: {
+        issue_key: z.string().describe('Bug issue key (e.g. "PROJ-500")'),
+      },
+    },
+    async ({ issue_key: issueKey }) => {
+      const ws = loadWorkspace();
+      if (!ws.ok) { return errorResponse(`Workspace not found: ${ws.reason}`); }
+
+      const { storage } = await createAdapters(ws.root);
+      try {
+        await storage.initialize();
+
+        const entityResult = await storage.query(
+          'SELECT id FROM graph_entities WHERE name = $1 LIMIT 1',
+          [issueKey]
+        );
+
+        if (entityResult.rows.length === 0) {
+          await storage.close();
+          return textResponse(`No graph data for "${issueKey}". Run "argustack graph build" first.`);
+        }
+
+        const entityId = entityResult.rows[0]?.['id'] as number;
+
+        const relsResult = await storage.query(
+          `SELECT r.type, r.source, r.properties, r.weight,
+                  se.name AS source_name, se.type AS source_type, se.properties AS source_props
+           FROM graph_relationships r
+           JOIN graph_entities se ON se.id = r.source_id
+           WHERE r.target_id = $1
+             AND r.type IN ('root_causes', 'probably_caused_by', 'blocked_by', 'caused_by')
+           ORDER BY r.type, r.weight DESC`,
+          [entityId]
+        );
+
+        interface CauseRow {
+          type: string;
+          source: string;
+          properties: Record<string, unknown>;
+          weight: number;
+          source_name: string;
+          source_type: string;
+          source_props: Record<string, unknown>;
+        }
+        const rows = relsResult.rows as unknown as CauseRow[];
+
+        const confirmed = rows.filter((r) => r.source === 'auto' && (r.type === 'root_causes' || r.type === 'blocked_by'));
+        const probable = rows.filter((r) => r.source === 'auto' && r.type === 'probably_caused_by');
+        const claudeIdentified = rows.filter((r) => r.source === 'claude');
+
+        if (rows.length === 0) {
+          await storage.close();
+          return textResponse(
+            `No root cause data for "${issueKey}". ` +
+            'Try: check issue links in Jira, or investigate with issue_timeline.'
+          );
+        }
+
+        const lines = [`# Root Cause Analysis: ${issueKey}`, ''];
+
+        const formatRow = (r: CauseRow): string => {
+          const props = r.properties;
+          const evidence = typeof props['evidence'] === 'string' ? ` — ${props['evidence']}` : '';
+          const confidence = typeof props['confidence'] === 'string' ? ` [${props['confidence']}]` : '';
+          return `- **${r.source_name}** (${r.source_type}) —[${r.type}]→${confidence}${evidence}`;
+        };
+
+        if (confirmed.length > 0) {
+          lines.push(`## Confirmed Causes (${String(confirmed.length)})`);
+          lines.push('*From Jira issue links*');
+          for (const r of confirmed) { lines.push(formatRow(r)); }
+          lines.push('');
+        }
+
+        if (probable.length > 0) {
+          lines.push(`## Probable Causes (${String(probable.length)})`);
+          lines.push('*From git timeline — PRs merged shortly before bug creation*');
+          for (const r of probable) { lines.push(formatRow(r)); }
+          lines.push('');
+        }
+
+        if (claudeIdentified.length > 0) {
+          lines.push(`## Claude-Identified Causes (${String(claudeIdentified.length)})`);
+          lines.push('*Manually added via add_relationship*');
+          for (const r of claudeIdentified) { lines.push(formatRow(r)); }
+          lines.push('');
+        }
+
+        await storage.close();
+        return textResponse(lines.join('\n'));
+      } catch (err: unknown) {
+        await storage.close();
+        return errorResponse(`Root cause analysis failed: ${getErrorMessage(err)}`);
+      }
+    },
+  );
+
+  server.registerTool(
     'add_observation',
     {
       description: 'Add a text note/observation to any entity in the knowledge graph. Append only — never overwrites existing observations. Use to record: key decisions with WHY, root cause analysis, business process descriptions, out-of-scope decisions. Survives graph rebuild.',
