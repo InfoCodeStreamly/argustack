@@ -217,10 +217,10 @@ export class BuildGraphUseCase {
     log('Detecting regressions (Reopened after Done)...');
     const regressionResult = await this.storage.query(
       `SELECT DISTINCT ic.issue_key, ic.to_value as reopen_status,
-              ic.created as reopen_date
+              ic.changed_at as reopen_date
        FROM issue_changelogs ic
        WHERE ic.field = 'status' AND ic.to_value = 'Reopened'
-       ORDER BY ic.created DESC`,
+       ORDER BY ic.changed_at DESC`,
       []
     );
 
