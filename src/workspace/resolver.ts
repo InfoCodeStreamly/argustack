@@ -20,7 +20,7 @@ export function findWorkspaceRoot(startDir?: string): string | null {
 
   while (true) {
     const marker = join(dir, WORKSPACE_MARKER);
-    if (existsSync(marker)) {
+    if (existsSync(marker) && existsSync(join(dir, WORKSPACE_MARKER, 'config.json'))) {
       return dir;
     }
 

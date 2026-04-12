@@ -1,5 +1,5 @@
 import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest';
-import { mkdtempSync, mkdirSync, rmSync } from 'node:fs';
+import { mkdtempSync, mkdirSync, rmSync, writeFileSync } from 'node:fs';
 import { join } from 'node:path';
 import { tmpdir } from 'node:os';
 
@@ -26,6 +26,7 @@ describe('workspace resolver', () => {
   describe('findWorkspaceRoot', () => {
     it('returns directory containing .argustack marker', () => {
       mkdirSync(join(tempDir, '.argustack'));
+      writeFileSync(join(tempDir, '.argustack', 'config.json'), '{}');
 
       const result = findWorkspaceRoot(tempDir);
 
@@ -34,6 +35,7 @@ describe('workspace resolver', () => {
 
     it('walks up from nested directory', () => {
       mkdirSync(join(tempDir, '.argustack'));
+      writeFileSync(join(tempDir, '.argustack', 'config.json'), '{}');
       const nested = join(tempDir, 'sub', 'deep');
       mkdirSync(nested, { recursive: true });
 
@@ -50,6 +52,7 @@ describe('workspace resolver', () => {
 
     it('uses ARGUSTACK_WORKSPACE env var when no startDir', () => {
       mkdirSync(join(tempDir, '.argustack'));
+      writeFileSync(join(tempDir, '.argustack', 'config.json'), '{}');
       vi.stubEnv('ARGUSTACK_WORKSPACE', tempDir);
 
       const result = findWorkspaceRoot();
@@ -61,6 +64,7 @@ describe('workspace resolver', () => {
   describe('requireWorkspace', () => {
     it('returns workspace root when found', () => {
       mkdirSync(join(tempDir, '.argustack'));
+      writeFileSync(join(tempDir, '.argustack', 'config.json'), '{}');
 
       const result = requireWorkspace(tempDir);
 
