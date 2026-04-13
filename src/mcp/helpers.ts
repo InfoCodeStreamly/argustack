@@ -104,7 +104,7 @@ export async function switchWorkspace(name: string): Promise<WorkspaceResult> {
     key === 'OPENAI_API_KEY',
   );
   for (const key of keysToRemove) {
-    process.env[key] = undefined;
+    Reflect.deleteProperty(process.env, key);
   }
 
   dotenv.config({ path: join(targetDir, '.env'), override: true });
@@ -187,7 +187,7 @@ export async function createAdapters(workspaceRoot: string): Promise<{
   source: ISourceProvider | null;
   storage: IStorage;
 }> {
-  dotenv.config({ path: `${workspaceRoot}/.env`, quiet: true });
+  dotenv.config({ path: `${workspaceRoot}/.env`, override: true });
 
   const { JIRA_URL, JIRA_EMAIL, JIRA_API_TOKEN } = process.env;
   const { DB_HOST, DB_PORT, DB_USER, DB_PASSWORD, DB_NAME } = process.env;
