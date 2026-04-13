@@ -314,7 +314,7 @@ describe('createAdapters', () => {
 
     expect(dotenvConfig).toHaveBeenCalledWith({
       path: `${workspaceRoot}/.env`,
-      quiet: true,
+      override: true,
     });
   });
 
