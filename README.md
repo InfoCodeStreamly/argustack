@@ -144,7 +144,7 @@ Kanban board inside JetBrains IDEs (IntelliJ, WebStorm, PyCharm, etc.) where col
 - Workflows group skills into pipelines (plan, implement, test, review)
 - Done column has configurable time filter
 
-Download from [GitHub Releases](https://github.com/InfoCodeStreamly/argustack/releases) and install via Settings, Plugins, Install from Disk.
+Download from [GitHub Releases](https://github.com/CodeStreamly/argustack/releases) and install via Settings, Plugins, Install from Disk.
 
 The CLI and IDE plugin are independent. The plugin works without the CLI. The CLI adds analytics when configured.
 
