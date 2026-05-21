@@ -1,22 +1,29 @@
 /**
- * Fake IStorage — in-memory Map-based implementation.
- * Used in unit/integration tests instead of PostgreSQL.
+ * Fake IStorage — in-memory Map-based implementation keyed by workspaceId.
  *
- * Methods return Promise.resolve() instead of using async keyword
- * to avoid require-await lint violations.
+ * Every method takes workspaceId first to match the hub IStorage contract.
  */
 
 import type { IStorage, QueryResult } from '../../../src/core/ports/storage.js';
-import type { IssueBatch, Issue, PullRequest, Release, GitHubBatch, HybridSearchResult, GraphEntity, GraphRelationship, GraphObservation, GraphQueryResult, GraphStats } from '../../../src/core/types/index.js';
+import type {
+  IssueBatch, Issue, PullRequest, Release, GitHubBatch,
+  HybridSearchResult, GraphEntity, GraphRelationship, GraphObservation,
+  GraphQueryResult, GraphStats,
+} from '../../../src/core/types/index.js';
 import type { CommitBatch, Commit } from '../../../src/core/types/git.js';
 import type { DbSchemaBatch } from '../../../src/core/types/database.js';
+
+function key(workspaceId: string, id: string | number): string {
+  return `${workspaceId}::${String(id)}`;
+}
 
 export class FakeStorage implements IStorage {
   readonly name = 'FakeStorage';
 
   readonly issues = new Map<string, Issue>();
-  readonly savedBatches: IssueBatch[] = [];
+  readonly savedBatches: { workspaceId: string; batch: IssueBatch }[] = [];
   private readonly _lastUpdated = new Map<string, string>();
+  private readonly _workspaceIssues = new Map<string, string>();
 
   initialized = false;
   closed = false;
@@ -26,28 +33,30 @@ export class FakeStorage implements IStorage {
     return Promise.resolve();
   }
 
-  saveBatch(batch: IssueBatch): Promise<void> {
-    this.savedBatches.push(batch);
+  saveBatch(workspaceId: string, batch: IssueBatch): Promise<void> {
+    this.savedBatches.push({ workspaceId, batch });
     for (const issue of batch.issues) {
-      this.issues.set(issue.key, issue);
+      const k = key(workspaceId, issue.key);
+      this.issues.set(k, issue);
+      this._workspaceIssues.set(k, workspaceId);
       if (issue.updated) {
-        const current = this._lastUpdated.get(issue.projectKey);
+        const lk = key(workspaceId, issue.projectKey);
+        const current = this._lastUpdated.get(lk);
         if (!current || issue.updated > current) {
-          this._lastUpdated.set(issue.projectKey, issue.updated);
+          this._lastUpdated.set(lk, issue.updated);
         }
       }
     }
     return Promise.resolve();
   }
 
-  getLastUpdated(projectKey: string): Promise<string | null> {
-    return Promise.resolve(this._lastUpdated.get(projectKey) ?? null);
+  getLastUpdated(workspaceId: string, projectKey: string): Promise<string | null> {
+    return Promise.resolve(this._lastUpdated.get(key(workspaceId, projectKey)) ?? null);
   }
 
-  query(sql: string, params: unknown[]): Promise<QueryResult> {
-    // Support SELECT summary, description for EmbedUseCase
+  queryForWorkspace(_workspaceId: string, sql: string, params: unknown[]): Promise<QueryResult> {
     if (sql.includes('summary') && sql.includes('description') && typeof params[0] === 'string') {
-      const issue = this.issues.get(params[0]);
+      const issue = this.issues.get(key(_workspaceId, params[0]));
       if (issue) {
         return Promise.resolve({
           rows: [{ summary: issue.summary, description: issue.description }],
@@ -57,114 +66,131 @@ export class FakeStorage implements IStorage {
     return Promise.resolve({ rows: [] });
   }
 
+  rawQuery(_sql: string, _params: unknown[]): Promise<QueryResult> {
+    return Promise.resolve({ rows: [] });
+  }
+
   close(): Promise<void> {
     this.closed = true;
     return Promise.resolve();
   }
 
-  // ─── Git methods ────────────────────────────────────────────
+  // ─── Git ────────────────────────────────────────────
 
   readonly commits = new Map<string, Commit>();
-  readonly savedCommitBatches: CommitBatch[] = [];
+  readonly savedCommitBatches: { workspaceId: string; batch: CommitBatch }[] = [];
   private readonly _lastCommitDate = new Map<string, Date>();
 
-  saveCommitBatch(batch: CommitBatch): Promise<void> {
-    this.savedCommitBatches.push(batch);
+  saveCommitBatch(workspaceId: string, batch: CommitBatch): Promise<void> {
+    this.savedCommitBatches.push({ workspaceId, batch });
     for (const commit of batch.commits) {
-      this.commits.set(commit.hash, commit);
+      this.commits.set(key(workspaceId, commit.hash), commit);
       const date = new Date(commit.committedAt);
-      const current = this._lastCommitDate.get(commit.repoPath);
+      const lk = key(workspaceId, commit.repoPath);
+      const current = this._lastCommitDate.get(lk);
       if (!current || date > current) {
-        this._lastCommitDate.set(commit.repoPath, date);
+        this._lastCommitDate.set(lk, date);
       }
     }
     return Promise.resolve();
   }
 
-  getLastCommitDate(repoPath: string): Promise<Date | null> {
-    return Promise.resolve(this._lastCommitDate.get(repoPath) ?? null);
+  getLastCommitDate(workspaceId: string, repoPath: string): Promise<Date | null> {
+    return Promise.resolve(this._lastCommitDate.get(key(workspaceId, repoPath)) ?? null);
   }
 
-  // ─── GitHub methods ─────────────────────────────────────────
+  // ─── GitHub ─────────────────────────────────────────
 
-  readonly pullRequests = new Map<number, PullRequest>();
-  readonly releases = new Map<number, Release>();
-  readonly savedGitHubBatches: GitHubBatch[] = [];
-  readonly savedReleases: Release[][] = [];
+  readonly pullRequests = new Map<string, PullRequest>();
+  readonly releases = new Map<string, Release>();
+  readonly savedGitHubBatches: { workspaceId: string; batch: GitHubBatch }[] = [];
+  readonly savedReleases: { workspaceId: string; releases: Release[] }[] = [];
   private readonly _lastPrUpdated = new Map<string, Date>();
 
-  saveGitHubBatch(batch: GitHubBatch): Promise<void> {
-    this.savedGitHubBatches.push(batch);
+  saveGitHubBatch(workspaceId: string, batch: GitHubBatch): Promise<void> {
+    this.savedGitHubBatches.push({ workspaceId, batch });
     for (const pr of batch.pullRequests) {
-      this.pullRequests.set(pr.number, pr);
+      this.pullRequests.set(key(workspaceId, pr.number), pr);
       const date = new Date(pr.updatedAt);
-      const current = this._lastPrUpdated.get(pr.repoFullName);
+      const lk = key(workspaceId, pr.repoFullName);
+      const current = this._lastPrUpdated.get(lk);
       if (!current || date > current) {
-        this._lastPrUpdated.set(pr.repoFullName, date);
+        this._lastPrUpdated.set(lk, date);
       }
     }
     return Promise.resolve();
   }
 
-  saveReleases(releases: Release[]): Promise<void> {
-    this.savedReleases.push(releases);
+  saveReleases(workspaceId: string, releases: Release[]): Promise<void> {
+    this.savedReleases.push({ workspaceId, releases });
     for (const rel of releases) {
-      this.releases.set(rel.id, rel);
+      this.releases.set(key(workspaceId, rel.id), rel);
     }
     return Promise.resolve();
   }
 
-  getLastPrUpdated(repoFullName: string): Promise<Date | null> {
-    return Promise.resolve(this._lastPrUpdated.get(repoFullName) ?? null);
+  getLastPrUpdated(workspaceId: string, repoFullName: string): Promise<Date | null> {
+    return Promise.resolve(this._lastPrUpdated.get(key(workspaceId, repoFullName)) ?? null);
   }
 
-  // ─── Embedding methods ──────────────────────────────────────────
+  // ─── Embeddings ──────────────────────────────────────────
 
   private readonly _embeddings = new Map<string, number[]>();
 
-  getUnembeddedIssueKeys(limit: number): Promise<string[]> {
+  getUnembeddedIssueKeys(workspaceId: string, limit: number): Promise<string[]> {
     const keys: string[] = [];
-    for (const [key] of this.issues) {
-      if (!this._embeddings.has(key)) {
-        keys.push(key);
-        if (keys.length >= limit) { break; }
+    for (const [k, ws] of this._workspaceIssues) {
+      if (ws !== workspaceId) { continue; }
+      if (!this._embeddings.has(k)) {
+        const issue = this.issues.get(k);
+        if (issue) {
+          keys.push(issue.key);
+          if (keys.length >= limit) { break; }
+        }
       }
     }
     return Promise.resolve(keys);
   }
 
-  saveEmbedding(issueKey: string, vector: number[]): Promise<void> {
-    this._embeddings.set(issueKey, vector);
+  saveEmbedding(workspaceId: string, issueKey: string, vector: number[]): Promise<void> {
+    this._embeddings.set(key(workspaceId, issueKey), vector);
     return Promise.resolve();
   }
 
   semanticSearch(
+    workspaceId: string,
     _vector: number[],
     limit: number,
-    _threshold?: number
+    _threshold?: number,
   ): Promise<{ issueKey: string; similarity: number }[]> {
     const results: { issueKey: string; similarity: number }[] = [];
-    for (const [key] of this._embeddings) {
-      results.push({ issueKey: key, similarity: 0.9 });
-      if (results.length >= limit) { break; }
+    for (const [k] of this._embeddings) {
+      if (k.startsWith(`${workspaceId}::`)) {
+        results.push({ issueKey: k.slice(workspaceId.length + 2), similarity: 0.9 });
+        if (results.length >= limit) { break; }
+      }
     }
     return Promise.resolve(results);
   }
 
   hybridSearch(
+    workspaceId: string,
     _query: string,
     _vector: number[] | null,
     limit: number,
-    _threshold?: number
+    _threshold?: number,
   ): Promise<HybridSearchResult[]> {
     const results: HybridSearchResult[] = [];
-    for (const [key] of this._embeddings) {
-      results.push({ issueKey: key, score: 0.85, source: 'both' });
-      if (results.length >= limit) { break; }
+    for (const [k] of this._embeddings) {
+      if (k.startsWith(`${workspaceId}::`)) {
+        results.push({ issueKey: k.slice(workspaceId.length + 2), score: 0.85, source: 'both' });
+        if (results.length >= limit) { break; }
+      }
     }
     if (results.length === 0) {
-      for (const batch of this.savedBatches) {
-        for (const issue of batch.issues) {
+      for (const entry of this.savedBatches) {
+        if (entry.workspaceId !== workspaceId) { continue; }
+        for (const issue of entry.batch.issues) {
           results.push({ issueKey: issue.key, score: 0.5, source: 'text' });
           if (results.length >= limit) { break; }
         }
@@ -178,41 +204,44 @@ export class FakeStorage implements IStorage {
     return this._embeddings.size;
   }
 
-  hasEmbedding(issueKey: string): boolean {
-    return this._embeddings.has(issueKey);
+  hasEmbedding(workspaceId: string, issueKey: string): boolean {
+    return this._embeddings.has(key(workspaceId, issueKey));
   }
 
-  // ─── DB schema methods ─────────────────────────────────────────
+  // ─── DB schema ─────────────────────────────────────────
 
-  readonly savedDbBatches: { batch: DbSchemaBatch; sourceName: string }[] = [];
-  readonly deletedDbSources: string[] = [];
+  readonly savedDbBatches: { workspaceId: string; batch: DbSchemaBatch; sourceName: string }[] = [];
+  readonly deletedDbSources: { workspaceId: string; sourceName: string }[] = [];
 
-  saveDbSchemaBatch(batch: DbSchemaBatch, sourceName: string): Promise<void> {
-    this.savedDbBatches.push({ batch, sourceName });
+  saveDbSchemaBatch(workspaceId: string, batch: DbSchemaBatch, sourceName: string): Promise<void> {
+    this.savedDbBatches.push({ workspaceId, batch, sourceName });
     return Promise.resolve();
   }
 
-  deleteDbSchema(sourceName: string): Promise<void> {
-    this.deletedDbSources.push(sourceName);
+  deleteDbSchema(workspaceId: string, sourceName: string): Promise<void> {
+    this.deletedDbSources.push({ workspaceId, sourceName });
     return Promise.resolve();
   }
 
-  // ─── Local issues (board sync) ─────────────────────────────────
+  // ─── Local issues ─────────────────────────────────
 
-  getLocalIssues(): Promise<Issue[]> {
+  getLocalIssues(workspaceId: string): Promise<Issue[]> {
     const locals: Issue[] = [];
-    for (const issue of this.issues.values()) {
-      if (issue.source === 'local') {
+    for (const [k, ws] of this._workspaceIssues) {
+      if (ws !== workspaceId) { continue; }
+      const issue = this.issues.get(k);
+      if (issue?.source === 'local') {
         locals.push(issue);
       }
     }
     return Promise.resolve(locals);
   }
 
-  updateIssueSource(issueKey: string, source: string): Promise<void> {
-    const issue = this.issues.get(issueKey);
+  updateIssueSource(workspaceId: string, issueKey: string, source: string): Promise<void> {
+    const k = key(workspaceId, issueKey);
+    const issue = this.issues.get(k);
     if (issue) {
-      this.issues.set(issueKey, { ...issue, source: source as 'jira' | 'local' });
+      this.issues.set(k, { ...issue, source: source as 'jira' | 'local' });
     }
     return Promise.resolve();
   }
@@ -221,20 +250,22 @@ export class FakeStorage implements IStorage {
 
   private readonly _modifiedKeys = new Set<string>();
 
-  updateIssueFields(issueKey: string, fields: Partial<Issue>): Promise<void> {
-    const issue = this.issues.get(issueKey);
+  updateIssueFields(workspaceId: string, issueKey: string, fields: Partial<Issue>): Promise<void> {
+    const k = key(workspaceId, issueKey);
+    const issue = this.issues.get(k);
     if (!issue) {
-      return Promise.reject(new Error(`Issue ${issueKey} not found in local database`));
+      return Promise.reject(new Error(`Issue ${issueKey} not found`));
     }
-    this.issues.set(issueKey, { ...issue, ...fields });
-    this._modifiedKeys.add(issueKey);
+    this.issues.set(k, { ...issue, ...fields });
+    this._modifiedKeys.add(k);
     return Promise.resolve();
   }
 
-  getModifiedIssues(): Promise<(Issue & { modifiedFields: string[] })[]> {
+  getModifiedIssues(workspaceId: string): Promise<(Issue & { modifiedFields: string[] })[]> {
     const modified: (Issue & { modifiedFields: string[] })[] = [];
-    for (const key of this._modifiedKeys) {
-      const issue = this.issues.get(key);
+    for (const k of this._modifiedKeys) {
+      if (!k.startsWith(`${workspaceId}::`)) { continue; }
+      const issue = this.issues.get(k);
       if (issue) {
         modified.push({ ...issue, modifiedFields: ['description'] });
       }
@@ -242,92 +273,130 @@ export class FakeStorage implements IStorage {
     return Promise.resolve(modified);
   }
 
-  clearModifiedFlag(issueKey: string): Promise<void> {
-    this._modifiedKeys.delete(issueKey);
+  clearModifiedFlag(workspaceId: string, issueKey: string): Promise<void> {
+    this._modifiedKeys.delete(key(workspaceId, issueKey));
     return Promise.resolve();
   }
 
-  // ─── Graph methods ────────────────────────────────────────────
+  // ─── Graph ────────────────────────────────────────────
 
-  private readonly _graphEntities: GraphEntity[] = [];
-  private readonly _graphRelationships: GraphRelationship[] = [];
-  private readonly _graphObservations: GraphObservation[] = [];
+  private readonly _graphEntities: (GraphEntity & { workspaceId: string })[] = [];
+  private readonly _graphRelationships: (GraphRelationship & { workspaceId: string })[] = [];
+  private readonly _graphObservations: (GraphObservation & { workspaceId: string })[] = [];
 
-  saveGraphEntities(entities: GraphEntity[]): Promise<void> {
+  saveGraphEntities(workspaceId: string, entities: GraphEntity[]): Promise<void> {
     for (const entity of entities) {
-      const existing = this._graphEntities.find((e) => e.name === entity.name && e.type === entity.type);
+      const existing = this._graphEntities.find((e) =>
+        e.workspaceId === workspaceId && e.name === entity.name && e.type === entity.type,
+      );
       if (existing) {
         existing.properties = entity.properties;
       } else {
-        this._graphEntities.push({ ...entity, id: this._graphEntities.length + 1 });
+        this._graphEntities.push({
+          ...entity,
+          workspaceId,
+          id: this._graphEntities.length + 1,
+        });
       }
     }
     return Promise.resolve();
   }
 
-  saveGraphRelationships(rels: GraphRelationship[]): Promise<void> {
+  saveGraphRelationships(workspaceId: string, rels: GraphRelationship[]): Promise<void> {
     for (const rel of rels) {
-      this._graphRelationships.push({ ...rel, id: this._graphRelationships.length + 1 });
+      this._graphRelationships.push({
+        ...rel,
+        workspaceId,
+        id: this._graphRelationships.length + 1,
+      });
     }
     return Promise.resolve();
   }
 
-  saveGraphObservation(entityId: number, content: string, author: string): Promise<void> {
-    this._graphObservations.push({ id: this._graphObservations.length + 1, entityId, content, author });
+  saveGraphObservation(
+    workspaceId: string,
+    entityId: number,
+    content: string,
+    author: string,
+  ): Promise<void> {
+    this._graphObservations.push({
+      id: this._graphObservations.length + 1,
+      entityId,
+      content,
+      author,
+      workspaceId,
+    });
     return Promise.resolve();
   }
 
-  getObservations(entityId: number): Promise<GraphObservation[]> {
-    return Promise.resolve(this._graphObservations.filter((o) => o.entityId === entityId));
+  getObservations(workspaceId: string, entityId: number): Promise<GraphObservation[]> {
+    return Promise.resolve(this._graphObservations
+      .filter((o) => o.workspaceId === workspaceId && o.entityId === entityId)
+      .map(({ workspaceId: _w, ...rest }) => rest));
   }
 
-  queryGraph(entityName: string, _depth: number): Promise<GraphQueryResult> {
-    const matched = this._graphEntities.filter((e) => e.name.includes(entityName));
+  queryGraph(workspaceId: string, entityName: string, _depth: number): Promise<GraphQueryResult> {
+    const matched = this._graphEntities.filter((e) =>
+      e.workspaceId === workspaceId && e.name.includes(entityName),
+    );
     const ids = new Set(matched.map((e) => e.id));
-    const rels = this._graphRelationships.filter((r) => ids.has(r.sourceId) || ids.has(r.targetId));
-    const obs = this._graphObservations.filter((o) => ids.has(o.entityId));
-    return Promise.resolve({ entities: matched, relationships: rels, observations: obs });
+    const rels = this._graphRelationships.filter((r) =>
+      r.workspaceId === workspaceId && (ids.has(r.sourceId) || ids.has(r.targetId)),
+    );
+    const obs = this._graphObservations.filter((o) =>
+      o.workspaceId === workspaceId && ids.has(o.entityId),
+    );
+    return Promise.resolve({
+      entities: matched.map(({ workspaceId: _w, ...rest }) => rest),
+      relationships: rels.map(({ workspaceId: _w, ...rest }) => rest),
+      observations: obs.map(({ workspaceId: _w, ...rest }) => rest),
+    });
   }
 
-  getGraphStats(): Promise<GraphStats> {
+  getGraphStats(workspaceId: string): Promise<GraphStats> {
+    const entities = this._graphEntities.filter((e) => e.workspaceId === workspaceId);
+    const rels = this._graphRelationships.filter((r) => r.workspaceId === workspaceId);
+    const obs = this._graphObservations.filter((o) => o.workspaceId === workspaceId);
     const byEntityType: Record<string, number> = {};
-    for (const e of this._graphEntities) {
-      byEntityType[e.type] = (byEntityType[e.type] ?? 0) + 1;
-    }
+    for (const e of entities) { byEntityType[e.type] = (byEntityType[e.type] ?? 0) + 1; }
     const byRelationshipType: Record<string, number> = {};
-    for (const r of this._graphRelationships) {
-      byRelationshipType[r.type] = (byRelationshipType[r.type] ?? 0) + 1;
-    }
+    for (const r of rels) { byRelationshipType[r.type] = (byRelationshipType[r.type] ?? 0) + 1; }
     return Promise.resolve({
-      entityCount: this._graphEntities.length,
-      relationshipCount: this._graphRelationships.length,
-      observationCount: this._graphObservations.length,
+      entityCount: entities.length,
+      relationshipCount: rels.length,
+      observationCount: obs.length,
       byEntityType,
       byRelationshipType,
     });
   }
 
-  clearGraph(): Promise<void> {
-    const claudeRels = this._graphRelationships.filter((r) => r.source === 'claude');
-    this._graphRelationships.length = 0;
-    this._graphRelationships.push(...claudeRels);
+  clearGraph(workspaceId: string): Promise<void> {
+    for (let i = this._graphRelationships.length - 1; i >= 0; i--) {
+      const r = this._graphRelationships[i];
+      if (r && r.workspaceId === workspaceId && r.source !== 'claude') {
+        this._graphRelationships.splice(i, 1);
+      }
+    }
     return Promise.resolve();
   }
 
   // ─── Test helpers ─────────────────────────────────────────────
 
-  seed(issues: Issue[]): void {
+  seed(workspaceId: string, issues: Issue[]): void {
     for (const issue of issues) {
-      this.issues.set(issue.key, issue);
+      const k = key(workspaceId, issue.key);
+      this.issues.set(k, issue);
+      this._workspaceIssues.set(k, workspaceId);
     }
   }
 
-  seedLastUpdated(projectKey: string, timestamp: string): void {
-    this._lastUpdated.set(projectKey, timestamp);
+  seedLastUpdated(workspaceId: string, projectKey: string, timestamp: string): void {
+    this._lastUpdated.set(key(workspaceId, projectKey), timestamp);
   }
 
   clear(): void {
     this.issues.clear();
+    this._workspaceIssues.clear();
     this.savedBatches.length = 0;
     this._lastUpdated.clear();
     this.commits.clear();
@@ -341,6 +410,10 @@ export class FakeStorage implements IStorage {
     this._embeddings.clear();
     this.savedDbBatches.length = 0;
     this.deletedDbSources.length = 0;
+    this._modifiedKeys.clear();
+    this._graphEntities.length = 0;
+    this._graphRelationships.length = 0;
+    this._graphObservations.length = 0;
     this.initialized = false;
     this.closed = false;
   }

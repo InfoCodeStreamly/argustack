@@ -37,6 +37,20 @@ export type {
 export { SOURCE_META, ALL_SOURCES } from './config.js';
 
 export type {
+  Workspace,
+  WorkspaceSettings,
+  DbSourceConfig,
+  GitHubRepoConfig,
+  CsvFileConfig,
+} from './workspace.js';
+
+export type {
+  PreflightResult,
+  LlmProvider,
+  LlmSetupPlan,
+} from './init.js';
+
+export type {
   DbEngine,
   DbTable,
   DbColumn,

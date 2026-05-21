@@ -1,471 +1,516 @@
-import { readdirSync } from 'node:fs';
-import { join, resolve, basename } from 'node:path';
-import { input, confirm, checkbox, select } from '@inquirer/prompts';
-import { execSync } from 'node:child_process';
+import { dirname, join, resolve } from 'node:path';
+import { fileURLToPath } from 'node:url';
 import chalk from 'chalk';
 import ora from 'ora';
-import { isWorkspace } from '../../workspace/resolver.js';
-import { readConfig } from '../../workspace/config.js';
-import type { SourceType, WorkspaceConfig } from '../../core/types/index.js';
-import { ALL_SOURCES, SOURCE_META } from '../../core/types/index.js';
-import type {
-  InitFlags,
-  JiraSetupResult,
-  GitSetupResult,
-  GitHubSetupResult,
-  CsvSetupResult,
-  DbSetupResult,
-  ProxySetupResult,
-} from './types.js';
-import { DEFAULT_DB_PORT, DEFAULT_PGWEB_PORT, validatePort, getErrorMsg, findAvailablePort } from './types.js';
-import { setupJiraInteractive, setupJiraFromFlags } from './setup-jira.js';
-import { setupGitInteractive, setupGitFromFlags } from './setup-git.js';
-import { setupGithubInteractive, setupGithubFromFlags } from './setup-github.js';
-import { setupCsvInteractive, setupCsvFromFlags } from './setup-csv.js';
-import { setupDbInteractive, setupDbFromFlags } from './setup-db.js';
-import { createWorkspaceFiles, printSummary } from './generators.js';
+import type { IWorkspaceStore } from '../../core/ports/workspace-store.js';
+import { setActiveWorkspace } from '../../workspace/active-workspace.js';
+import { hubDir, hubConfigPath, loadHubConfig, resetHubConfigCache } from '../../workspace/hub-config.js';
+import { NodePlatformProbe } from '../../adapters/platform/index.js';
+import { CliDockerControl } from '../../adapters/docker/index.js';
+import { HttpOllamaControl } from '../../adapters/ollama/index.js';
+import { CheckVersionsUseCase } from '../../use-cases/init/check-versions.js';
+import { CheckHubExistsUseCase } from '../../use-cases/init/check-hub-exists.js';
+import { WaitForDockerUseCase } from '../../use-cases/init/wait-for-docker.js';
+import { ResolveHubPortsUseCase, labelForPortKey, type HubPorts, type PortPlanEntry } from '../../use-cases/init/resolve-hub-ports.js';
+import { BootstrapHubUseCase } from '../../use-cases/init/bootstrap-hub.js';
+import { ClearStaleActiveUseCase } from '../../use-cases/init/clear-stale-active.js';
+import { ValidateWorkspaceNameUseCase } from '../../use-cases/init/validate-workspace-name.js';
+import { InstallOllamaUseCase } from '../../use-cases/init/install-ollama.js';
+import { EnsureOllamaRunningUseCase } from '../../use-cases/init/ensure-ollama-running.js';
+import { EnsureEmbeddingModelUseCase } from '../../use-cases/init/ensure-embedding-model.js';
+import { ProbeLlmUseCase } from '../../use-cases/init/probe-llm.js';
+import { HealthCheckExistingLlmUseCase } from '../../use-cases/init/health-check-existing-llm.js';
+import { WriteConfigEnvUseCase } from '../../use-cases/init/write-config-env.js';
+import { CheckDimsConflictUseCase } from '../../use-cases/init/check-dims-conflict.js';
+import type { LlmSetupPlan } from '../../core/types/init.js';
+import type { InitFlags } from './types.js';
+import {
+  promptConfigureCode,
+  promptDimsRecreate,
+  promptOwnLlm,
+  promptOwnLlmUrlAndModel,
+  promptPortChoice,
+  promptProbeRetry,
+  promptWaitForDocker,
+  promptWorkspaceName,
+  promptReconfigureBrokenLlm,
+} from './prompts.js';
+import {
+  printDockerNotRunning,
+  printDockerTimeout,
+  printDone,
+  printHeader,
+  printLlmHealthyAtReinit,
+  printNoInteractiveMissingName,
+  printOllamaInstallFailed,
+  printOllamaTimeout,
+  printOllamaWindowsLink,
+  printPortPlan,
+  printPortsAborted,
+  printProbeError,
+  printPullFailed,
+  printSwitchedTo,
+  printVersionFailure,
+  printWorkspaceList,
+  printWriteConfigFailed,
+  printBootstrapFailure,
+  printStaleActiveCleared,
+} from './presenter.js';
 
 export type { InitFlags } from './types.js';
 
-interface WorkspaceInfo {
-  name: string;
-  path: string;
-  config: WorkspaceConfig;
+const HUB_PORT_DEFAULTS = {
+  pg: 15432,
+  pgweb: 15433,
+  neo4jHttp: 15434,
+  neo4jBolt: 15435,
+  qdrantRest: 15436,
+  qdrantGrpc: 15437,
+} as const;
+const DEFAULT_OLLAMA_URL = 'http://localhost:11434';
+const DEFAULT_OLLAMA_MODEL = 'nomic-embed-text';
+const MAX_PROBE_ATTEMPTS = 3;
+
+function getTemplatesDir(): string {
+  const here = dirname(fileURLToPath(import.meta.url));
+  return resolve(here, '..', '..', '..', 'templates');
 }
 
-/**
- * Scan directory for existing workspace subdirectories.
- */
-export function scanWorkspaces(dir: string): WorkspaceInfo[] {
-  const resolved = resolve(dir);
-  const workspaces: WorkspaceInfo[] = [];
-
-  let entries: string[];
-  try {
-    entries = readdirSync(resolved);
-  } catch {
-    return [];
-  }
-
-  for (const name of entries) {
-    if (name.startsWith('.')) {
-      continue;
-    }
-
-    const subdir = join(resolved, name);
-    if (isWorkspace(subdir)) {
-      const config = readConfig(subdir);
-      if (config) {
-        workspaces.push({
-          name: config.name ?? name,
-          path: subdir,
-          config,
-        });
-      }
-    }
-  }
-
-  return workspaces;
+interface HubStoreFactory {
+  open(): Promise<{ store: IWorkspaceStore; close: () => Promise<void> }>;
 }
 
-/**
- * Sanitize workspace name to kebab-case directory name.
- */
-function sanitizeName(raw: string): string {
-  return raw
-    .toLowerCase()
-    .trim()
-    .replace(/[^a-z0-9-]/g, '-')
-    .replace(/-+/g, '-')
-    .replace(/^-|-$/g, '');
-}
-
-/**
- * Find next available port by checking existing docker-compose files.
- */
-
-async function startAndSync(
-  workspaceDir: string,
-  hasJira: boolean,
-  hasGit: boolean,
-  hasGithub: boolean,
-  csv: CsvSetupResult | null,
-  db: DbSetupResult | null,
-  pgwebPort: number,
-): Promise<void> {
-  const spinnerDb = ora('Starting Docker containers...').start();
-  try {
-    execSync('docker compose up -d', { cwd: workspaceDir, stdio: 'pipe' });
-    spinnerDb.succeed('Database running!');
-  } catch (err: unknown) {
-    spinnerDb.fail('Failed to start Docker');
-    console.log(chalk.red(`  Error: ${getErrorMsg(err)}`));
-    console.log(chalk.dim('  Make sure Docker Desktop is running, then:'));
-    console.log(chalk.cyan(`  cd ${workspaceDir} && docker compose up -d`));
-    return;
-  }
-
-  const spinnerWait = ora('Waiting for PostgreSQL...').start();
-  const MAX_WAIT_SECONDS = 30;
-  for (let i = 0; i < MAX_WAIT_SECONDS; i++) {
-    try {
-      execSync(
-        'docker compose exec -T db pg_isready -U argustack',
-        { cwd: workspaceDir, stdio: 'pipe' },
-      );
-      spinnerWait.succeed('PostgreSQL ready!');
-      break;
-    } catch {
-      if (i === MAX_WAIT_SECONDS - 1) {
-        spinnerWait.fail('PostgreSQL not ready after 30s');
-        console.log(chalk.dim('  Try manually: docker compose logs db'));
-        return;
-      }
-      await new Promise((r) => setTimeout(r, 1000));
-    }
-  }
-
-  if (hasJira) {
-    console.log('');
-    try {
-      const { syncJiraFromInit } = await import('../sync.js');
-      await syncJiraFromInit(workspaceDir);
-    } catch (err: unknown) {
-      console.log(chalk.red(`  Jira sync failed: ${getErrorMsg(err)}`));
-      console.log(chalk.dim(`  Try manually: cd ${workspaceDir} && argustack sync jira`));
-    }
-  }
-
-  if (hasGit) {
-    console.log('');
-    try {
-      const { syncGitFromInit } = await import('../sync.js');
-      await syncGitFromInit(workspaceDir);
-    } catch (err: unknown) {
-      console.log(chalk.red(`  Git sync failed: ${getErrorMsg(err)}`));
-      console.log(chalk.dim(`  Try manually: cd ${workspaceDir} && argustack sync git`));
-    }
-  }
-
-  if (hasGithub) {
-    console.log('');
-    try {
-      const { syncGithubFromInit } = await import('../sync.js');
-      await syncGithubFromInit(workspaceDir);
-    } catch (err: unknown) {
-      console.log(chalk.red(`  GitHub sync failed: ${getErrorMsg(err)}`));
-      console.log(chalk.dim(`  Try manually: cd ${workspaceDir} && argustack sync github`));
-    }
-  }
-
-  if (csv) {
-    console.log('');
-    try {
-      const { syncCsvFromInit } = await import('../sync.js');
-      await syncCsvFromInit(workspaceDir, csv.csvFilePath);
-    } catch (err: unknown) {
-      console.log(chalk.red(`  CSV import failed: ${getErrorMsg(err)}`));
-      console.log(chalk.dim(`  Try manually: cd ${workspaceDir} && argustack sync csv`));
-    }
-  }
-
-  if (db) {
-    console.log('');
-    try {
-      const { syncDbFromInit } = await import('../sync.js');
-      await syncDbFromInit(workspaceDir);
-    } catch (err: unknown) {
-      console.log(chalk.red(`  Database sync failed: ${getErrorMsg(err)}`));
-      console.log(chalk.dim(`  Try manually: cd ${workspaceDir} && argustack sync db`));
-    }
-  }
-
-  console.log(chalk.dim('  What\'s next:'));
-  console.log(`  ${chalk.cyan(`http://localhost:${pgwebPort}`)}            # browse data in pgweb`);
-  console.log('');
-  console.log(chalk.dim('  Claude integration:'));
-  console.log(`    Claude Code:    ${chalk.green('Open this folder — MCP tools ready!')}`);
-  console.log(`    Claude Desktop: ${chalk.cyan('argustack mcp install')}`);
-  console.log('');
-}
-
-async function setupSources(flags: InitFlags): Promise<{
-  jira: JiraSetupResult | null;
-  proxy: ProxySetupResult | null;
-  git: GitSetupResult | null;
-  github: GitHubSetupResult | null;
-  csv: CsvSetupResult | null;
-  db: DbSetupResult | null;
-}> {
-  console.log('');
-  const selectedSources = await checkbox<SourceType>({
-    message: 'Which sources do you have access to?',
-    choices: ALL_SOURCES.map((s) => ({
-      value: s,
-      name: SOURCE_META[s].label,
-      description: SOURCE_META[s].description,
-    })),
-  });
-
-  if (selectedSources.length === 0) {
-    console.log(chalk.yellow('\n  No sources selected. You can add them later with:'));
-    console.log(chalk.cyan('  argustack source add jira'));
-
-    const continueAnyway = await confirm({
-      message: 'Create workspace without sources?',
-      default: true,
-    });
-    if (!continueAnyway) {
-      throw new Error('Cancelled');
-    }
-  }
-
-  let jira: JiraSetupResult | null = null;
-  let proxy: ProxySetupResult | null = null;
-  let git: GitSetupResult | null = null;
-  let github: GitHubSetupResult | null = null;
-  let csv: CsvSetupResult | null = null;
-  let db: DbSetupResult | null = null;
-
-  for (const source of selectedSources) {
-    switch (source) {
-      case 'jira': {
-        const result = await setupJiraInteractive();
-        jira = result.jira;
-        proxy = result.proxy;
-        break;
-      }
-      case 'git':    git = await setupGitInteractive(); break;
-      case 'github': github = await setupGithubInteractive(git?.githubToken, git?.githubRepos); break;
-      case 'csv':    csv = await setupCsvInteractive(); break;
-      case 'db':     db = await setupDbInteractive(); break;
-      case 'board':  break;
-      case 'code':   break;
-    }
-  }
-
-  void flags;
-  return { jira, proxy, git, github, csv, db };
-}
-
-async function runInitNonInteractive(flags: InitFlags): Promise<void> {
-  console.log(chalk.bold('\n  Argustack — non-interactive setup\n'));
-
-  if (!flags.name) {
-    throw new Error('Workspace name is required. Usage: argustack init <name>');
-  }
-
-  const workspaceName = sanitizeName(flags.name);
-  const workspaceDir = resolve(process.cwd(), workspaceName);
-
-  if (isWorkspace(workspaceDir)) {
-    throw new Error(`Workspace '${workspaceName}' already exists at ${workspaceDir}`);
-  }
-
-  const selectedSources: SourceType[] = flags.source
-    ? (flags.source.split(',').map((s) => s.trim().toLowerCase()) as SourceType[])
-    : [];
-
-  for (const s of selectedSources) {
-    if (!ALL_SOURCES.includes(s)) {
-      throw new Error(`Unknown source: ${s}. Available: ${ALL_SOURCES.join(', ')}`);
-    }
-  }
-
-  let jiraResult: JiraSetupResult | null = null;
-  let gitResult: GitSetupResult | null = null;
-  let githubResult: GitHubSetupResult | null = null;
-  let csvResult: CsvSetupResult | null = null;
-  let dbResult: DbSetupResult | null = null;
-
-  for (const source of selectedSources) {
-    switch (source) {
-      case 'jira':
-        jiraResult = await setupJiraFromFlags(flags);
-        break;
-      case 'git':
-        gitResult = setupGitFromFlags(flags);
-        break;
-      case 'github':
-        githubResult = setupGithubFromFlags(flags);
-        break;
-      case 'csv':
-        csvResult = setupCsvFromFlags(flags);
-        break;
-      case 'db':
-        dbResult = setupDbFromFlags(flags);
-        break;
-      case 'board':
-        break;
-      case 'code':
-        break;
-    }
-  }
-
-  const dbPort = flags.dbPort
-    ? parseInt(flags.dbPort, 10)
-    : await findAvailablePort(DEFAULT_DB_PORT);
-  const pgwebPort = flags.pgwebPort
-    ? parseInt(flags.pgwebPort, 10)
-    : await findAvailablePort(DEFAULT_PGWEB_PORT);
-
-  const spinner = ora('Creating workspace...').start();
-  try {
-    createWorkspaceFiles(workspaceDir, jiraResult, gitResult, githubResult, csvResult, dbResult, dbPort, pgwebPort, workspaceName, null);
-    spinner.succeed(`Workspace '${workspaceName}' created!`);
-  } catch (err: unknown) {
-    spinner.fail('Failed');
-    throw err;
-  }
-
-  printSummary(workspaceDir, jiraResult, gitResult, githubResult, csvResult, dbResult, pgwebPort, false, null);
-}
-
-async function runInitInteractive(flags: InitFlags): Promise<void> {
-  console.log('');
-  console.log(chalk.bold('  Argustack — workspace setup'));
-  console.log(chalk.dim('  Cross-reference Jira + Git + DB to analyze your project.\n'));
-
-  const cwd = process.cwd();
-  const existing = scanWorkspaces(cwd);
-
-  let workspaceName: string;
-  let workspaceDir: string;
-
-  if (existing.length > 0) {
-    console.log(chalk.dim(`  Found ${String(existing.length)} workspace(s) in ${basename(cwd)}:`));
-    for (const ws of existing) {
-      const sources = ws.config.order.length > 0
-        ? ws.config.order.map((s) => SOURCE_META[s].label).join(', ')
-        : 'no sources';
-      console.log(`    ${chalk.green('●')} ${chalk.bold(ws.name)} — ${chalk.dim(sources)}`);
-    }
-    console.log('');
-
-    const action = await select({
-      message: 'What would you like to do?',
-      choices: [
-        { value: 'new', name: 'Create new workspace' },
-        ...existing.map((ws) => ({
-          value: `update:${ws.name}`,
-          name: `Update ${ws.name}`,
-        })),
-      ],
-    });
-
-    if (action.startsWith('update:')) {
-      const updateName = action.slice('update:'.length);
-      const ws = existing.find((w) => w.name === updateName);
-      if (!ws) {
-        throw new Error(`Workspace '${updateName}' not found`);
-      }
-      console.log(chalk.dim(`\n  Updating workspace: ${updateName}\n`));
-      workspaceName = updateName;
-      workspaceDir = ws.path;
-    } else {
-      const rawName = flags.name ?? await input({
-        message: 'Workspace name:',
-        validate: (val): string | true => {
-          if (val.includes('://') || val.includes('.') || val.includes('/')) {
-            return 'This looks like a URL. Enter a short project name (e.g. "myapp", "my-project")';
-          }
-          const sanitized = sanitizeName(val);
-          if (!sanitized) {
-            return 'Name is required (letters, numbers, hyphens)';
-          }
-          if (sanitized.length > 30) {
-            return 'Name too long — keep it under 30 characters';
-          }
-          if (existing.some((ws) => ws.name === sanitized)) {
-            return `Workspace '${sanitized}' already exists`;
-          }
-          return true;
-        },
-      });
-
-      workspaceName = sanitizeName(rawName);
-      workspaceDir = join(cwd, workspaceName);
-    }
-  } else {
-    const rawName = flags.name ?? await input({
-      message: 'Workspace name:',
-      validate: (val): string | true => {
-        if (val.includes('://') || val.includes('.') || val.includes('/')) {
-          return 'This looks like a URL. Enter a short project name (e.g. "myapp", "my-project")';
-        }
-        const sanitized = sanitizeName(val);
-        if (!sanitized) {
-          return 'Name is required (letters, numbers, hyphens)';
-        }
-        if (sanitized.length > 30) {
-          return 'Name too long — keep it under 30 characters';
-        }
-        return true;
-      },
-    });
-
-    workspaceName = sanitizeName(rawName);
-    workspaceDir = join(cwd, workspaceName);
-  }
-
-  if (isWorkspace(workspaceDir)) {
-    console.log(chalk.yellow(`\n  Workspace '${workspaceName}' already exists.`));
-    const proceed = await confirm({ message: 'Reinitialize this workspace?', default: false });
-    if (!proceed) {
-      console.log(chalk.dim('  Cancelled.'));
-      return;
-    }
-  }
-
-  process.env['ARGUSTACK_INIT_WORKSPACE'] = workspaceName;
-  const { jira, proxy, git, github, csv, db } = await setupSources(flags);
-  delete process.env['ARGUSTACK_INIT_WORKSPACE'];
-
-  console.log('');
-  console.log(chalk.dim('  Argustack internal database (Docker):'));
-
-  const defaultDbPort = await findAvailablePort(DEFAULT_DB_PORT);
-  const defaultPgwebPort = await findAvailablePort(DEFAULT_PGWEB_PORT);
-
-  const dbPortStr = await input({
-    message: 'PostgreSQL port:', default: flags.dbPort ?? String(defaultDbPort),
-    validate: (val): string | true => validatePort(val, 1024),
-  });
-
-  const pgwebPortStr = await input({
-    message: 'pgweb UI port:', default: flags.pgwebPort ?? String(defaultPgwebPort),
-    validate: (val): string | true => validatePort(val, 1024),
-  });
-
-  const dbPort = parseInt(dbPortStr, 10);
-  const pgwebPort = parseInt(pgwebPortStr, 10);
-
-  const spinner = ora('Creating workspace...').start();
-  try {
-    createWorkspaceFiles(workspaceDir, jira, git, github, csv, db, dbPort, pgwebPort, workspaceName, proxy);
-    spinner.succeed(`Workspace '${workspaceName}' created!`);
-  } catch (err: unknown) {
-    spinner.fail('Failed to create workspace');
-    console.log(chalk.red(`\n  Error: ${getErrorMsg(err)}`));
-    return;
-  }
-
-  const autoStart = await confirm({
-    message: 'Start database and sync now?',
-    default: true,
-  });
-
-  printSummary(workspaceDir, jira, git, github, csv, db, pgwebPort, autoStart, proxy);
-
-  if (autoStart) {
-    await startAndSync(workspaceDir, jira !== null || proxy !== null, git !== null, github !== null, csv, db, pgwebPort);
-  }
+function makeHubStoreFactory(): HubStoreFactory {
+  return {
+    async open() {
+      const { loadHubConfig: load } = await import('../../workspace/hub-config.js');
+      const { PostgresWorkspaceStore, createPool } = await import('../../adapters/postgres/index.js');
+      const hub = load();
+      const pool = createPool(hub.db);
+      const store = new PostgresWorkspaceStore(pool);
+      return { store, close: async (): Promise<void> => { await pool.end(); } };
+    },
+  };
 }
 
 export async function runInit(flags: InitFlags = {}): Promise<void> {
-  if (flags.interactive === false) {
-    await runInitNonInteractive(flags);
-  } else {
-    await runInitInteractive(flags);
+  printHeader();
+
+  const platform = new NodePlatformProbe();
+  const docker = new CliDockerControl(platform);
+  const ollama = new HttpOllamaControl(platform);
+
+  const versions = new CheckVersionsUseCase(platform, docker);
+  const v = await versions.execute();
+  if (!v.ok) {
+    printVersionFailure(v.failure);
+    process.exit(1);
   }
+
+  if (!await docker.isRunning()) {
+    if (flags.interactive === false) {
+      printDockerNotRunning();
+      process.exit(1);
+    }
+    printDockerNotRunning();
+    const wait = await promptWaitForDocker();
+    if (!wait) {
+      process.exit(0);
+    }
+    const spinner = ora('Waiting for Docker').start();
+    const came = await new WaitForDockerUseCase(docker).execute({
+      onTick: (sec) => { spinner.text = `Waiting for Docker (${String(sec)}s)`; },
+    });
+    spinner.stop();
+    if (!came) {
+      printDockerTimeout();
+      process.exit(1);
+    }
+  }
+
+  const hubStoreFactory = makeHubStoreFactory();
+
+  let hubExists: boolean;
+  try {
+    const tmp = await hubStoreFactory.open();
+    try {
+      const c = await new CheckHubExistsUseCase(hubDir(), tmp.store).execute();
+      hubExists = c.exists;
+    } finally {
+      await tmp.close();
+    }
+  } catch {
+    hubExists = false;
+  }
+
+  let activePorts: HubPorts;
+  if (!hubExists) {
+    const portsResult = await resolvePorts(platform, flags);
+    if (!portsResult) {
+      printPortsAborted();
+      process.exit(1);
+    }
+    activePorts = portsResult;
+
+    const bootstrapSpinner = ora('Bootstrap hub').start();
+    const bootstrapResult = await bootstrap(hubStoreFactory, flags, activePorts, (msg) => { bootstrapSpinner.text = msg; });
+    bootstrapSpinner.stop();
+    if (!bootstrapResult.ok) {
+      printBootstrapFailure(bootstrapResult.stage, bootstrapResult.details);
+      process.exit(1);
+    }
+    console.log(chalk.green('  ✓ hub bootstrapped'));
+  } else {
+    console.log(chalk.dim('  Hub already exists, skipping bootstrap.'));
+    activePorts = readPortsFromConfig();
+  }
+
+  resetHubConfigCache();
+
+  const { store: hubStore, close: closeHub } = await hubStoreFactory.open();
+  try {
+    if (hubExists) {
+      const stale = await new ClearStaleActiveUseCase(hubStore).execute();
+      if (stale.cleared) {
+        printStaleActiveCleared(stale.staleId);
+      }
+    }
+
+    const existingList = (await hubStore.list()).map((w) => w.name);
+    printWorkspaceList(existingList);
+
+    if (flags.interactive === false && !flags.name) {
+      printNoInteractiveMissingName();
+      process.exit(1);
+    }
+
+    const validator = new ValidateWorkspaceNameUseCase(hubStore);
+    let workspaceId = '';
+    let workspaceName = '';
+    while (workspaceId.length === 0) {
+      const raw = flags.name ?? await promptWorkspaceName(existingList);
+      const v2 = await validator.execute(raw);
+      if (!v2.ok) {
+        if (flags.interactive === false) {
+          printNoInteractiveMissingName();
+          process.exit(1);
+        }
+        delete flags.name;
+        continue;
+      }
+      if (v2.action === 'create') {
+        await hubStore.create({ id: v2.id, name: v2.name });
+        console.log(chalk.green(`  ✓ workspace "${v2.name}" created`));
+      } else {
+        printSwitchedTo(v2.name);
+      }
+      setActiveWorkspace(v2.id, v2.name);
+      await hubStore.touchActive(v2.id);
+      workspaceId = v2.id;
+      workspaceName = v2.name;
+    }
+
+    if (flags.skipLlm) {
+      writeNoLlm(activePorts);
+      printDone(workspaceName, false);
+      return;
+    }
+
+    const probe = new ProbeLlmUseCase(ollama);
+    if (hubExists) {
+      try {
+        const hub = loadHubConfig();
+        const health = await new HealthCheckExistingLlmUseCase(probe).execute(hub);
+        if (health.configured) {
+          if (health.healthy) {
+            printLlmHealthyAtReinit(hub.embedding.model);
+            printDone(workspaceName, true);
+            return;
+          }
+          const reconf = flags.interactive === false ? false : await promptReconfigureBrokenLlm();
+          if (!reconf) {
+            printDone(workspaceName, true);
+            return;
+          }
+        }
+      } catch {
+        /* config missing — fall through to setup */
+      }
+    }
+
+    if (flags.interactive !== false) {
+      const wantsCode = await promptConfigureCode();
+      if (!wantsCode) {
+        writeNoLlm(activePorts);
+        printDone(workspaceName, false);
+        return;
+      }
+    }
+
+    const plan = await setupLlm(flags, platform, ollama, probe);
+    if (!plan) {
+      writeNoLlm(activePorts);
+      printDone(workspaceName, false);
+      return;
+    }
+
+    const dimsOk = await handleDimsConflict(workspaceId, plan.dimensions, flags);
+    if (!dimsOk) {
+      writeNoLlm(activePorts);
+      printDone(workspaceName, false);
+      return;
+    }
+
+    const writeRes = new WriteConfigEnvUseCase().execute({
+      llm: plan,
+      ports: activePorts,
+      targetPath: hubConfigPath(),
+    });
+    if (!writeRes.ok) {
+      printWriteConfigFailed(writeRes.details);
+      process.exit(1);
+    }
+    resetHubConfigCache();
+    printDone(workspaceName, true);
+  } finally {
+    await closeHub();
+  }
+}
+
+function readPortsFromConfig(): HubPorts {
+  try {
+    const hub = loadHubConfig();
+    const qdrantPort = Number(new URL(hub.qdrant.url).port || '15436');
+    const neo4jBoltPort = Number(new URL(hub.neo4j.uri.replace('bolt://', 'http://')).port || '15435');
+    return {
+      pg: hub.db.port,
+      pgweb: HUB_PORT_DEFAULTS.pgweb,
+      neo4jBolt: neo4jBoltPort,
+      neo4jHttp: HUB_PORT_DEFAULTS.neo4jHttp,
+      qdrantRest: qdrantPort,
+      qdrantGrpc: HUB_PORT_DEFAULTS.qdrantGrpc,
+    };
+  } catch {
+    return { ...HUB_PORT_DEFAULTS };
+  }
+}
+
+async function handleDimsConflict(
+  workspaceId: string,
+  newDims: number,
+  flags: InitFlags,
+): Promise<boolean> {
+  const { QdrantCodeVectorStore } = await import('../../adapters/qdrant/index.js');
+  const hub = loadHubConfig();
+  const vec = new QdrantCodeVectorStore({ url: hub.qdrant.url });
+  try {
+    const conflict = await new CheckDimsConflictUseCase(vec).execute(workspaceId, newDims);
+    if (!conflict.conflict) {
+      return true;
+    }
+    console.log(
+      chalk.yellow(
+        `  ⚠ Embedding dimensions changed: ${String(conflict.existingDims)} → ${String(conflict.newDims)}. ` +
+          `Qdrant collection "${conflict.vectorCollection}" must be deleted.`,
+      ),
+    );
+    const recreate = flags.interactive === false
+      ? false
+      : await promptDimsRecreate(conflict.existingDims, conflict.newDims);
+    if (!recreate) {
+      console.log(chalk.dim('  Skipped — keeping existing collection. LLM provider NOT saved.'));
+      return false;
+    }
+    const spinner = ora(`Deleting Qdrant collection ${conflict.vectorCollection}`).start();
+    try {
+      await vec.deleteCollection(workspaceId);
+      spinner.succeed(`Deleted ${conflict.vectorCollection}`);
+    } catch (err) {
+      spinner.fail(`Failed to delete: ${err instanceof Error ? err.message : String(err)}`);
+      return false;
+    }
+    return true;
+  } catch (err) {
+    console.log(chalk.yellow(`  ⚠ Could not check Qdrant collection dims: ${err instanceof Error ? err.message : String(err)}`));
+    console.log(chalk.dim('  Continuing — first `argustack code index` will create the collection fresh.'));
+    return true;
+  } finally {
+    await vec.close();
+  }
+}
+
+async function resolvePorts(platform: NodePlatformProbe, flags: InitFlags): Promise<HubPorts | null> {
+  const resolver = new ResolveHubPortsUseCase(platform);
+  const { plan } = await resolver.execute({ ...HUB_PORT_DEFAULTS });
+
+  const finalPorts: HubPorts = { ...HUB_PORT_DEFAULTS };
+  for (const entry of plan) {
+    if (!entry.conflict) {
+      finalPorts[entry.key] = entry.current;
+      continue;
+    }
+    if (flags.interactive === false) {
+      if (entry.suggested === null) {
+        return null;
+      }
+      finalPorts[entry.key] = entry.suggested;
+      continue;
+    }
+    const label = labelForPortKey(entry.key);
+    const conflictDetails = `${entry.conflict.processName} pid ${String(entry.conflict.pid)}`;
+    const decision = await promptPortChoice(label, entry.default, conflictDetails, entry.suggested);
+    if (decision.choice === 'abort') {
+      return null;
+    }
+    if (decision.choice === 'accept-suggested' && entry.suggested !== null) {
+      finalPorts[entry.key] = entry.suggested;
+      continue;
+    }
+    if (decision.choice === 'custom') {
+      finalPorts[entry.key] = decision.port;
+    }
+  }
+
+  printPortPlan(plan.map((p: PortPlanEntry) => ({
+    label: labelForPortKey(p.key),
+    port: finalPorts[p.key],
+    fromDefault: finalPorts[p.key] === p.default,
+  })));
+  return finalPorts;
+}
+
+async function bootstrap(
+  _hubStoreFactory: HubStoreFactory,
+  flags: InitFlags,
+  ports: HubPorts,
+  onStep: (msg: string) => void,
+): Promise<{ ok: true } | { ok: false; stage: string; details: string }> {
+  const platform = new NodePlatformProbe();
+  const docker = new CliDockerControl(platform);
+  const useCase = new BootstrapHubUseCase(docker);
+  const templates = getTemplatesDir();
+  const result = await useCase.execute({
+    hubDir: hubDir(),
+    templateComposePath: join(templates, 'hub-docker-compose.yml'),
+    templateConfigEnvPath: join(templates, 'hub-config.env'),
+    ports,
+    ...(flags.skipDocker ? { skipDocker: true } : {}),
+    onStep,
+  });
+  if (result.ok) {
+    return { ok: true };
+  }
+  return { ok: false, stage: result.stage, details: result.details };
+}
+
+function writeNoLlm(ports: HubPorts): void {
+  const writeRes = new WriteConfigEnvUseCase().execute({ ports, targetPath: hubConfigPath() });
+  if (!writeRes.ok) {
+    printWriteConfigFailed(writeRes.details);
+    process.exit(1);
+  }
+  resetHubConfigCache();
+}
+
+async function setupLlm(
+  flags: InitFlags,
+  platform: NodePlatformProbe,
+  ollama: HttpOllamaControl,
+  probe: ProbeLlmUseCase,
+): Promise<LlmSetupPlan | null> {
+  if (flags.interactive === false) {
+    return await setupOllama(platform, ollama, probe);
+  }
+
+  const hasOwn = await promptOwnLlm();
+  if (hasOwn) {
+    return await setupOwnLlm(platform, ollama, probe);
+  }
+  return await setupOllama(platform, ollama, probe);
+}
+
+async function setupOwnLlm(
+  platform: NodePlatformProbe,
+  ollama: HttpOllamaControl,
+  probe: ProbeLlmUseCase,
+): Promise<LlmSetupPlan | null> {
+  let attempts = 0;
+  while (attempts < MAX_PROBE_ATTEMPTS) {
+    const { url, model } = await promptOwnLlmUrlAndModel();
+    const spinner = ora('Probing LLM').start();
+    const result = await probe.execute({ url, model });
+    spinner.stop();
+    attempts += 1;
+    if (result.ok) {
+      return { provider: 'custom', url, model, dimensions: result.dims };
+    }
+    printProbeError(result.kind, result.details);
+    const choice = await promptProbeRetry();
+    if (choice === 'use-ollama') {
+      return await setupOllama(platform, ollama, probe);
+    }
+    if (choice === 'skip') {
+      return null;
+    }
+  }
+  console.log(chalk.yellow('  Probe retry limit reached. Continuing without LLM.'));
+  return null;
+}
+
+async function setupOllama(
+  platform: NodePlatformProbe,
+  ollama: HttpOllamaControl,
+  probe: ProbeLlmUseCase,
+): Promise<LlmSetupPlan | null> {
+  const installed = await ollama.isInstalled();
+  if (!installed) {
+    const os = platform.detectOS();
+    if (os === 'windows') {
+      printOllamaWindowsLink();
+      return null;
+    }
+    const installer = new InstallOllamaUseCase(ollama, platform);
+    const spinner = ora('Installing Ollama').start();
+    const result = await installer.execute();
+    spinner.stop();
+    if (!result.ok) {
+      printOllamaInstallFailed(result.details);
+      return null;
+    }
+    console.log(chalk.green(`  ✓ Ollama installed via ${result.via}`));
+  }
+
+  const runSpinner = ora('Starting Ollama').start();
+  const run = await new EnsureOllamaRunningUseCase(ollama).execute();
+  runSpinner.stop();
+  if (!run.ok) {
+    printOllamaTimeout();
+    return null;
+  }
+
+  const modelSpinner = ora('Pulling embedding model').start();
+  const ensured = await new EnsureEmbeddingModelUseCase(ollama).execute(
+    DEFAULT_OLLAMA_MODEL,
+    (pct) => { modelSpinner.text = `Pulling ${DEFAULT_OLLAMA_MODEL} (${String(pct)}%)`; },
+  );
+  modelSpinner.stop();
+  if (!ensured.ok) {
+    printPullFailed(ensured.kind, ensured.details);
+    return null;
+  }
+  if (ensured.alreadyPresent) {
+    console.log(chalk.dim(`  ${DEFAULT_OLLAMA_MODEL} already present`));
+  } else {
+    console.log(chalk.green(`  ✓ ${DEFAULT_OLLAMA_MODEL} pulled`));
+  }
+
+  const probeSpinner = ora('Probing embedding').start();
+  const probed = await probe.execute({ url: DEFAULT_OLLAMA_URL, model: DEFAULT_OLLAMA_MODEL });
+  probeSpinner.stop();
+  if (!probed.ok) {
+    printProbeError(probed.kind, probed.details);
+    return null;
+  }
+  console.log(chalk.green(`  ✓ embedding works (${String(probed.dims)} dims)`));
+  return { provider: 'ollama', url: DEFAULT_OLLAMA_URL, model: DEFAULT_OLLAMA_MODEL, dimensions: probed.dims };
 }

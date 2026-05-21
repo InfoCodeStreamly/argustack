@@ -8,31 +8,34 @@ import {
   errorResponse,
   getErrorMessage,
   str,
+  ANNOTATIONS,
 } from '../helpers.js';
+import { loadHubConfig } from '../../workspace/hub-config.js';
+
+const workspaceIdParam = z.string().optional().describe('Workspace id or name (defaults to active workspace)');
 
 export function registerSearchTools(server: McpServer): void {
   server.registerTool(
     'hybrid_search',
     {
-      description: 'Search issues by meaning — finds related issues by concept, not just exact keywords. Example: "authentication timeout" finds auth-related issues even if titled differently. Combines keyword matching + AI embeddings (if OPENAI_API_KEY set). Falls back to text-only search without embeddings. If 0 results, try broader terms or use query_issues with SQL ILIKE. Use query_issues for structured filters (status, assignee); use hybrid_search for natural language questions.',
+      title: 'Hybrid issue search',
+      description: 'Semantic + full-text search across issues in a workspace. Falls back to text-only if no OPENAI_API_KEY.',
       inputSchema: {
-        query: z.string().describe('Natural language search query (e.g. "authentication timeout problems")'),
-        limit: z.number().optional().describe('Max results (default: 10)'),
-        threshold: z.number().optional().describe('Minimum similarity score 0-1 for vector results (default: 0.5)'),
+        workspace_id: workspaceIdParam,
+        query: z.string().describe('Natural language search query'),
+        limit: z.number().optional().describe('Max results (default 10)'),
+        threshold: z.number().optional().describe('Minimum similarity 0-1 (default 0.5)'),
       },
+      annotations: ANNOTATIONS.READ_ONLY,
     },
-    async ({ query, limit, threshold }) => {
-      const ws = loadWorkspace();
-      if (!ws.ok) {
-        return errorResponse(`Workspace not found: ${ws.reason}`);
-      }
-
-      const { storage } = await createAdapters(ws.root);
+    async ({ workspace_id: workspaceIdInput, query, limit, threshold }) => {
+      const ws = await loadWorkspace(workspaceIdInput);
+      if (!ws.ok) { return errorResponse(ws.reason); }
+      const { storage, workspaceId } = await createAdapters(ws.workspaceId);
 
       try {
         let queryVector: number[] | null = null;
-
-        const apiKey = process.env['OPENAI_API_KEY'];
+        const apiKey = loadHubConfig().embedding.openaiApiKey;
         if (apiKey) {
           const { OpenAIEmbeddingProvider } = await import('../../adapters/openai/index.js');
           const embeddingProvider = new OpenAIEmbeddingProvider({ apiKey });
@@ -40,27 +43,21 @@ export function registerSearchTools(server: McpServer): void {
           queryVector = vectors[0] ?? null;
         }
 
-        const results = await storage.hybridSearch(
-          query,
-          queryVector,
-          limit ?? 10,
-          threshold ?? 0.5,
-        );
+        const results = await storage.hybridSearch(workspaceId, query, queryVector, limit ?? 10, threshold ?? 0.5);
 
         if (results.length === 0) {
-          await storage.close();
           const mode = queryVector ? 'hybrid (text + semantic)' : 'text-only';
-          return textResponse(`No issues found for "${query}" (${mode} search).`);
+          return textResponse(`No issues found for "${query}" (${mode} search) in workspace ${workspaceId}.`);
         }
 
         const issueKeys = results.map((r) => r.issueKey);
-        const placeholders = issueKeys.map((_, i) => `$${String(i + 1)}`).join(',');
-        const issuesResult = await storage.query(
-          `SELECT issue_key, summary, status, assignee, issue_type FROM issues WHERE issue_key IN (${placeholders})`,
+        const placeholders = issueKeys.map((_, i) => `$${String(i + 2)}`).join(',');
+        const issuesResult = await storage.queryForWorkspace(
+          workspaceId,
+          `SELECT issue_key, summary, status, assignee, issue_type FROM issues
+           WHERE workspace_id = $1 AND issue_key IN (${placeholders})`,
           issueKeys,
         );
-
-        await storage.close();
 
         const issueMap = new Map<string, Record<string, unknown>>();
         for (const row of issuesResult.rows) {
@@ -77,10 +74,8 @@ export function registerSearchTools(server: McpServer): void {
           }
           return `${r.issueKey} (${scoreStr}% | ${r.source})`;
         });
-
-        return textResponse([`Search: "${query}" (${mode}, ${String(results.length)} results):`, '', ...lines].join('\n'));
-      } catch (err: unknown) {
-        await storage.close();
+        return textResponse([`Search: "${query}" (${mode}, ${String(results.length)} results in ${workspaceId}):`, '', ...lines].join('\n'));
+      } catch (err) {
         return errorResponse(`Search failed: ${getErrorMessage(err)}`);
       }
     },

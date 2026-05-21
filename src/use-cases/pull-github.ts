@@ -30,12 +30,12 @@ export class PullGitHubUseCase {
     private readonly storage: IStorage,
   ) {}
 
-  async execute(repoFullName: string, options: PullGitHubOptions = {}): Promise<PullGitHubResult> {
+  async execute(workspaceId: string, repoFullName: string, options: PullGitHubOptions = {}): Promise<PullGitHubResult> {
     const log = options.onProgress ?? noop;
 
     await this.storage.initialize();
 
-    const lastPrDate = options.since ?? (await this.storage.getLastPrUpdated(repoFullName));
+    const lastPrDate = options.since ?? (await this.storage.getLastPrUpdated(workspaceId, repoFullName));
     const since = lastPrDate && !options.since
       ? new Date(lastPrDate.getTime() - 60_000)
       : lastPrDate ?? undefined;
@@ -61,7 +61,7 @@ export class PullGitHubUseCase {
     };
 
     for await (const batch of this.github.pullPullRequests(since)) {
-      await this.storage.saveGitHubBatch(batch);
+      await this.storage.saveGitHubBatch(workspaceId, batch);
 
       result.prsCount += batch.pullRequests.length;
       result.reviewsCount += batch.reviews.length;
@@ -79,7 +79,7 @@ export class PullGitHubUseCase {
 
     log(`Pulling releases from ${repoFullName}...`);
     const releases = await this.github.pullReleases();
-    await this.storage.saveReleases(releases);
+    await this.storage.saveReleases(workspaceId, releases);
     result.releasesCount = releases.length;
 
     log(`  Done: ${result.prsCount} PRs, ${result.reviewsCount} reviews, ${result.releasesCount} releases`);

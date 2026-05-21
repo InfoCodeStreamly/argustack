@@ -1,106 +1,102 @@
 import type { Command } from 'commander';
 import chalk from 'chalk';
 import ora from 'ora';
-import dotenv from 'dotenv';
-import { requireWorkspace } from '../workspace/resolver.js';
 import { JiraProvider } from '../adapters/jira/index.js';
+import {
+  ProxyJiraProvider,
+  loadProxyConfigForWorkspace,
+  proxyConfigExistsForWorkspace,
+} from '../adapters/jira-proxy/index.js';
 import { PostgresStorage } from '../adapters/postgres/index.js';
 import { PushUseCase } from '../use-cases/push.js';
 import { updateMdFrontmatter } from '../adapters/board/md-parser.js';
+import { loadHubConfig } from '../workspace/hub-config.js';
+import { openHubStore, resolveWorkspaceFlag } from './add/shared.js';
+
+interface Options {
+  workspace?: string;
+  updates?: boolean;
+}
 
 export function registerPushCommand(program: Command): void {
   program
     .command('push')
-    .description('Push local board tasks to Jira')
+    .description('Push local board tasks (or modified issues) to Jira')
+    .option('--workspace <name>', 'Target workspace (defaults to active)')
     .option('--updates', 'Push locally modified issues to Jira (update existing)')
-    .action(async (options: { updates?: boolean }) => {
-      const workspaceRoot = requireWorkspace();
-      dotenv.config({ path: `${workspaceRoot}/.env`, quiet: true });
+    .action(async (options: Options) => {
+      const hub = loadHubConfig();
+      const { store, close } = await openHubStore();
+      const storage = new PostgresStorage(hub.db);
+      try {
+        const workspaceId = await resolveWorkspaceFlag(store, options.workspace);
+        await storage.initialize();
 
-      const jiraUrl = process.env['JIRA_URL'];
-      const jiraEmail = process.env['JIRA_EMAIL'];
-      const jiraToken = process.env['JIRA_API_TOKEN'];
+        const jira = proxyConfigExistsForWorkspace(workspaceId)
+          ? new ProxyJiraProvider(loadProxyConfigForWorkspace(workspaceId))
+          : (hub.credentials.jiraUrl && hub.credentials.jiraEmail && hub.credentials.jiraApiToken)
+            ? new JiraProvider({
+                host: hub.credentials.jiraUrl,
+                email: hub.credentials.jiraEmail,
+                apiToken: hub.credentials.jiraApiToken,
+              })
+            : null;
 
-      if (!jiraUrl || !jiraEmail || !jiraToken) {
-        console.log(chalk.red('\n  Jira credentials not configured.'));
-        console.log(chalk.dim('  Set JIRA_URL, JIRA_EMAIL, JIRA_API_TOKEN in .env'));
-        process.exit(1);
-      }
+        if (!jira) {
+          console.log(chalk.red('\n  Jira credentials missing in ~/.argustack/config.env (and no proxy config).'));
+          process.exit(1);
+        }
 
-      const jira = new JiraProvider({ host: jiraUrl, email: jiraEmail, apiToken: jiraToken });
-      const storage = new PostgresStorage({
-        host: process.env['DB_HOST'] ?? 'localhost',
-        port: parseInt(process.env['DB_PORT'] ?? '5434', 10),
-        database: process.env['DB_NAME'] ?? 'argustack',
-        user: process.env['DB_USER'] ?? 'argustack',
-        password: process.env['DB_PASSWORD'] ?? 'argustack_local',
-      });
+        const useCase = new PushUseCase(jira, storage);
 
-      await storage.initialize();
+        if (options.updates) {
+          const spinner = ora('Pushing modified issues to Jira...').start();
+          try {
+            const result = await useCase.executeUpdates(workspaceId, {
+              onProgress: (msg) => { spinner.text = msg; },
+            });
+            spinner.succeed(
+              `Updated ${String(result.updated.length)} issue(s)` +
+              (result.errors > 0 ? `, ${String(result.errors)} error(s)` : ''),
+            );
+            for (const item of result.updated) {
+              console.log(`  ${chalk.green('✓')} ${item.key} — ${item.summary}`);
+            }
+          } catch (err) {
+            spinner.fail('Push updates failed');
+            console.error(chalk.red(`  ${err instanceof Error ? err.message : String(err)}`));
+            process.exit(1);
+          }
+          return;
+        }
 
-      const useCase = new PushUseCase(jira, storage);
-
-      if (options.updates) {
-        const spinner = ora('Pushing modified issues to Jira...').start();
+        const spinner = ora('Pushing local tasks to Jira...').start();
         try {
-          const progressLines: string[] = [];
-          const result = await useCase.executeUpdates({
-            onProgress: (msg) => {
-              progressLines.push(msg);
-              spinner.text = msg;
-            },
+          const result = await useCase.execute(workspaceId, {
+            onProgress: (msg) => { spinner.text = msg; },
           });
 
-          spinner.succeed(
-            `Updated ${String(result.updated.length)} issue(s)` +
-            (result.errors > 0 ? `, ${String(result.errors)} error(s)` : ''),
-          );
-
-          for (const item of result.updated) {
-            console.log(`  ${chalk.green('✓')} ${item.key} — ${item.summary}`);
-          }
-
-          if (result.errors > 0) {
-            for (const line of progressLines.filter((l) => l.includes('Failed'))) {
-              console.log(`  ${chalk.red('✗')} ${line.trim()}`);
+          for (const item of result.created) {
+            if (item.mdPath) {
+              updateMdFrontmatter(item.mdPath, { jiraKey: item.newKey });
             }
           }
-        } catch (err: unknown) {
-          spinner.fail('Push updates failed');
+
+          spinner.succeed(
+            `Pushed! Created ${String(result.created.length)} issue(s)` +
+            (result.errors > 0 ? `, ${String(result.errors)} error(s)` : ''),
+          );
+          for (const item of result.created) {
+            console.log(`  ${chalk.green('✓')} ${item.newKey} — ${chalk.dim(item.oldKey)}`);
+          }
+        } catch (err) {
+          spinner.fail('Push failed');
           console.error(chalk.red(`  ${err instanceof Error ? err.message : String(err)}`));
           process.exit(1);
-        } finally {
-          await storage.close();
         }
-        return;
-      }
-
-      const spinner = ora('Pushing local tasks to Jira...').start();
-      try {
-        const result = await useCase.execute({
-          onProgress: (msg) => { spinner.text = msg; },
-        });
-
-        for (const item of result.created) {
-          if (item.mdPath) {
-            updateMdFrontmatter(item.mdPath, { jiraKey: item.newKey });
-          }
-        }
-
-        spinner.succeed(
-          `Pushed! Created ${String(result.created.length)} issue(s)` +
-          (result.errors > 0 ? `, ${String(result.errors)} error(s)` : ''),
-        );
-
-        for (const item of result.created) {
-          console.log(`  ${chalk.green('✓')} ${item.newKey} — ${chalk.dim(item.oldKey)}`);
-        }
-      } catch (err: unknown) {
-        spinner.fail('Push failed');
-        console.error(chalk.red(`  ${err instanceof Error ? err.message : String(err)}`));
-        process.exit(1);
       } finally {
         await storage.close();
+        await close();
       }
     });
 }

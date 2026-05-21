@@ -67,7 +67,7 @@ describe('MCP code-hybrid tools', () => {
 
     const result = (await fix.client.callTool({
       name: 'explain_feature',
-      arguments: { query: 'authentication', project_id: CODE_TEST_IDS.projectA, top_k: 5 },
+      arguments: { query: 'authentication', workspace_id: fix.workspaceId, top_k: 5 },
     })) as ToolTextResult;
 
     expect(result.isError).toBeFalsy();
@@ -84,7 +84,7 @@ describe('MCP code-hybrid tools', () => {
 
     const result = (await fix.client.callTool({
       name: 'plan_feature_files',
-      arguments: { description: 'add tax calculation', project_id: CODE_TEST_IDS.projectA },
+      arguments: { description: 'add tax calculation', workspace_id: fix.workspaceId },
     })) as ToolTextResult;
 
     const text = result.content[0]?.text ?? '';
@@ -94,10 +94,11 @@ describe('MCP code-hybrid tools', () => {
     expect(text).toContain('Presentation');
   });
 
-  it('errors when project_id missing and CWD has no project', async () => {
+  it('errors when workspace has no registered code project', async () => {
+    fix.meta.clear();
     const result = (await fix.client.callTool({
       name: 'plan_feature_files',
-      arguments: { description: 'anything' },
+      arguments: { description: 'anything', workspace_id: fix.workspaceId },
     })) as ToolTextResult;
 
     expect(result.content[0]?.text).toMatch(/Project not registered/);

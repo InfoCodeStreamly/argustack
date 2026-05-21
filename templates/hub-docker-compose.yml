@@ -1,0 +1,88 @@
+# Argustack Hub — one Docker stack for ALL workspaces.
+#
+# Multi-tenant: a single Postgres + Neo4j + Qdrant set hosts data for every
+# workspace registered through `argustack workspace add`. Tenant isolation
+# happens at the schema level (workspace_id FK in pg, projectId property in
+# neo4j, per-workspace collection in qdrant).
+#
+# Ports are configured via .env file next to this compose file. argustack init
+# writes it with conflict-free ports (default 15432..15437 range).
+#
+# Usage:
+#   cd ~/.argustack && docker compose up -d
+#
+# Workspaces find this stack via ~/.argustack/config.env which uses the
+# same ports as the .env file here.
+
+name: argustack
+
+services:
+  pg:
+    image: pgvector/pgvector:pg16
+    container_name: argustack-hub-pg
+    ports:
+      - "${HUB_PG_PORT:-15432}:5432"
+    environment:
+      POSTGRES_USER: argustack
+      POSTGRES_PASSWORD: argustack_hub
+      POSTGRES_DB: argustack_hub
+    volumes:
+      - argustack-hub-pg-data:/var/lib/postgresql/data
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U argustack -d argustack_hub"]
+      interval: 5s
+      timeout: 3s
+      retries: 20
+    restart: unless-stopped
+
+  pgweb:
+    image: sosedoff/pgweb
+    container_name: argustack-hub-pgweb
+    ports:
+      - "${HUB_PGWEB_PORT:-15433}:8081"
+    environment:
+      DATABASE_URL: postgres://argustack:argustack_hub@pg:5432/argustack_hub?sslmode=disable
+    depends_on:
+      pg:
+        condition: service_healthy
+    restart: unless-stopped
+
+  neo4j:
+    image: neo4j:5-community
+    container_name: argustack-hub-neo4j
+    ports:
+      - "${HUB_NEO4J_HTTP_PORT:-15434}:7474"
+      - "${HUB_NEO4J_BOLT_PORT:-15435}:7687"
+    environment:
+      NEO4J_AUTH: neo4j/argustack_local
+      NEO4J_PLUGINS: '["apoc"]'
+      NEO4J_dbms_memory_pagecache_size: 1G
+      NEO4J_dbms_memory_heap_initial__size: 1G
+      NEO4J_dbms_memory_heap_max__size: 2G
+    volumes:
+      - argustack-hub-neo4j-data:/data
+      - argustack-hub-neo4j-logs:/logs
+      - argustack-hub-neo4j-plugins:/plugins
+    healthcheck:
+      test: ["CMD-SHELL", "wget --no-verbose --tries=1 --spider http://localhost:7474 || exit 1"]
+      interval: 10s
+      timeout: 5s
+      retries: 15
+    restart: unless-stopped
+
+  qdrant:
+    image: qdrant/qdrant:latest
+    container_name: argustack-hub-qdrant
+    ports:
+      - "${HUB_QDRANT_REST_PORT:-15436}:6333"
+      - "${HUB_QDRANT_GRPC_PORT:-15437}:6334"
+    volumes:
+      - argustack-hub-qdrant-data:/qdrant/storage
+    restart: unless-stopped
+
+volumes:
+  argustack-hub-pg-data:
+  argustack-hub-neo4j-data:
+  argustack-hub-neo4j-logs:
+  argustack-hub-neo4j-plugins:
+  argustack-hub-qdrant-data:

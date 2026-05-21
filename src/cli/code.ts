@@ -1,13 +1,11 @@
 import type { Command } from 'commander';
-import { resolve, join, dirname } from 'node:path';
-import { fileURLToPath } from 'node:url';
-import { homedir } from 'node:os';
-import { mkdirSync, writeFileSync, existsSync, readFileSync, unlinkSync, openSync, copyFileSync } from 'node:fs';
-import { spawn, spawnSync } from 'node:child_process';
+import { resolve, join } from 'node:path';
+import { mkdirSync, writeFileSync, existsSync, readFileSync, unlinkSync, openSync } from 'node:fs';
+import { spawn } from 'node:child_process';
 import chalk from 'chalk';
 import ora from 'ora';
-import dotenv from 'dotenv';
-import { requireWorkspace } from '../workspace/resolver.js';
+import { hubDir, loadHubConfig } from '../workspace/hub-config.js';
+import { openHubStore, resolveWorkspaceFlag } from './add/shared.js';
 import { PostgresStorage } from '../adapters/postgres/index.js';
 import { Neo4jCodeGraphStore } from '../adapters/neo4j/index.js';
 import { QdrantCodeVectorStore } from '../adapters/qdrant/index.js';
@@ -15,6 +13,7 @@ import { TreeSitterParser } from '../adapters/tree-sitter/index.js';
 import { TypeScriptLspClient } from '../adapters/lsp/index.js';
 import { VoyageCodeEmbeddingProvider } from '../adapters/voyage/index.js';
 import { LmStudioCodeEmbeddingProvider } from '../adapters/lmstudio/index.js';
+import { OllamaCodeEmbeddingProvider } from '../adapters/ollama/index.js';
 import type { ICodeEmbedding } from '../core/ports/code-embedding.js';
 import { RegisterCodeProjectUseCase } from '../use-cases/register-code-project.js';
 import { UnregisterCodeProjectUseCase } from '../use-cases/unregister-code-project.js';
@@ -22,55 +21,12 @@ import { IndexCodeUseCase } from '../use-cases/index-code.js';
 import { WatchCodeUseCase } from '../use-cases/watch-code.js';
 import type { CodeProject, CodeLanguage } from '../core/types/code.js';
 
-const HUB_DIR = join(homedir(), '.argustack', 'code');
-const HUB_COMPOSE_FILE = join(HUB_DIR, 'docker-compose.yml');
-const WATCHERS_DIR = join(HUB_DIR, 'watchers');
-
-function findTemplateFile(): string | null {
-  const here = dirname(fileURLToPath(import.meta.url));
-  const candidates = [
-    join(here, '..', '..', 'templates', 'code-docker-compose.yml'),
-    join(here, '..', '..', '..', 'templates', 'code-docker-compose.yml'),
-    join(here, '..', 'templates', 'code-docker-compose.yml'),
-  ];
-  for (const path of candidates) {
-    if (existsSync(path)) {
-      return path;
-    }
-  }
-  return null;
-}
-
-function ensureHubCompose(): { created: boolean; path: string } {
-  if (!existsSync(HUB_DIR)) {
-    mkdirSync(HUB_DIR, { recursive: true });
-  }
-  if (existsSync(HUB_COMPOSE_FILE)) {
-    return { created: false, path: HUB_COMPOSE_FILE };
-  }
-  const template = findTemplateFile();
-  if (!template) {
-    throw new Error(
-      `code-docker-compose.yml template not found. Expected near package root.`,
-    );
-  }
-  copyFileSync(template, HUB_COMPOSE_FILE);
-  return { created: true, path: HUB_COMPOSE_FILE };
-}
-
-function dockerComposeUp(): void {
-  const result = spawnSync('docker', ['compose', '-f', HUB_COMPOSE_FILE, 'up', '-d'], {
-    stdio: 'inherit',
-  });
-  if (result.status !== 0) {
-    throw new Error(`docker compose up exited with code ${String(result.status)}`);
-  }
-}
+const WATCHERS_DIR = (): string => join(hubDir(), 'watchers');
 
 function watcherPaths(projectId: string): { pidFile: string; logFile: string } {
   return {
-    pidFile: join(WATCHERS_DIR, `${projectId}.pid`),
-    logFile: join(WATCHERS_DIR, `${projectId}.log`),
+    pidFile: join(WATCHERS_DIR(), `${projectId}.pid`),
+    logFile: join(WATCHERS_DIR(), `${projectId}.log`),
   };
 }
 
@@ -95,61 +51,35 @@ interface CodeAdapters {
   embedding: ICodeEmbedding;
 }
 
-function loadEnv(): void {
-  const workspaceRoot = requireWorkspace();
-  dotenv.config({ path: `${workspaceRoot}/.env`, quiet: true });
-}
-
-function readDbConfig(): ConstructorParameters<typeof PostgresStorage>[0] {
-  return {
-    host: process.env['DB_HOST'] ?? 'localhost',
-    port: parseInt(process.env['DB_PORT'] ?? '5434', 10),
-    database: process.env['DB_NAME'] ?? 'argustack',
-    user: process.env['DB_USER'] ?? 'argustack',
-    password: process.env['DB_PASSWORD'] ?? 'argustack_local',
-  };
-}
-
 function buildAdapters(): CodeAdapters {
-  const uri = process.env['NEO4J_URI'];
-  const qdrantUrl = process.env['QDRANT_URL'];
-  if (!uri || !qdrantUrl) {
-    throw new Error(
-      'Code intelligence requires NEO4J_URI and QDRANT_URL in workspace .env',
-    );
-  }
-  const provider = (process.env['CODE_EMBEDDING_PROVIDER'] ?? 'lmstudio').toLowerCase();
-  if (provider === 'voyage' && !process.env['VOYAGE_API_KEY']) {
-    throw new Error('CODE_EMBEDDING_PROVIDER=voyage requires VOYAGE_API_KEY in workspace .env');
+  const hub = loadHubConfig();
+  if (hub.embedding.provider === 'voyage' && !hub.embedding.voyageApiKey) {
+    throw new Error('CODE_EMBEDDING_PROVIDER=voyage requires VOYAGE_API_KEY in ~/.argustack/config.env');
   }
 
-  const storage = new PostgresStorage(readDbConfig());
-  const graph = new Neo4jCodeGraphStore({
-    uri,
-    user: process.env['NEO4J_USER'] ?? 'neo4j',
-    password: process.env['NEO4J_PASSWORD'] ?? 'argustack_local',
-  });
-  const qdrantOpts: ConstructorParameters<typeof QdrantCodeVectorStore>[0] = {
-    url: qdrantUrl,
-  };
-  if (process.env['QDRANT_API_KEY']) {
-    qdrantOpts.apiKey = process.env['QDRANT_API_KEY'];
-  }
-  const vec = new QdrantCodeVectorStore(qdrantOpts);
+  const storage = new PostgresStorage(hub.db);
+  const graph = new Neo4jCodeGraphStore(hub.neo4j);
+  const vec = new QdrantCodeVectorStore({ url: hub.qdrant.url });
 
   let embedding: ICodeEmbedding;
-  if (provider === 'voyage') {
-    embedding = new VoyageCodeEmbeddingProvider({
-      apiKey: process.env['VOYAGE_API_KEY'] ?? '',
+  if (hub.embedding.provider === 'voyage' && hub.embedding.voyageApiKey) {
+    embedding = new VoyageCodeEmbeddingProvider({ apiKey: hub.embedding.voyageApiKey });
+  } else if (hub.embedding.provider === 'ollama' || hub.embedding.provider === 'custom') {
+    const url = hub.embedding.provider === 'custom'
+      ? hub.embedding.customUrl
+      : hub.embedding.ollamaUrl;
+    embedding = new OllamaCodeEmbeddingProvider({
+      model: hub.embedding.model,
+      dimensions: hub.embedding.dimensions,
+      ...(url ? { url } : {}),
     });
   } else {
-    const lmsOpts: ConstructorParameters<typeof LmStudioCodeEmbeddingProvider>[0] = {};
-    if (process.env['LMSTUDIO_URL']) {lmsOpts.url = process.env['LMSTUDIO_URL'];}
-    if (process.env['EMBEDDING_MODEL']) {lmsOpts.model = process.env['EMBEDDING_MODEL'];}
-    if (process.env['EMBEDDING_DIMS']) {
-      lmsOpts.dimensions = parseInt(process.env['EMBEDDING_DIMS'], 10);
-    }
-    if (process.env['RERANK_MODEL']) {lmsOpts.rerankModel = process.env['RERANK_MODEL'];}
+    const lmsOpts: ConstructorParameters<typeof LmStudioCodeEmbeddingProvider>[0] = {
+      model: hub.embedding.model,
+      dimensions: hub.embedding.dimensions,
+    };
+    if (hub.embedding.lmstudioUrl) { lmsOpts.url = hub.embedding.lmstudioUrl; }
+    if (hub.embedding.rerankModel) { lmsOpts.rerankModel = hub.embedding.rerankModel; }
     embedding = new LmStudioCodeEmbeddingProvider(lmsOpts);
   }
   return { storage, graph, vec, embedding };
@@ -161,9 +91,6 @@ async function closeAdapters(adapters: CodeAdapters): Promise<void> {
   await adapters.storage.close();
 }
 
-function projectIdFromName(name: string): string {
-  return name.toLowerCase().replace(/[^a-z0-9-]/g, '-').replace(/-+/g, '-').replace(/^-|-$/g, '');
-}
 
 export function registerCodeCommands(program: Command): void {
   const code = program
@@ -172,68 +99,28 @@ export function registerCodeCommands(program: Command): void {
 
   code
     .command('init')
-    .description('Generate ~/.argustack/code/docker-compose.yml, start containers, apply schemas')
-    .option('--skip-docker', 'Skip docker compose up (assumes containers already running)')
-    .action(async (options: { skipDocker?: boolean }) => {
-      loadEnv();
-      const composeSpinner = ora('Preparing hub docker-compose.yml...').start();
-      try {
-        const { created, path } = ensureHubCompose();
-        composeSpinner.succeed(
-          created
-            ? `Created ${path}`
-            : `Using existing ${path}`,
-        );
-      } catch (err) {
-        composeSpinner.fail('Failed to prepare docker-compose.yml');
-        console.error(chalk.red(`  ${err instanceof Error ? err.message : String(err)}`));
-        process.exitCode = 1;
-        return;
-      }
-
-      if (!options.skipDocker) {
-        const dockerSpinner = ora('Starting Neo4j + Qdrant containers...').start();
-        try {
-          dockerSpinner.stop();
-          dockerComposeUp();
-          console.log(chalk.green('  Containers up'));
-        } catch (err) {
-          dockerSpinner.fail('docker compose up failed');
-          console.error(chalk.red(`  ${err instanceof Error ? err.message : String(err)}`));
-          console.error(chalk.dim('  Tip: re-run with --skip-docker if containers are managed elsewhere.'));
-          process.exitCode = 1;
-          return;
-        }
-      }
-
-      const spinner = ora('Initializing code intelligence stores...').start();
-      const adapters = buildAdapters();
-      try {
-        await adapters.storage.initialize();
-        await adapters.graph.initialize();
-        await adapters.vec.initialize();
-        spinner.succeed('Code intelligence ready');
-      } catch (err) {
-        spinner.fail('Init failed');
-        console.error(chalk.red(`  ${err instanceof Error ? err.message : String(err)}`));
-        process.exitCode = 1;
-      } finally {
-        await closeAdapters(adapters);
-      }
+    .description('[deprecated] Use `argustack init` — it now bootstraps the full hub including code-intel')
+    .action(() => {
+      console.log(chalk.yellow('  `argustack code init` is deprecated.'));
+      console.log(chalk.dim('  Use `argustack init` — it bootstraps the full hub (pg + neo4j + qdrant) and offers code-intel setup.'));
     });
 
   code
     .command('register')
-    .description('Register a code project for indexing')
-    .requiredOption('--name <name>', 'Project name')
+    .description('Register a code project for indexing (workspaces.id === code_projects.id)')
+    .option('--workspace <name>', 'Target workspace (defaults to active)')
     .option('--root <path>', 'Project root (default: CWD)')
     .option('--language <lang>', 'Primary language (typescript|tsx|javascript|jsx)', 'typescript')
-    .action(async (options: { name: string; root?: string; language: string }) => {
-      loadEnv();
+    .action(async (options: { workspace?: string; root?: string; language: string }) => {
+      const { store, close: closeStore } = await openHubStore();
+      const workspaceId = await resolveWorkspaceFlag(store, options.workspace);
+      const workspace = await store.getById(workspaceId);
+      await closeStore();
+      if (!workspace) { throw new Error(`Workspace "${workspaceId}" not found.`); }
       const root = resolve(options.root ?? process.cwd());
       const project: CodeProject = {
-        id: projectIdFromName(options.name),
-        name: options.name,
+        id: workspaceId,
+        name: workspace.name,
         root,
         language: options.language as CodeLanguage,
       };
@@ -259,10 +146,11 @@ export function registerCodeCommands(program: Command): void {
   code
     .command('unregister')
     .description('Remove a code project and its indexed data')
-    .argument('<name>', 'Project name or id')
-    .action(async (name: string) => {
-      loadEnv();
-      const projectId = projectIdFromName(name);
+    .option('--workspace <name>', 'Target workspace (defaults to active)')
+    .action(async (options: { workspace?: string }) => {
+      const { store, close: closeStore } = await openHubStore();
+      const projectId = await resolveWorkspaceFlag(store, options.workspace);
+      await closeStore();
       const adapters = buildAdapters();
       try {
         const useCase = new UnregisterCodeProjectUseCase(
@@ -271,7 +159,7 @@ export function registerCodeCommands(program: Command): void {
           adapters.vec,
         );
         await useCase.execute(projectId);
-        console.log(chalk.yellow(`  Unregistered '${name}' (id: ${projectId})`));
+        console.log(chalk.yellow(`  Unregistered project (id: ${projectId})`));
       } finally {
         await closeAdapters(adapters);
       }
@@ -285,7 +173,6 @@ export function registerCodeCommands(program: Command): void {
     .option('--status', 'Print latest index job + stats and exit (no indexing)')
     .option('--lsp', 'Use typescript-language-server for cross-file call resolution (slower, more accurate)')
     .action(async (options: { project?: string; full?: boolean; status?: boolean; lsp?: boolean }) => {
-      loadEnv();
       const adapters = buildAdapters();
       const spinner = ora('Resolving project...').start();
       let lspClient: TypeScriptLspClient | null = null;
@@ -389,7 +276,6 @@ export function registerCodeCommands(program: Command): void {
     .command('list')
     .description('List registered code projects')
     .action(async () => {
-      loadEnv();
       const adapters = buildAdapters();
       try {
         const projects = await adapters.storage.listProjects();
@@ -416,7 +302,6 @@ export function registerCodeCommands(program: Command): void {
     .command('status')
     .description('Show status of code intelligence stores and projects')
     .action(async () => {
-      loadEnv();
       const adapters = buildAdapters();
       try {
         const projects = await adapters.storage.listProjects();
@@ -446,13 +331,14 @@ export function registerCodeCommands(program: Command): void {
 
   code
     .command('stats')
-    .description('Show stats for a project')
-    .argument('<projectId>', 'Project id')
-    .action(async (projectId: string) => {
-      loadEnv();
+    .description('Show stats for a code project')
+    .option('--workspace <name>', 'Target workspace (defaults to active)')
+    .action(async (options: { workspace?: string }) => {
+      const { store, close: closeStore } = await openHubStore();
+      const id = await resolveWorkspaceFlag(store, options.workspace);
+      await closeStore();
       const adapters = buildAdapters();
       try {
-        const id = projectIdFromName(projectId);
         const project = await adapters.storage.getProjectById(id);
         if (!project) {
           console.log(chalk.red(`\n  Project '${id}' not found.\n`));
@@ -484,8 +370,7 @@ export function registerCodeCommands(program: Command): void {
     .option('--daemon', 'Run in background, write PID file')
     .option('--stop', 'Stop running daemon for this project')
     .action(async (options: { project?: string; daemon?: boolean; stop?: boolean }) => {
-      loadEnv();
-      mkdirSync(WATCHERS_DIR, { recursive: true });
+      mkdirSync(WATCHERS_DIR(), { recursive: true });
       const adapters = buildAdapters();
 
       try {

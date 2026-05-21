@@ -1,156 +1,95 @@
 # Argustack
 
-> RAG engine for project intelligence — pull Jira, Git, GitHub into local PostgreSQL, index codebases into Neo4j + Qdrant, then ask AI about your project. Includes JetBrains IDE plugin with kanban board where columns are Claude Code skills.
+> RAG engine for project intelligence — pull Jira, Git, GitHub into local Postgres, index codebases into Neo4j + Qdrant, then ask AI about your project. Includes a JetBrains IDE plugin with a kanban board where columns are Claude Code skills.
 
 ## What it does
 
-CLI tool that downloads your project data into a local database, then gives Claude / any LLM direct access to query it.
+CLI tool that downloads your project data into a local hub, then gives Claude / any LLM direct access via 46 MCP tools.
 
-Seven sources of truth:
-- **Jira** — issues, comments, changelogs, worklogs, links (what was planned)
-- **Jira CSV** — import from CSV export for teams without Jira API access
-- **Jira Proxy** — connect through corporate API gateways / middleware (bearer or bearer_exchange auth, configurable endpoints via `.argustack/proxy.json`)
-- **Git** — commits, per-file diffs, issue cross-references (what was coded)
-- **GitHub** — PRs, reviews, comments, releases (what was reviewed)
-- **Database** — connects to your application DB, pulls schema (tables/columns/FKs/indexes), supports read-only SQL queries against live DB
-- **Code** — local codebases indexed into Neo4j call graph + Qdrant vectors via tree-sitter AST + LM Studio embeddings (Qwen3-Embedding-4B local, Apache-2.0)
+Seven sources of truth, each independent (own adapter, own use case, own subcommand):
 
-Each source is independent — own adapter, own use case, own sync command.
+- **Jira** — issues, comments, changelogs, worklogs, links
+- **Jira Proxy** — Jira via corporate API gateway (bearer / bearer_exchange auth, configurable endpoints via `.argustack/proxy.json`)
+- **Jira CSV** — import from CSV export for teams without API access
+- **Git** — commits, per-file diffs, issue cross-references (multi-repo supported)
+- **GitHub** — PRs, reviews, comments, releases
+- **External DB** — schema introspection + read-only SQL against your app database
+- **Code** — tree-sitter AST → Neo4j call graph + Qdrant vectors. Default embedding provider is **Ollama** (`nomic-embed-text`, 768d, MIT). LM Studio (Qwen3-Embedding-4B, Apache-2.0) and Voyage AI (`voyage-code-3`, cloud) are opt-ins.
 
-All data stays on localhost in PostgreSQL (Docker). Nothing leaves your machine.
+All data stays on localhost in one shared `~/.argustack/` Docker stack (Postgres + Neo4j + Qdrant + pgweb). Multi-tenant: every row carries `workspace_id`, isolated by FK CASCADE. Nothing leaves your machine unless you opt into Voyage AI or OpenAI embeddings.
 
 ## How users interact
 
-Two modes — interactive (human) and non-interactive (AI agents, CI/CD):
-
 ```bash
 npm i -g argustack
-
-# Interactive — prompts guide you through setup
-argustack init
-
-# Non-interactive — all values via CLI flags, no prompts
-argustack init --no-interactive \
-  --dir ~/project --source jira,git,github \
-  --jira-url "https://team.atlassian.net" \
-  --jira-email "user@co.com" --jira-token "ATATT3x..." \
-  --jira-projects PAP,MKT \
-  --git-repo /path/to/repo \
-  --github-token "github_pat_..." --github-owner org --github-repo repo
-
-# Then:
-docker compose up -d       # start database
-argustack sync             # pull all data from configured sources
-argustack sync jira        # pull specific source
-argustack sync github      # pull GitHub PRs/reviews/releases separately
-argustack sync csv         # import from Jira CSV export
-argustack sync db          # pull schema from application database
-argustack push             # push local board tasks to Jira
-argustack push --updates   # push locally modified issues to Jira (update existing)
-argustack embed            # generate OpenAI embeddings for semantic search
-argustack workspaces       # list all known workspaces (global registry)
-argustack code init        # bootstrap ~/.argustack/code/docker-compose.yml + Neo4j + Qdrant
-argustack code register --name X --root <path>   # register a codebase
-argustack code index       # incremental index (--full / --status / --lsp)
-argustack code watch       # real-time re-index on file save (--daemon)
-argustack code list        # list registered code projects
-argustack code stats <id>  # per-project symbols/vectors/last job
-argustack mcp install      # connect to Claude Desktop as MCP server
+argustack init                                  # bootstrap the hub (one-time)
+argustack workspace add my-project              # create a workspace
+argustack add <source> --workspace my-project … # bind jira / git / github / csv / db / code
+argustack sync --workspace my-project           # pull all bound sources
+argustack code index --project my-project       # build code graph + vectors
+argustack mcp install                           # connect to Claude Desktop / Claude Code
 ```
 
-Non-interactive flags: `--no-interactive`, `--dir`, `--source`, `--jira-url`, `--jira-email`, `--jira-token`, `--jira-projects`, `--git-repo`, `--github-token`, `--github-owner`, `--github-repo`, `--csv-file`, `--db-port`, `--pgweb-port`, `--target-db-engine`, `--target-db-host`, `--target-db-port`, `--target-db-user`, `--target-db-password`, `--target-db-name`.
+Non-interactive mode: `argustack init --no-interactive --name my-project --skip-llm`, then bind sources via `argustack add <source> …`. Full command list, flags, init decision flow, and MCP tool reference live in **AGENTS.md** — that is the SSOT for technical detail.
 
-### Estimate Tool — Data Source Awareness
+After sync, Claude queries your data via 46 MCP tools (32 project-data + 14 code-intel). Every tool advertises `title` + `readOnly/destructive/idempotent/openWorld` annotations so Claude Desktop can warn before write operations. The server ships `instructions` describing workspace resolution order (explicit arg > `ARGUSTACK_WORKSPACE_ID` > active pointer > single-workspace auto-pick). `list_workspaces` and `find_symbol` return machine-readable `structuredContent` validated against an `outputSchema`.
 
-The estimate tool adapts its output based on available data:
-- **With Jira API + Git**: actual work hours (time_spent, worklogs, commit spans) → per-developer predictions in hours with "without bugs" / "with bugs" breakdown
-- **With CSV only**: no effort data → shows **Resolution Timeline** in business days (weekdays only) with clear warning that this is lead time (backlog wait + development + review), not active development time
+## MCP tool groups
 
-After sync, users open Claude Desktop or Claude Code and ask questions in natural language.
-Claude queries the local database via 46 MCP tools (32 project-data + 14 code-intel) and answers with full project context.
+- **Workspace / Jira / Git / GitHub** — query_issues, query_commits, query_prs, query_releases, get_issue, issue_timeline, list_workspaces, switch_workspace, …
+- **Cross-source** — issue_timeline (changelogs + commits + PRs for one issue), hybrid_search (keyword + optional pgvector semantic)
+- **Prediction** — estimate (two predictions: with/without bugs, based on similar tasks and developer coefficient)
+- **Write** — create_issue, update_issue, push (mode=create or updates), pull_jira
+- **External DB** — db_schema, db_query, db_stats
+- **Knowledge Graph** — impact_analysis, developer_expertise, related_issues, code_dependencies, business_context, root_cause_analysis, build_business_graph, add_relationship, add_observation
+- **Code Graph (Neo4j)** — find_symbol, get_dependencies, get_dependents, get_callers, get_callees, get_call_path, find_arch_violations, find_unused_exports, get_implementers, get_layer_symbols
+- **Code Semantic (Qdrant)** — search_semantic, find_similar_code
+- **Code Hybrid** — explain_feature (4-stage), plan_feature_files (layered)
 
-AI agents can run `argustack init --no-interactive` autonomously — no terminal interaction needed.
-
-## MCP Tools (46 total)
-
-**Jira:** query_issues (with issue_type filter), get_issue, issue_stats, pull_jira, list_projects
-**Git:** query_commits, issue_commits, commit_stats
-**GitHub:** query_prs, issue_prs, query_releases
-**Cross-source:** issue_timeline (full cross-source timeline: changelogs + commits + PRs for one issue), hybrid_search (keyword matching + optional pgvector semantic search, works without OPENAI_API_KEY)
-**Prediction:** estimate (predict task duration for a specific developer — with effort data: two predictions "without bugs" and "with bugs" based on similar tasks, personal coefficient, and component familiarity; with CSV only: resolution timeline in business days showing lead time from creation to close)
-**Write:** create_issue (create local issue with Markdown description, auto-converted to Jira ADF), update_issue (modify existing issue fields locally), push (push new or modified issues to Jira, supports mode=create and mode=updates)
-**Knowledge Graph:** impact_analysis (what's connected to a file/module), developer_expertise (who knows this area), related_issues (connected through code), code_dependencies (co-changes, imports, packages), business_context (business process connections), build_business_graph (Claude identifies processes from issues), root_cause_analysis (trace bug causal chain — confirmed from Jira links, probable from git timeline, Claude-identified), add_relationship (manual semantic links), add_observation (knowledge notes on entities)
-**Database:** db_schema (browse external app DB schema), db_query (read-only SQL on app DB), db_stats (schema statistics)
-**Workspace:** workspace_info, list_workspaces (global registry), switch_workspace
-**Code Graph (Neo4j):** find_symbol (name fragment + kind/layer filter), get_dependencies, get_dependents, get_callers, get_callees, get_call_path (shortest path), find_arch_violations (Clean Architecture), find_unused_exports, get_implementers, get_layer_symbols
-**Code Semantic (Qdrant):** search_semantic (query intent, layer/kind filter), find_similar_code
-**Code Hybrid (Neo4j + Qdrant):** explain_feature (4-stage: semantic → graph expand → rerank → cluster by layer), plan_feature_files (returns layered file list for /create-technical-plan)
-
-## IDE Plugin (plugins/jetbrains/)
-
-Kanban board for JetBrains IDEs. Cards are Markdown files, columns are Claude Code skills from `.claude/skills/`. Drag a card to a skill column to execute it.
-
-- Kotlin 2.3 + JCEF React webview
-- Cards live in `Docs/Tasks/{Backlog,InProgress,Done}/{epic}/`
-- Workflows group skills into named pipelines
-- Done column has configurable time filter
-- Auto-generates `Docs/Tasks/README.md` on first load
-- State in `.kanban.json`, file system is source of truth
-
-Install: download ZIP from GitHub Releases, Settings > Plugins > Install from Disk.
+Full tool table with annotations and notes on `structuredContent` → **AGENTS.md → MCP Tool Reference**.
 
 ## Architecture — Hexagonal (Ports & Adapters)
 
-Driving adapters (entries): cli/, mcp/
-Driven adapters (external systems): adapters/jira/, adapters/jira-proxy/, adapters/git/, adapters/github/, adapters/db/, adapters/postgres/
-Dependency Rule: cli/,mcp/ → use-cases/ → core/ports ← adapters/
-
 ```
-src/core/types/    — Domain types (Issue, PullRequest, Commit, Config, ProxyConfig, GraphEntity, GraphRelationship, CodeProject, CodeSymbol, CodeFile, CodeChunk, ...) — zero dependencies
-src/core/ports/    — Interfaces (ISourceProvider, IGitProvider, IGitHubProvider, IStorage, ICodeGraph, ICodeVectorStore, ICodeParser, ICodeMetaStore, ICodeEmbedding, ILspClient)
-src/adapters/      — Driven adapters (jira/, jira-proxy/, git/, github/, csv/, db/, postgres/, openai/, neo4j/, qdrant/, tree-sitter/, lsp/, lmstudio/, voyage/)
-src/use-cases/     — Business logic (PullUseCase, PullGitUseCase, PullGitHubUseCase, PullDbUseCase, PushUseCase, EmbedUseCase, BuildGraphUseCase, RegisterCodeProjectUseCase, UnregisterCodeProjectUseCase, IndexCodeUseCase, WatchCodeUseCase, CodeSearchUseCase)
-src/code-intel/    — Code intelligence orchestrator (indexer, watcher, resolver, LSP resolver, ranker, chunker, file-discovery, layer-detector, hash, tsconfig-paths, job-lock)
-src/workspace/     — Config, resolver, global registry (~/.argustack/workspaces.json)
-src/cli/           — Driving adapter — CLI entry point, commands (incl. argustack code group)
-src/mcp/           — Driving adapter — MCP server for Claude Desktop / Claude Code (46 tools)
+src/core/types/    — Domain types, zero deps
+src/core/ports/    — Interfaces (ISourceProvider, IStorage, IWorkspaceStore, ICodeGraph, ICodeVectorStore, ICodeParser, ICodeMetaStore, ICodeEmbedding, ILspClient, IDockerControl, IOllamaControl, IPlatformProbe, …)
+src/adapters/      — jira/, jira-proxy/, git/, github/, csv/, db/, board/, postgres/, openai/, ollama/, lmstudio/, voyage/, neo4j/, qdrant/, tree-sitter/, lsp/, docker/, platform/
+src/use-cases/     — PullUseCase, PushUseCase, EmbedUseCase, BuildGraphUseCase, Register/IndexCodeUseCase, CodeSearchUseCase, MigrateToHubUseCase, init/ building blocks
+src/code-intel/    — Indexer, watcher, resolver, lsp-resolver, ranker, chunker, file-discovery, layer-detector, hash, tsconfig-paths, job-lock
+src/workspace/     — hub-config.ts, active-workspace.ts, registry.ts (legacy migration only)
+src/cli/           — Composition root: init/, workspace/, add/, sync.ts, status.ts, code.ts, mcp-install.ts, migrate-to-hub.ts, …
+src/mcp/           — 46 tools, instructions, dynamic version, ANNOTATIONS presets
 ```
 
-## Database tables
+Dependency rule: `cli/,mcp/ → use-cases/ → core/ports` ← `adapters/`. Full file map in **AGENTS.md**.
 
-**Jira:** issues (including original_estimate, time_spent, assignee_id, reporter_id), issue_comments, issue_changelogs, issue_worklogs, issue_links
-**Git:** commits, commit_files, commit_issue_refs
-**GitHub:** pull_requests, pr_reviews, pr_comments, pr_files, pr_issue_refs, releases
-**External DB:** db_tables, db_columns, db_foreign_keys, db_indexes (schema metadata from your application database)
-**Knowledge Graph:** graph_entities, graph_relationships, graph_observations
-**Code Intelligence (metadata only):** code_projects, code_files, code_index_jobs — graph stored in Neo4j (Symbol/File/CALLS/IMPORTS/IMPLEMENTS/EXTENDS), vectors in Qdrant (one collection per project)
+## Hub layout (one stack, many workspaces)
 
-Cross-references: commit messages and PR titles mentioning `PROJ-123` are automatically linked to Jira issues.
+- `~/.argustack/docker-compose.yml` — Postgres + Neo4j + Qdrant + pgweb on ports `15432..15437` (exotic to avoid clashes)
+- `~/.argustack/.env` — port assignments
+- `~/.argustack/config.env` — credentials + embedding provider (chmod 600)
+- `~/.argustack/active-workspace.json` — pointer to the current workspace
+
+Postgres schema has a `workspaces` parent table; every tenant table FK-CASCADEs on `workspace_id`. `code_projects.id === workspaces.id` is enforced by CHECK so MCP code tools resolve project from workspace without joins.
 
 ## Key design decisions
 
-- Download ALL fields from Jira (`fields=*all`) — every custom field preserved
-- Store raw JSON as-is in `raw_json` JSONB column — nothing filtered
-- AsyncGenerator for streaming large datasets (100k+ issues)
-- Multi-repo Git support — `GIT_REPO_PATHS` accepts comma-separated paths, one GitProvider per repo, shared storage
-- Progress indicators during sync — ports expose optional count methods (`getIssueCount()`, `getCommitCount()`, `getPrCount()`) for displaying `150/506 issues (30%)`
-- Git MCP tools (`query_commits`, `issue_commits`, `commit_stats`) accept optional `repo_path` filter for multi-repo workspaces
-- Each workspace is isolated — own Docker, own credentials, own database
-- Global workspace registry (`~/.argustack/workspaces.json`) — tracks all workspaces, supports switching between them via MCP or CLI
-- Jira Proxy adapter — connects through corporate API gateways via `.argustack/proxy.json` config (bearer or bearer_exchange auth, configurable endpoints and response mapping)
-- Issue type filter — `issueTypes` in workspace config filters Jira sync to specific types (e.g. Story, Bug, Task)
-- Markdown-to-ADF converter — issue descriptions written in Markdown are automatically converted to Atlassian Document Format when pushed to Jira
-- Jira CSV import — universal adapter for any Jira instance, dynamic header detection, supports worklogs/comments/links/custom fields
-- ESM modules, TypeScript strict mode, Vitest for testing
+- **Multi-tenant hub** (ARG-264) — one stack, many workspaces, isolation by FK CASCADE
+- **Download ALL fields from Jira** (`fields=*all`) + store raw JSON in `raw_json` JSONB
+- **AsyncGenerator streaming** for large datasets (100k+ issues)
+- **Pluggable embedding provider** — Ollama (default) / LM Studio / Voyage / custom OpenAI-compatible, selected via `CODE_EMBEDDING_PROVIDER` in `~/.argustack/config.env`
+- **Markdown-to-ADF** auto-conversion when pushing issues to Jira
+- **`argustack code init` is deprecated** — `argustack init` bootstraps the whole hub
+- ESM modules, TypeScript strict mode, Vitest
 
 ## Detailed docs
 
-- [README.md](README.md) — Features, quick start, all commands, MCP tools, security
-- [CLAUDE.md](CLAUDE.md) — Architecture, tech stack, workspace concept, database schema
-- [AGENTS.md](AGENTS.md) — AI coding agent guide: commands, conventions, debugging
-- [.claude/rules/policies.md](.claude/rules/policies.md) — Git workflow, commit conventions
-- [.claude/rules/tests.md](.claude/rules/tests.md) — Testing strategy, SSOT fixtures
-- [.claude/rules/workflows.md](.claude/rules/workflows.md) — Development workflow
+- [README.md](README.md) — features, Quick Start, links
+- [AGENTS.md](AGENTS.md) — **SSOT** for command reference, init flow diagram, MCP tool reference, architecture, file map, hub schema, debugging
+- [CLAUDE.md](CLAUDE.md) — architecture, tech stack, workspace concept (contributor-facing)
+- [.claude/rules/policies.md](.claude/rules/policies.md) — git workflow, commit conventions
+- [.claude/rules/tests.md](.claude/rules/tests.md) — testing strategy, SSOT fixtures
+- [.claude/rules/workflows.md](.claude/rules/workflows.md) — development workflow
 
 ## License
 

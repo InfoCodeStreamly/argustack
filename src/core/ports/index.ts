@@ -2,6 +2,31 @@ export type { ISourceProvider } from './source-provider.js';
 export type { IGitProvider } from './git-provider.js';
 export type { IGitHubProvider } from './github-provider.js';
 export type { IStorage, QueryResult } from './storage.js';
+export type { IWorkspaceStore } from './workspace-store.js';
+export type {
+  IPlatformProbe,
+  OsKind,
+  PortStatus,
+  PortFree,
+  PortInUse,
+  CommandResult,
+} from './platform-probe.js';
+export type {
+  IDockerControl,
+  DockerVersion,
+  ComposeUpResult,
+  ComposeUpErrorKind,
+} from './docker-control.js';
+export type {
+  IOllamaControl,
+  OllamaModel,
+  InstallResult,
+  InstallError,
+  PullResult,
+  PullError,
+  ProbeResult,
+  ProbeError,
+} from './ollama-control.js';
 export type { IEmbeddingProvider } from './embedding-provider.js';
 export type { IDbProvider } from './db-provider.js';
 

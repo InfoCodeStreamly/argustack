@@ -27,12 +27,12 @@ export class PullGitUseCase {
     private readonly storage: IStorage,
   ) {}
 
-  async execute(repoPath: string, options: PullGitOptions = {}): Promise<PullGitResult> {
+  async execute(workspaceId: string, repoPath: string, options: PullGitOptions = {}): Promise<PullGitResult> {
     const log = options.onProgress ?? noop;
 
     await this.storage.initialize();
 
-    const lastCommitDate = options.since ?? (await this.storage.getLastCommitDate(repoPath));
+    const lastCommitDate = options.since ?? (await this.storage.getLastCommitDate(workspaceId, repoPath));
     const since = lastCommitDate && !options.since
       ? new Date(lastCommitDate.getTime() - 60_000)
       : lastCommitDate ?? undefined;
@@ -56,7 +56,7 @@ export class PullGitUseCase {
     };
 
     for await (const batch of this.git.pullCommits(since)) {
-      await this.storage.saveCommitBatch(batch);
+      await this.storage.saveCommitBatch(workspaceId, batch);
 
       result.commitsCount += batch.commits.length;
       result.filesCount += batch.files.length;

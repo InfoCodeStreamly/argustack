@@ -1,20 +1,45 @@
 import { readFileSync, existsSync } from 'node:fs';
 import { join } from 'node:path';
 import type { ProxyConfig } from '../../core/types/proxy-config.js';
+import { hubDir } from '../../workspace/hub-config.js';
 
-const PROXY_CONFIG_PATH = '.argustack/proxy.json';
+const LEGACY_PROXY_CONFIG_PATH = '.argustack/proxy.json';
 
-export function proxyConfigExists(workspaceRoot: string): boolean {
-  return existsSync(join(workspaceRoot, PROXY_CONFIG_PATH));
+/**
+ * Path to the hub-side proxy config for a workspace:
+ * `~/.argustack/proxy/<workspaceId>.json`.
+ */
+export function hubProxyConfigPath(workspaceId: string): string {
+  return join(hubDir(), 'proxy', `${workspaceId}.json`);
 }
 
-export function loadProxyConfig(workspaceRoot: string): ProxyConfig {
-  const filePath = join(workspaceRoot, PROXY_CONFIG_PATH);
+export function proxyConfigExistsForWorkspace(workspaceId: string): boolean {
+  return existsSync(hubProxyConfigPath(workspaceId));
+}
 
+/** @deprecated Legacy per-folder check. Use {@link proxyConfigExistsForWorkspace}. */
+export function proxyConfigExists(workspaceRoot: string): boolean {
+  return existsSync(join(workspaceRoot, LEGACY_PROXY_CONFIG_PATH));
+}
+
+export function loadProxyConfigForWorkspace(workspaceId: string): ProxyConfig {
+  const filePath = hubProxyConfigPath(workspaceId);
+  if (!existsSync(filePath)) {
+    throw new Error(`Proxy config not found for workspace "${workspaceId}" at ${filePath}`);
+  }
+  return readAndValidate(filePath);
+}
+
+/** @deprecated Legacy per-folder loader. Use {@link loadProxyConfigForWorkspace}. */
+export function loadProxyConfig(workspaceRoot: string): ProxyConfig {
+  const filePath = join(workspaceRoot, LEGACY_PROXY_CONFIG_PATH);
   if (!existsSync(filePath)) {
     throw new Error(`Proxy config not found: ${filePath}`);
   }
+  return readAndValidate(filePath);
+}
 
+function readAndValidate(filePath: string): ProxyConfig {
   let raw: string;
   try {
     raw = readFileSync(filePath, 'utf-8');

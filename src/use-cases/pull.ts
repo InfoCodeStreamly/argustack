@@ -43,7 +43,7 @@ export class PullUseCase {
     private readonly storage: IStorage,
   ) {}
 
-  async execute(options: PullOptions = {}): Promise<PullResult[]> {
+  async execute(workspaceId: string, options: PullOptions = {}): Promise<PullResult[]> {
     const log = options.onProgress ?? noop;
     const results: PullResult[] = [];
 
@@ -58,7 +58,7 @@ export class PullUseCase {
     }
 
     for (const projectKey of projectKeys) {
-      const lastUpdated = options.since ?? (await this.storage.getLastUpdated(projectKey));
+      const lastUpdated = options.since ?? (await this.storage.getLastUpdated(workspaceId, projectKey));
       const since = lastUpdated && !options.since
         ? toJiraDateString(new Date(new Date(lastUpdated).getTime() - 60_000))
         : lastUpdated;
@@ -82,7 +82,7 @@ export class PullUseCase {
       };
 
       for await (const batch of this.source.pullIssues(projectKey, since ?? undefined)) {
-        await this.storage.saveBatch(batch);
+        await this.storage.saveBatch(workspaceId, batch);
 
         result.issuesCount += batch.issues.length;
         result.commentsCount += batch.comments.length;

@@ -60,6 +60,12 @@ export interface ICodeVectorStore {
 
   getCollectionStats(projectId: string): Promise<CollectionStats>;
 
+  /**
+   * Cheap existence check that does not throw when the collection is
+   * missing. Used by init flow before calling getCollectionStats.
+   */
+  collectionExists(projectId: string): Promise<boolean>;
+
   deleteCollection(projectId: string): Promise<void>;
 
   close(): Promise<void>;

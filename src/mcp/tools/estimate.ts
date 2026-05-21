@@ -16,6 +16,7 @@ import {
   textResponse,
   errorResponse,
   getErrorMessage,
+  ANNOTATIONS,
 } from '../helpers.js';
 
 export function calculateFamiliarityFactor(
@@ -81,8 +82,10 @@ export function registerEstimateTools(server: McpServer): void {
   server.registerTool(
     'estimate',
     {
-      description: 'Estimate task duration for a developer. Returns TWO predictions: (1) "without bugs" = pure dev time, (2) "with bugs" = real cost including bug aftermath. Based on similar completed tasks, developer coefficient, and component familiarity. Requires: description + assignee. Optional: issue_type, components (improve accuracy). If 0 similar tasks found, try broader description or omit components. Present both estimates to the user with the "with bugs" as the realistic one.',
+      title: 'Estimate task duration',
+      description: 'Estimate task duration for a developer. Returns TWO predictions: (1) "without bugs" = pure dev time, (2) "with bugs" = real cost including bug aftermath. Based on similar completed tasks, developer coefficient, and component familiarity. Requires: description + assignee. Optional: issue_type, components (improve accuracy). Scoped to a single workspace.',
       inputSchema: {
+        workspace_id: z.string().optional().describe('Workspace id or name (defaults to active workspace, used for routing/auth)'),
         description: z.string().describe('Description of the new task (e.g. "Stripe payment integration with subscriptions")'),
         assignee: z.string().describe('Developer name to predict for (e.g. "John Smith")'),
         issue_type: z.string().optional().describe('Issue type: Bug, Task, Story — finds same-type analogs and uses type-specific coefficients'),
@@ -90,38 +93,37 @@ export function registerEstimateTools(server: McpServer): void {
         exclude_key: z.string().optional().describe('Issue key to exclude from results (e.g. "PROJ-123") — use when estimating a task that already exists in DB'),
         limit: z.number().optional().describe('Number of similar tasks to analyze (default: 10)'),
       },
+      annotations: ANNOTATIONS.READ_ONLY,
     },
-    async ({ description, assignee, issue_type: issueTypeInput, components, exclude_key: excludeKey, limit }) => {
-      const ws = loadWorkspace();
-      if (!ws.ok) {
-        return errorResponse(`Workspace not found: ${ws.reason}`);
-      }
-
-      const { storage } = await createAdapters(ws.root);
+    async ({ workspace_id: workspaceIdInput, description, assignee, issue_type: issueTypeInput, components, exclude_key: excludeKey, limit }) => {
+      const ws = await loadWorkspace(workspaceIdInput);
+      if (!ws.ok) { return errorResponse(ws.reason); }
+      const { storage, workspaceId } = await createAdapters(ws.workspaceId);
       try {
         const maxResults = limit ?? 10;
         const issueType = issueTypeInput ?? null;
         const comps = components && components.length > 0 ? components : null;
 
-        const similarResult = await storage.query(
+        const similarResult = await storage.queryForWorkspace(workspaceId,
           `WITH text_matches AS (
             SELECT issue_key, summary, issue_type, status, assignee, created,
                    COALESCE(resolved, updated) as resolved,
                    parent_key, story_points, components, labels, original_estimate, time_spent,
-                   ts_rank(search_vector, plainto_tsquery('english', $1)) as text_rank
+                   ts_rank(search_vector, plainto_tsquery('english', $2)) as text_rank
             FROM issues
-            WHERE search_vector @@ plainto_tsquery('english', $1)
+            WHERE workspace_id = $1
+              AND search_vector @@ plainto_tsquery('english', $2)
               AND status_category = 'Done'
               AND status != 'Canceled'
-              AND ($5::text IS NULL OR issue_key != $5)
+              AND ($6::text IS NULL OR issue_key != $6)
           ),
           scored AS (
             SELECT *,
-              CASE WHEN $3::text IS NOT NULL AND issue_type = $3 THEN 1.0 ELSE 0.0 END as type_match,
-              CASE WHEN $4::text[] IS NOT NULL AND array_length($4::text[], 1) > 0
+              CASE WHEN $4::text IS NOT NULL AND issue_type = $4 THEN 1.0 ELSE 0.0 END as type_match,
+              CASE WHEN $5::text[] IS NOT NULL AND array_length($5::text[], 1) > 0
                 THEN COALESCE((
-                  SELECT COUNT(*)::float / array_length($4::text[], 1)
-                  FROM unnest($4::text[]) q_comp
+                  SELECT COUNT(*)::float / array_length($5::text[], 1)
+                  FROM unnest($5::text[]) q_comp
                   WHERE q_comp = ANY(components)
                 ), 0)
                 ELSE 0.0
@@ -129,11 +131,11 @@ export function registerEstimateTools(server: McpServer): void {
               1.0 / (1.0 + EXTRACT(EPOCH FROM (NOW() - resolved)) / (86400.0 * 365)) as temporal_weight,
               (
                 LEAST(text_rank * 10, 1.0) * 0.3
-                + CASE WHEN $3::text IS NOT NULL AND issue_type = $3 THEN 0.25 ELSE 0.0 END
-                + CASE WHEN $4::text[] IS NOT NULL AND array_length($4::text[], 1) > 0
+                + CASE WHEN $4::text IS NOT NULL AND issue_type = $4 THEN 0.25 ELSE 0.0 END
+                + CASE WHEN $5::text[] IS NOT NULL AND array_length($5::text[], 1) > 0
                     THEN COALESCE((
-                      SELECT COUNT(*)::float / array_length($4::text[], 1)
-                      FROM unnest($4::text[]) q_comp
+                      SELECT COUNT(*)::float / array_length($5::text[], 1)
+                      FROM unnest($5::text[]) q_comp
                       WHERE q_comp = ANY(components)
                     ), 0) * 0.35
                     ELSE 0.0
@@ -145,28 +147,28 @@ export function registerEstimateTools(server: McpServer): void {
           SELECT *, composite_score as rank
           FROM scored
           ORDER BY composite_score DESC
-          LIMIT $2`,
+          LIMIT $3`,
           [description, maxResults, issueType, comps, excludeKey ?? null],
         );
 
         const similar = [...similarResult.rows] as unknown as EstimateSimilarRow[];
 
         if (similar.length === 0) {
-          const fallbackResult = await storage.query(
+          const fallbackResult = await storage.queryForWorkspace(workspaceId,
             `SELECT issue_key, summary, issue_type, status, assignee,
                     created, resolved, components,
                     0.0 as composite_score, 0 as type_match, 0.0 as component_overlap,
                     0.5 as temporal_weight, 0.0 as text_rank
              FROM issues
-             WHERE resolved IS NOT NULL
-               AND ($1::text IS NULL OR issue_key != $1)
+             WHERE workspace_id = $1
+               AND resolved IS NOT NULL
+               AND ($2::text IS NULL OR issue_key != $2)
              ORDER BY resolved DESC
-             LIMIT $2`,
+             LIMIT $3`,
             [excludeKey ?? null, maxResults],
           );
           const fallbackRows = fallbackResult.rows as unknown as EstimateSimilarRow[];
           if (fallbackRows.length === 0) {
-            await storage.close();
             return textResponse(`No completed tasks found for estimation.\n\nTry syncing more data: argustack sync jira`);
           }
           similar.push(...fallbackRows);
@@ -174,21 +176,21 @@ export function registerEstimateTools(server: McpServer): void {
 
         const usedFallback = similarResult.rows.length === 0 && similar.length > 0;
         const issueKeys = similar.map((r) => r.issue_key);
-        const keysParam = issueKeys.map((_, i) => `$${String(i + 1)}`).join(',');
+        const keysParam = issueKeys.map((_, i) => `$${String(i + 2)}`).join(',');
 
-        const worklogsResult = await storage.query(
+        const worklogsResult = await storage.queryForWorkspace(workspaceId,
           `SELECT issue_key, author, SUM(time_spent_seconds) as total_seconds
            FROM issue_worklogs
-           WHERE issue_key IN (${keysParam})
+           WHERE workspace_id = $1 AND issue_key IN (${keysParam})
            GROUP BY issue_key, author`,
           issueKeys,
         );
         const worklogs = worklogsResult.rows as unknown as EstimateWorklogRow[];
 
-        const devChangelogResult = await storage.query(
+        const devChangelogResult = await storage.queryForWorkspace(workspaceId,
           `SELECT DISTINCT ON (issue_key) issue_key, to_value as dev_assignee
            FROM issue_changelogs
-           WHERE issue_key IN (${keysParam})
+           WHERE workspace_id = $1 AND issue_key IN (${keysParam})
              AND field = 'assignee'
              AND to_value IS NOT NULL
              AND to_value != ''
@@ -201,7 +203,7 @@ export function registerEstimateTools(server: McpServer): void {
           realDevMap.set(d.issue_key, d.dev_assignee);
         }
 
-        const commitsResult = await storage.query(
+        const commitsResult = await storage.queryForWorkspace(workspaceId,
           `SELECT r.issue_key,
                   COUNT(*) as commits,
                   STRING_AGG(DISTINCT c.author, ', ') as authors,
@@ -210,30 +212,32 @@ export function registerEstimateTools(server: McpServer): void {
                   MIN(c.committed_at) as first_commit,
                   MAX(c.committed_at) as last_commit
            FROM commit_issue_refs r
-           JOIN commits c ON r.commit_hash = c.hash
+           JOIN commits c ON c.workspace_id = r.workspace_id AND c.hash = r.commit_hash
            LEFT JOIN (
-             SELECT commit_hash, SUM(additions) as additions, SUM(deletions) as deletions
-             FROM commit_files GROUP BY commit_hash
-           ) cf_agg ON c.hash = cf_agg.commit_hash
-           WHERE r.issue_key IN (${keysParam})
+             SELECT workspace_id, commit_hash, SUM(additions) as additions, SUM(deletions) as deletions
+             FROM commit_files GROUP BY workspace_id, commit_hash
+           ) cf_agg ON cf_agg.workspace_id = c.workspace_id AND cf_agg.commit_hash = c.hash
+           WHERE r.workspace_id = $1 AND r.issue_key IN (${keysParam})
            GROUP BY r.issue_key`,
           issueKeys,
         );
         const commitData = commitsResult.rows as unknown as EstimateCommitRow[];
 
-        const notInParam = issueKeys.map((_, i) => `$${String(i + 1 + issueKeys.length)}`).join(',');
-        const childrenResult = await storage.query(
+        const notInParam = issueKeys.map((_, i) => `$${String(i + 2 + issueKeys.length)}`).join(',');
+        const childrenResult = await storage.queryForWorkspace(workspaceId,
           `SELECT i.parent_key as related_to, i.issue_key as bug_key, i.summary, i.issue_type, i.resolved, i.created, i.time_spent as bug_time_spent
            FROM issues i
-           WHERE i.parent_key IN (${keysParam})
+           WHERE i.workspace_id = $1
+             AND i.parent_key IN (${keysParam})
              AND i.issue_key NOT IN (${notInParam})`,
           [...issueKeys, ...issueKeys],
         );
-        const linkedResult = await storage.query(
+        const linkedResult = await storage.queryForWorkspace(workspaceId,
           `SELECT il.source_key as related_to, i.issue_key as bug_key, i.summary, i.issue_type, i.resolved, i.created, i.time_spent as bug_time_spent
            FROM issue_links il
-           JOIN issues i ON i.issue_key = il.target_key
-           WHERE il.source_key IN (${keysParam})
+           JOIN issues i ON i.workspace_id = il.workspace_id AND i.issue_key = il.target_key
+           WHERE il.workspace_id = $1
+             AND il.source_key IN (${keysParam})
              AND i.issue_key NOT IN (${notInParam})`,
           [...issueKeys, ...issueKeys],
         );
@@ -242,24 +246,25 @@ export function registerEstimateTools(server: McpServer): void {
           ...(linkedResult.rows as unknown as (EstimateBugRow & { related_to: string; issue_type: string })[]),
         ];
 
-        const rawEstimates = await storage.query(
+        const rawEstimates = await storage.queryForWorkspace(workspaceId,
           `SELECT issue_key, original_estimate, time_spent
            FROM issues
-           WHERE issue_key IN (${keysParam})`,
+           WHERE workspace_id = $1 AND issue_key IN (${keysParam})`,
           issueKeys,
         );
         const estimates = rawEstimates.rows as unknown as EstimateRawRow[];
 
         let familiarity: { factor: number; explanation: string } = { factor: 1.0, explanation: 'No component data' };
         if (assignee && comps) {
-          const familiarityResult = await storage.query(
+          const familiarityResult = await storage.queryForWorkspace(workspaceId,
             `SELECT
                unnest(components) as component,
                COUNT(DISTINCT issue_key) as resolved_count,
                AVG(time_spent::float / 3600) as avg_time_hours,
                MAX(resolved)::text as last_resolved
              FROM issues
-             WHERE assignee ILIKE $1
+             WHERE workspace_id = $1
+               AND assignee ILIKE $2
                AND status_category = 'Done'
                AND time_spent IS NOT NULL AND time_spent > 0
                AND components IS NOT NULL AND array_length(components, 1) > 0
@@ -271,7 +276,7 @@ export function registerEstimateTools(server: McpServer): void {
           familiarity = calculateFamiliarityFactor(familiarityRows, comps);
         }
 
-        const coefficientResult = await storage.query(
+        const coefficientResult = await storage.queryForWorkspace(workspaceId,
           `WITH base AS (
             SELECT
               parent.assignee,
@@ -286,18 +291,21 @@ export function registerEstimateTools(server: McpServer): void {
               FROM (
                 SELECT i.parent_key as parent_ref, i.time_spent as bug_ts
                 FROM issues i
-                WHERE i.issue_type IN ('Bug', 'Sub-bug')
+                WHERE i.workspace_id = $1
+                  AND i.issue_type IN ('Bug', 'Sub-bug')
                   AND i.time_spent IS NOT NULL AND i.time_spent > 0
                 UNION ALL
                 SELECT il.source_key as parent_ref, i.time_spent as bug_ts
                 FROM issue_links il
-                JOIN issues i ON i.issue_key = il.target_key
-                WHERE i.issue_type IN ('Bug', 'Sub-bug')
+                JOIN issues i ON i.workspace_id = il.workspace_id AND i.issue_key = il.target_key
+                WHERE il.workspace_id = $1
+                  AND i.issue_type IN ('Bug', 'Sub-bug')
                   AND i.time_spent IS NOT NULL AND i.time_spent > 0
               ) bugs
               GROUP BY parent_ref
             ) bug_agg ON bug_agg.parent_ref = parent.issue_key
-            WHERE parent.status_category = 'Done'
+            WHERE parent.workspace_id = $1
+              AND parent.status_category = 'Done'
               AND parent.original_estimate IS NOT NULL AND parent.original_estimate > 0
               AND parent.time_spent IS NOT NULL AND parent.time_spent > 0
               AND parent.issue_type NOT IN ('Bug', 'Sub-bug')
@@ -314,9 +322,9 @@ export function registerEstimateTools(server: McpServer): void {
                 ORDER BY CAST(time_spent + bug_time AS FLOAT) / original_estimate
               ) as coeff_with_bugs,
               AVG(CAST(bug_time AS FLOAT) / NULLIF(time_spent, 0)) as bug_ratio,
-              COALESCE($1, 'all types') as context_label
+              COALESCE($2, 'all types') as context_label
             FROM base
-            WHERE ($1::text IS NULL OR issue_type = $1)
+            WHERE ($2::text IS NULL OR issue_type = $2)
             GROUP BY assignee
             HAVING COUNT(DISTINCT issue_key) >= 3
           ),
@@ -343,8 +351,6 @@ export function registerEstimateTools(server: McpServer): void {
           [issueType],
         );
         const coefficients = coefficientResult.rows as unknown as DevCoefficientRow[];
-
-        await storage.close();
 
         const sections: string[] = [];
         sections.push(`# Estimate Prediction`);
@@ -598,7 +604,6 @@ export function registerEstimateTools(server: McpServer): void {
 
         return textResponse(sections.join('\n'));
       } catch (err: unknown) {
-        await storage.close();
         return errorResponse(`Estimate failed: ${getErrorMessage(err)}`);
       }
     },

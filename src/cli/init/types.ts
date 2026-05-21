@@ -66,6 +66,10 @@ export interface InitFlags {
   dbPort?: string;
   pgwebPort?: string;
   interactive?: boolean;
+  skipDocker?: boolean;
+  skipFirstWorkspace?: boolean;
+  /** Skip the entire code-intelligence / LLM setup section. */
+  skipLlm?: boolean;
 }
 
 const DEFAULT_DB_PORT = 5434;

@@ -4,7 +4,6 @@ import { join, dirname, resolve } from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { homedir } from 'node:os';
 import chalk from 'chalk';
-import { findWorkspaceRoot } from '../workspace/resolver.js';
 
 interface McpServerEntry {
   readonly command: string;
@@ -140,46 +139,21 @@ function uninstallFromConfig(configPath: string): boolean {
   return true;
 }
 
-export function buildMcpEntry(
-  serverPath: string,
-  workspacePath: string,
-): McpServerEntry {
+export function buildMcpEntry(serverPath: string): McpServerEntry {
   return {
     command: 'node',
     args: [serverPath],
-    env: {
-      ARGUSTACK_WORKSPACE: workspacePath,
-    },
+    env: {},
   };
 }
 
 export function registerMcpCommands(mcpCmd: Command): void {
   mcpCmd
     .command('install')
-    .description('Configure Claude Code / Claude Desktop to use Argustack MCP')
-    .option(
-      '-w, --workspace <path>',
-      'Workspace directory (default: auto-detect from cwd)',
-    )
-    .action((options: { workspace?: string }) => {
+    .description('Configure Claude Code / Claude Desktop to use the Argustack hub MCP server')
+    .action(() => {
       try {
-        const workspacePath = options.workspace
-          ? resolve(options.workspace)
-          : findWorkspaceRoot();
-
-        if (!workspacePath) {
-          console.log(chalk.red('\n  No Argustack workspace found.'));
-          console.log(
-            chalk.dim('  Run from a workspace, or specify: --workspace <path>'),
-          );
-          console.log(
-            chalk.dim('  Create one: argustack init'),
-          );
-          process.exit(1);
-        }
-
         const serverPath = resolveServerPath();
-
         const clients = detectClaudeClients();
         const installedClients = clients.filter((c) => c.installed);
 
@@ -190,13 +164,12 @@ export function registerMcpCommands(mcpCmd: Command): void {
         }
 
         console.log('');
-        console.log(chalk.bold('  Argustack MCP — install'));
-        console.log('');
-        console.log(chalk.dim(`  Workspace: ${workspacePath}`));
+        console.log(chalk.bold('  Argustack MCP — install (hub mode)'));
         console.log(chalk.dim(`  Server:    ${serverPath}`));
+        console.log(chalk.dim('  Workspace resolution: ~/.argustack/active-workspace.json'));
         console.log('');
 
-        const entry = buildMcpEntry(serverPath, workspacePath);
+        const entry = buildMcpEntry(serverPath);
 
         for (const client of installedClients) {
           installIntoConfig(client.configPath, entry);

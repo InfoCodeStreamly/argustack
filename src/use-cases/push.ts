@@ -36,14 +36,14 @@ export class PushUseCase {
     private readonly storage: IStorage,
   ) {}
 
-  async execute(options: PushOptions = {}): Promise<PushResult> {
+  async execute(workspaceId: string, options: PushOptions = {}): Promise<PushResult> {
     const log = options.onProgress ?? noop;
 
     if (!this.source.createIssue) {
       throw new Error(`Source '${this.source.name}' does not support creating issues`);
     }
 
-    const localIssues = await this.storage.getLocalIssues();
+    const localIssues = await this.storage.getLocalIssues(workspaceId);
     log(`Found ${String(localIssues.length)} local issue(s) to push`);
 
     const created: CreatedIssue[] = [];
@@ -52,7 +52,7 @@ export class PushUseCase {
     for (const issue of localIssues) {
       try {
         const newKey = await this.source.createIssue(issue);
-        await this.storage.updateIssueSource(newKey, 'jira');
+        await this.storage.updateIssueSource(workspaceId, newKey, 'jira');
         const mdPath = (issue.rawJson['mdPath'] as string | undefined) ?? null;
         created.push({ oldKey: issue.key, newKey, mdPath });
         log(`  Created ${newKey} — ${issue.summary}`);
@@ -66,14 +66,14 @@ export class PushUseCase {
     return { created, errors };
   }
 
-  async executeUpdates(options: PushOptions = {}): Promise<PushUpdateResult> {
+  async executeUpdates(workspaceId: string, options: PushOptions = {}): Promise<PushUpdateResult> {
     const log = options.onProgress ?? noop;
 
     if (!this.source.updateIssue) {
       throw new Error(`Source '${this.source.name}' does not support updating issues`);
     }
 
-    const modified = await this.storage.getModifiedIssues();
+    const modified = await this.storage.getModifiedIssues(workspaceId);
     log(`Found ${String(modified.length)} locally modified issue(s) to push`);
 
     const updated: UpdatedIssue[] = [];
@@ -96,7 +96,7 @@ export class PushUseCase {
           }
         }
         await this.source.updateIssue(issue.key, changedFields);
-        await this.storage.clearModifiedFlag(issue.key);
+        await this.storage.clearModifiedFlag(workspaceId, issue.key);
         updated.push({ key: issue.key, summary: issue.summary });
         log(`  Updated ${issue.key} — ${issue.summary}`);
       } catch (err: unknown) {

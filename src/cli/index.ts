@@ -2,15 +2,19 @@
 
 import { createRequire } from 'node:module';
 import { Command } from 'commander';
+import chalk from 'chalk';
 import { registerSourceCommands } from './sources.js';
 import { registerSyncCommand } from './sync.js';
 import { registerStatusCommand } from './status.js';
 import { registerMcpCommands } from './mcp-install.js';
 import { registerEmbedCommand } from './embed.js';
 import { registerPushCommand } from './push.js';
-import { registerWorkspacesCommand } from './workspaces.js';
+import { registerWorkspaceCommands } from './workspace/index.js';
+import { registerAddCommands } from './add/index.js';
 import { registerGraphCommand } from './graph.js';
 import { registerCodeCommands } from './code.js';
+import { registerBoardCommand } from './board.js';
+import { registerMigrateCommand } from './migrate-to-hub.js';
 import { runInit } from './init/index.js';
 import type { InitFlags } from './init/index.js';
 
@@ -21,32 +25,18 @@ const program = new Command();
 
 program
   .name('argustack')
-  .description('Project analysis platform — Jira + Git + DB')
+  .description('Multi-tenant project analysis hub — Jira + Git + GitHub + DB + Code')
   .version(version);
 
 program
   .command('init')
-  .description('Create a new Argustack workspace')
-  .argument('[name]', 'Workspace name (creates subdirectory)')
-  .option('-s, --source <sources>', 'Comma-separated sources: jira,git,github,db')
-  .option('--jira-url <url>', 'Jira instance URL')
-  .option('--jira-email <email>', 'Jira user email')
-  .option('--jira-token <token>', 'Jira API token')
-  .option('--jira-projects <keys>', 'Comma-separated project keys (or "all")')
-  .option('--git-repo <paths>', 'Git repository paths, comma-separated')
-  .option('--github-token <token>', 'GitHub personal access token')
-  .option('--github-owner <owner>', 'GitHub repository owner')
-  .option('--github-repo <repo>', 'GitHub repository name')
-  .option('--target-db-engine <engine>', 'Target DB engine (postgresql, mysql, mssql, sqlite, oracledb)')
-  .option('--target-db-host <host>', 'Target DB host')
-  .option('--target-db-port <port>', 'Target DB port')
-  .option('--target-db-user <user>', 'Target DB user')
-  .option('--target-db-password <password>', 'Target DB password')
-  .option('--target-db-name <name>', 'Target DB name')
-  .option('--csv-file <path>', 'Path to Jira CSV export file')
-  .option('--db-port <port>', 'Argustack PostgreSQL port')
-  .option('--pgweb-port <port>', 'pgweb UI port')
-  .option('--no-interactive', 'Run without prompts (all values from flags)')
+  .description('Bootstrap the Argustack hub on this machine')
+  .argument('[name]', 'Optional first workspace name (deprecated — prefer `argustack workspace add`)')
+  .option('--skip-docker', 'Skip `docker compose up` (assumes hub containers already running)')
+  .option('--skip-first-workspace', 'Do not prompt for a first workspace')
+  .option('--skip-llm', 'Skip code intelligence / LLM setup')
+  .option('--name <name>', 'Workspace name (required with --no-interactive)')
+  .option('--no-interactive', 'Non-interactive mode (no prompts)')
   .action(async (name: string | undefined, options: unknown) => {
     try {
       const flags = options as InitFlags;
@@ -64,21 +54,28 @@ program
     }
   });
 
+registerWorkspaceCommands(program);
+registerAddCommands(program);
 registerSourceCommands(program);
-
 registerSyncCommand(program);
-
 registerStatusCommand(program);
-
 registerEmbedCommand(program);
-
 registerPushCommand(program);
-
-registerWorkspacesCommand(program);
-
 registerGraphCommand(program);
-
 registerCodeCommands(program);
+registerBoardCommand(program);
+registerMigrateCommand(program);
+
+program
+  .command('workspaces')
+  .description('Deprecated alias for `argustack workspace list`')
+  .action(() => {
+    console.log(chalk.yellow('  `argustack workspaces` is deprecated. Use `argustack workspace list`.\n'));
+    program.parseAsync(['workspace', 'list'], { from: 'user' }).catch((err: unknown) => {
+      console.error(err instanceof Error ? err.message : String(err));
+      process.exit(1);
+    });
+  });
 
 const mcpCmd = program
   .command('mcp')
