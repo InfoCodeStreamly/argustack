@@ -1,7 +1,6 @@
 /**
  * Custom Vitest Reporter — Failed Tests Logger for AI Agents.
  * Captures failed tests and writes detailed logs to tests/logs/.
- * Adapted from paperlink.online test infrastructure.
  */
 
 import { existsSync, mkdirSync, writeFileSync } from 'node:fs';

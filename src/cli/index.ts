@@ -10,6 +10,7 @@ import { registerEmbedCommand } from './embed.js';
 import { registerPushCommand } from './push.js';
 import { registerWorkspacesCommand } from './workspaces.js';
 import { registerGraphCommand } from './graph.js';
+import { registerCodeCommands } from './code.js';
 import { runInit } from './init/index.js';
 import type { InitFlags } from './init/index.js';
 
@@ -76,6 +77,8 @@ registerPushCommand(program);
 registerWorkspacesCommand(program);
 
 registerGraphCommand(program);
+
+registerCodeCommands(program);
 
 const mcpCmd = program
   .command('mcp')

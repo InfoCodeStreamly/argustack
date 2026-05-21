@@ -240,6 +240,7 @@ async function setupSources(flags: InitFlags): Promise<{
       case 'csv':    csv = await setupCsvInteractive(); break;
       case 'db':     db = await setupDbInteractive(); break;
       case 'board':  break;
+      case 'code':   break;
     }
   }
 
@@ -295,6 +296,8 @@ async function runInitNonInteractive(flags: InitFlags): Promise<void> {
         dbResult = setupDbFromFlags(flags);
         break;
       case 'board':
+        break;
+      case 'code':
         break;
     }
   }
@@ -364,7 +367,7 @@ async function runInitInteractive(flags: InitFlags): Promise<void> {
         message: 'Workspace name:',
         validate: (val): string | true => {
           if (val.includes('://') || val.includes('.') || val.includes('/')) {
-            return 'This looks like a URL. Enter a short project name (e.g. "paperlink", "my-project")';
+            return 'This looks like a URL. Enter a short project name (e.g. "myapp", "my-project")';
           }
           const sanitized = sanitizeName(val);
           if (!sanitized) {
@@ -388,7 +391,7 @@ async function runInitInteractive(flags: InitFlags): Promise<void> {
       message: 'Workspace name:',
       validate: (val): string | true => {
         if (val.includes('://') || val.includes('.') || val.includes('/')) {
-          return 'This looks like a URL. Enter a short project name (e.g. "paperlink", "my-project")';
+          return 'This looks like a URL. Enter a short project name (e.g. "myapp", "my-project")';
         }
         const sanitized = sanitizeName(val);
         if (!sanitized) {

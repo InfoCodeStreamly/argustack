@@ -1,0 +1,37 @@
+// Vitest Snapshot v1, https://vitest.dev/guide/snapshot.html
+
+exports[`Neo4j Cypher SSOT > snapshots (lock against accidental changes) > ARCH_VIOLATIONS shape 1`] = `
+"
+  MATCH (a:Symbol {projectId: $projectId})-[:CALLS]->(b:Symbol {projectId: $projectId})
+  WHERE a.layer IS NOT NULL AND b.layer IS NOT NULL
+    AND (
+      (a.layer = 'domain' AND b.layer IN ['infrastructure', 'presentation'])
+      OR (a.layer = 'application' AND b.layer = 'presentation')
+    )
+  RETURN a, b
+  LIMIT 500
+"
+`;
+
+exports[`Neo4j Cypher SSOT > snapshots (lock against accidental changes) > CALL_PATH shape 1`] = `
+"
+  MATCH p = shortestPath(
+    (a:Symbol {projectId: $projectId, qualifiedName: $from})
+    -[:CALLS*..15]->
+    (b:Symbol {projectId: $projectId, qualifiedName: $to})
+  )
+  RETURN nodes(p) AS path
+"
+`;
+
+exports[`Neo4j Cypher SSOT > snapshots (lock against accidental changes) > MERGE_SYMBOLS shape 1`] = `
+"
+  UNWIND $rows AS r
+  MATCH (f:File {projectId: r.projectId, path: r.filePath})
+  MERGE (s:Symbol {projectId: r.projectId, qualifiedName: r.qualifiedName})
+  SET s.name = r.name, s.kind = r.kind, s.filePath = r.filePath,
+      s.startLine = r.startLine, s.endLine = r.endLine,
+      s.signature = r.signature, s.visibility = r.visibility, s.layer = r.layer
+  MERGE (s)-[:DEFINED_IN]->(f)
+"
+`;

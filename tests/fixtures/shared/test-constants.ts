@@ -28,6 +28,13 @@ import type {
   DbIndex,
   DbSchemaBatch,
   ProxyConfig,
+  CodeProject,
+  CodeFile,
+  CodeSymbol,
+  CodeCallEdge,
+  CodeChunk,
+  IndexJob,
+  IndexStats,
 } from '../../../src/core/types/index.js';
 
 // ─── IDs ──────────────────────────────────────────────────────────────
@@ -654,6 +661,108 @@ export function createProxyIssueResponse(key: string, overrides?: Record<string,
       story_points: 3,
       ...overrides,
     },
+  };
+}
+
+// ─── Code Intelligence (ARG-263) ──────────────────────────────────────
+
+export const CODE_TEST_IDS = {
+  projectA: 'proj-alpha',
+  projectB: 'proj-beta',
+  projectName: 'Test Project Alpha',
+  projectRoot: '/tmp/argustack-test-project',
+  fileInvoicePath: 'src/domain/Invoice.ts',
+  fileRepoPath: 'src/adapters/postgres/InvoiceRepository.ts',
+  symbolInvoiceClass: 'src.domain.Invoice.Invoice',
+  symbolInvoiceCreate: 'src.domain.Invoice.Invoice.create',
+  symbolRepoImpl: 'src.adapters.postgres.InvoiceRepository.PostgresInvoiceRepository',
+  chunkId: 'chunk-test-1',
+  jobId: 1,
+  fileHash: 'abc123def456abc123def456abc123def456abc123def456abc123def456abcd',
+} as const;
+
+export function createCodeProject(overrides?: Partial<CodeProject>): CodeProject {
+  return {
+    id: CODE_TEST_IDS.projectA,
+    name: CODE_TEST_IDS.projectName,
+    root: CODE_TEST_IDS.projectRoot,
+    language: 'typescript',
+    ...overrides,
+  };
+}
+
+export function createCodeFile(overrides?: Partial<CodeFile>): CodeFile {
+  return {
+    projectId: CODE_TEST_IDS.projectA,
+    path: CODE_TEST_IDS.fileInvoicePath,
+    language: 'typescript',
+    layer: 'domain',
+    hash: CODE_TEST_IDS.fileHash,
+    ...overrides,
+  };
+}
+
+export function createCodeSymbol(overrides?: Partial<CodeSymbol>): CodeSymbol {
+  return {
+    projectId: CODE_TEST_IDS.projectA,
+    qualifiedName: CODE_TEST_IDS.symbolInvoiceClass,
+    name: 'Invoice',
+    kind: 'class',
+    filePath: CODE_TEST_IDS.fileInvoicePath,
+    startLine: 10,
+    endLine: 40,
+    layer: 'domain',
+    ...overrides,
+  };
+}
+
+export function createCallEdge(overrides?: Partial<CodeCallEdge>): CodeCallEdge {
+  return {
+    projectId: CODE_TEST_IDS.projectA,
+    fromQn: CODE_TEST_IDS.symbolInvoiceCreate,
+    toQn: CODE_TEST_IDS.symbolRepoImpl,
+    count: 1,
+    ...overrides,
+  };
+}
+
+export function createCodeChunk(overrides?: Partial<CodeChunk>): CodeChunk {
+  return {
+    symbolId: CODE_TEST_IDS.symbolInvoiceClass,
+    projectId: CODE_TEST_IDS.projectA,
+    filePath: CODE_TEST_IDS.fileInvoicePath,
+    name: 'Invoice',
+    kind: 'class',
+    layer: 'domain',
+    startLine: 10,
+    endLine: 40,
+    content: 'export class Invoice {\n  create() {}\n}',
+    ...overrides,
+  };
+}
+
+export function createIndexStats(overrides?: Partial<IndexStats>): IndexStats {
+  return {
+    filesIndexed: 1,
+    symbolsCreated: 1,
+    edgesCreated: 0,
+    chunksCreated: 1,
+    embeddingTokens: 100,
+    durationMs: 50,
+    ...overrides,
+  };
+}
+
+export function createIndexJob(overrides?: Partial<IndexJob>): IndexJob {
+  return {
+    id: CODE_TEST_IDS.jobId,
+    projectId: CODE_TEST_IDS.projectA,
+    type: 'incremental',
+    status: 'completed',
+    startedAt: '2026-05-21T10:00:00.000Z',
+    completedAt: '2026-05-21T10:00:05.000Z',
+    stats: createIndexStats(),
+    ...overrides,
   };
 }
 

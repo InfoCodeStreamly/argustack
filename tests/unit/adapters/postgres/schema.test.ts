@@ -144,12 +144,12 @@ describe('ensureSchema — CREATE TABLE', () => {
     expect(hasTable).toBe(true);
   });
 
-  it('creates exactly 21 tables', async () => {
+  it('creates exactly 24 tables (21 issue/git/github/graph/db + 3 code_*)', async () => {
     await ensureSchema(mockPool as unknown as pg.Pool);
 
     const queries = allQueriedSql();
     const tableCount = queries.filter(q => q.includes('CREATE TABLE IF NOT EXISTS')).length;
-    expect(tableCount).toBe(21);
+    expect(tableCount).toBe(24);
   });
 });
 
@@ -202,22 +202,22 @@ describe('ensureSchema — CREATE INDEX', () => {
     expect(hasIndex).toBe(true);
   });
 
-  it('creates exactly 50 indexes', async () => {
+  it('creates exactly 53 indexes (50 issue/git/github + 3 code_*)', async () => {
     await ensureSchema(mockPool as unknown as pg.Pool);
 
     const queries = allQueriedSql();
     const indexCount = queries.filter(q => q.includes('CREATE INDEX IF NOT EXISTS')).length;
-    expect(indexCount).toBe(50);
+    expect(indexCount).toBe(53);
   });
 });
 
 // ─── total call count ──────────────────────────────────────────────────────
 
 describe('ensureSchema — total pool.query calls', () => {
-  it('calls pool.query exactly 85 times (1 extension + 21 tables + 13 alters + 50 indexes)', async () => {
+  it('calls pool.query exactly 92 times', async () => {
     await ensureSchema(mockPool as unknown as pg.Pool);
 
-    expect(mockPool.query).toHaveBeenCalledTimes(85);
+    expect(mockPool.query).toHaveBeenCalledTimes(92);
   });
 
   it('resolves without throwing when pool.query always succeeds', async () => {

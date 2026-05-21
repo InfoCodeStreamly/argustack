@@ -70,6 +70,18 @@ vi.mock('../../../src/mcp/tools/graph.js', () => ({
   registerGraphTools: vi.fn(),
 }));
 
+vi.mock('../../../src/mcp/tools/code-graph.js', () => ({
+  registerCodeGraphTools: vi.fn(),
+}));
+
+vi.mock('../../../src/mcp/tools/code-search.js', () => ({
+  registerCodeSearchTools: vi.fn(),
+}));
+
+vi.mock('../../../src/mcp/tools/code-hybrid.js', () => ({
+  registerCodeHybridTools: vi.fn(),
+}));
+
 let existsSync: ReturnType<typeof vi.fn>;
 let readFileSync: ReturnType<typeof vi.fn>;
 

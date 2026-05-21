@@ -82,7 +82,7 @@ export function registerWorkspaceTools(server: McpServer): void {
     {
       description: 'Switch active workspace. All subsequent queries will use the new workspace database and .env credentials. Use list_workspaces first to see available names. Related: list_workspaces, workspace_info.',
       inputSchema: {
-        name: z.string().describe('Workspace name to switch to (e.g. "beautybooking", "paperlink")'),
+        name: z.string().describe('Workspace name to switch to (e.g. "myapp", "client-project")'),
       },
     },
     async ({ name }) => {

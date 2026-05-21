@@ -31,7 +31,7 @@ export const HARDCODE_PATTERNS: HardcodePattern[] = [
   // GITHUB ENTITIES
   // ══════════════════════════════════════════════════════════════════════════
   {
-    pattern: /['"`][a-zA-Z][\w-]*\/[a-zA-Z][\w-]*['"`]/g,
+    pattern: /['"`](?!textDocument\/|workspace\/|window\/|client\/|\$\/|initialize|initialized|shutdown|exit)[a-zA-Z][\w-]*\/[a-zA-Z][\w-]*['"`]/g,
     suggestion: '-> use GITHUB_TEST_IDS.repoFullName',
     severity: 'error',
     category: 'Repo Names',

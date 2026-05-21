@@ -41,14 +41,21 @@ src/
 │   │   ├── github.ts                 PullRequest, Review, PullRequestFile, GitHubBatch, Release
 │   │   ├── git.ts                    Commit, CommitFile, CommitIssueRef, CommitBatch, GitRef
 │   │   ├── project.ts                Project
-│   │   ├── config.ts                 WorkspaceConfig, SourceConfig, SourceType
+│   │   ├── config.ts                 WorkspaceConfig, SourceConfig, SourceType ('jira'|'git'|'github'|'csv'|'db'|'board'|'code')
 │   │   ├── graph.ts                  GraphEntity, GraphRelationship, GraphObservation, GraphQueryResult, GraphStats
+│   │   ├── code.ts                   CodeProject, CodeFile, CodeSymbol, CodeImport, CodeCallEdge, CodeChunk, IndexJob, IndexStats, LspSymbol, LspLocation, CodeLayer
 │   │   └── index.ts                  re-exports
 │   └── ports/
 │       ├── source-provider.ts        ISourceProvider — where data comes from
 │       ├── git-provider.ts           IGitProvider — Git-specific
 │       ├── github-provider.ts        IGitHubProvider — GitHub-specific
-│       ├── embedding-provider.ts     IEmbeddingProvider — text → vector
+│       ├── embedding-provider.ts     IEmbeddingProvider — text → vector (issues, OpenAI 1536d)
+│       ├── code-embedding.ts         ICodeEmbedding — code chunks → vector + rerank (Qwen3 1024d / Voyage)
+│       ├── code-graph.ts             ICodeGraph — Neo4j ops on Symbol/File + CALLS/IMPORTS/IMPLEMENTS
+│       ├── code-vector-store.ts      ICodeVectorStore — Qdrant per-project collections
+│       ├── code-parser.ts            ICodeParser — tree-sitter (TS/TSX first)
+│       ├── code-meta.ts              ICodeMetaStore — code_projects/code_files/code_index_jobs + advisory locks
+│       ├── lsp-client.ts             ILspClient — typescript-language-server subprocess
 │       ├── storage.ts                IStorage — where data is stored
 │       └── index.ts                  re-exports
 │
@@ -57,7 +64,26 @@ src/
 │   ├── pull-git.ts                   PullGitUseCase: Git → PostgreSQL
 │   ├── pull-github.ts                PullGitHubUseCase: GitHub → PostgreSQL
 │   ├── embed.ts                      EmbedUseCase: issues → OpenAI → pgvector
-│   └── build-graph.ts                BuildGraphUseCase: synced data → knowledge graph
+│   ├── build-graph.ts                BuildGraphUseCase: synced data → knowledge graph
+│   ├── register-code-project.ts      RegisterCodeProjectUseCase: meta + Neo4j project + Qdrant collection
+│   ├── unregister-code-project.ts    UnregisterCodeProjectUseCase: cleanup all three stores
+│   ├── index-code.ts                 IndexCodeUseCase: orchestrates CodeIndexer under advisory lock
+│   ├── watch-code.ts                 WatchCodeUseCase: starts CodeWatcher with abort signal
+│   └── code-search.ts                CodeSearchUseCase: searchSemantic / explainFeature / planFeatureFiles
+│
+├── code-intel/                    ← CODE INTELLIGENCE ORCHESTRATOR (single-language MVP: TS/TSX)
+│   ├── indexer.ts                    CodeIndexer: discover → parse → resolve → graph upserts → embed → vector upserts
+│   ├── watcher.ts                    CodeWatcher: chokidar + 500ms debounce per path
+│   ├── resolver.ts                   SymbolResolver: heuristic (name + same-file preference)
+│   ├── lsp-resolver.ts               LspSymbolResolver: LSP-based with timeout + heuristic fallback
+│   ├── ranker.ts                     HybridRanker: rerank + expandGraph + clusterByLayer
+│   ├── chunker.ts                    symbolsToChunks: one chunk per top-level symbol
+│   ├── file-discovery.ts             discoverFiles: .gitignore + hardcoded excludes streaming generator
+│   ├── layer-detector.ts             detectLayer: layer_config > path heuristic
+│   ├── hash.ts                       hashFile: sha256 for incremental skip
+│   ├── tsconfig-paths.ts             loadTsconfigPaths: parse paths + extends chain
+│   ├── job-lock.ts                   withJobLock: advisory lock wrapper preventing concurrent index+watch
+│   └── index.ts                      barrel: CodeIndexer, CodeWatcher, HybridRanker, helpers
 │
 ├── adapters/                      ← IMPLEMENTATIONS: implements core/ports
 │   ├── jira/                         JiraProvider implements ISourceProvider
@@ -79,13 +105,39 @@ src/
 │   │   ├── provider.ts                  PRs, reviews, comments, files, releases
 │   │   ├── mapper.ts                    Raw GitHub JSON → core types
 │   │   └── index.ts                     re-exports
-│   ├── openai/                       OpenAI embeddings adapter
+│   ├── openai/                       OpenAI embeddings adapter (issue embeddings)
 │   │   ├── embedding-provider.ts        text-embedding-3-small, batched
 │   │   └── index.ts                     re-exports
-│   └── postgres/                     PostgresStorage implements IStorage
+│   ├── lmstudio/                     LM Studio code embeddings + rerank (default for code)
+│   │   ├── embedding-provider.ts        Qwen3-Embedding-4B via /v1/embeddings; rerank via /v1/chat/completions when RERANK_MODEL set
+│   │   └── index.ts                     re-exports
+│   ├── voyage/                       Voyage AI code embeddings (cloud alternative)
+│   │   ├── embedding-provider.ts        voyage-code-3 + voyage-rerank-2.5-lite, batched
+│   │   └── index.ts                     re-exports
+│   ├── tree-sitter/                  TreeSitterParser implements ICodeParser
+│   │   ├── parser.ts                    walk AST, extract symbols/imports/calls
+│   │   ├── queries.ts                   S-expression queries (reserved for future use)
+│   │   └── index.ts                     re-exports
+│   ├── lsp/                          TypeScriptLspClient implements ILspClient
+│   │   ├── jsonrpc.ts                   LSP framing (Content-Length + body)
+│   │   ├── typescript-lsp.ts            spawn typescript-language-server, JSON-RPC
+│   │   └── index.ts                     re-exports
+│   ├── neo4j/                        Neo4jCodeGraphStore implements ICodeGraph
+│   │   ├── client.ts                    driver factory, verifyConnectivity
+│   │   ├── cypher.ts                    Cypher SSOT (MERGE_*, Q_*)
+│   │   ├── mapper.ts                    Node/record → CodeSymbol/CodeFile
+│   │   ├── graph-store.ts               constraints + UNWIND batched upserts + traversal queries
+│   │   └── index.ts                     re-exports
+│   ├── qdrant/                       QdrantCodeVectorStore implements ICodeVectorStore
+│   │   ├── client.ts                    QdrantClient factory, collectionName()
+│   │   ├── mapper.ts                    CodeChunk → Point + hashId
+│   │   ├── vector-store.ts              ensureCollection, upsert, search, recommend
+│   │   └── index.ts                     re-exports
+│   └── postgres/                     PostgresStorage implements IStorage + ICodeMetaStore
 │       ├── connection.ts                pg Pool
-│       ├── schema.ts                    CREATE TABLE + indexes (idempotent)
-│       ├── storage.ts                   UPSERT logic, transactions
+│       ├── schema.ts                    CREATE TABLE + indexes (idempotent, incl. code_*)
+│       ├── storage.ts                   UPSERT logic, transactions (issue/git/github/db/graph)
+│       ├── code-meta.ts                 PostgresCodeMetaStore (extracted base class) — code_projects/files/jobs + advisory locks
 │       └── index.ts                     re-exports
 │
 ├── workspace/                     ← INFRA: workspace management
@@ -97,15 +149,18 @@ src/
 │   ├── server.ts                     McpServer setup + tool registration
 │   ├── helpers.ts                    Shared DB connection helper
 │   ├── types.ts                      Row types for query results
-│   └── tools/                        Tool modules (one per domain)
-│       ├── workspace.ts                 workspace_info, list_projects, list_workspaces, switch_workspace
+│   └── tools/                        Tool modules (one per domain) — 46 tools total
+│       ├── workspace.ts                 workspace_info, list_projects, list_workspaces, switch_workspace, pull_jira
 │       ├── query.ts                     query_commits, query_issues, query_prs, query_releases
-│       ├── issue.ts                     get_issue, issue_commits, issue_prs, issue_stats, issue_timeline
+│       ├── issue.ts                     get_issue, issue_commits, issue_prs, issue_stats, issue_timeline, commit_stats
 │       ├── search.ts                    hybrid_search
 │       ├── estimate.ts                  estimate
 │       ├── push.ts                      create_issue, update_issue, push
 │       ├── database.ts                  db_schema, db_query, db_stats
-│       └── graph.ts                     impact_analysis, developer_expertise, related_issues, code_dependencies, business_context, build_business_graph, root_cause_analysis, add_relationship, add_observation
+│       ├── graph.ts                     impact_analysis, developer_expertise, related_issues, code_dependencies, business_context, build_business_graph, root_cause_analysis, add_relationship, add_observation
+│       ├── code-graph.ts                find_symbol, get_dependencies, get_dependents, get_callers, get_callees, get_call_path, find_arch_violations, find_unused_exports, get_implementers, get_layer_symbols (Neo4j)
+│       ├── code-search.ts               search_semantic, find_similar_code (Qdrant)
+│       └── code-hybrid.ts                explain_feature, plan_feature_files (Neo4j + Qdrant + rerank)
 │
 └── cli/                           ← ENTRY POINT: commands, UX, wiring
     ├── index.ts                      Commander.js setup, registers all commands
@@ -125,6 +180,7 @@ src/
     ├── embed.ts                      argustack embed (generate embeddings)
     ├── sources.ts                    argustack sources (list configured sources)
     ├── status.ts                     argustack status (workspace status)
+    ├── code.ts                       argustack code (init/register/index/watch/list/status/stats/unregister)
     └── mcp-install.ts                argustack mcp install (Claude Desktop config)
 ```
 

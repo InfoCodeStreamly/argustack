@@ -3,13 +3,10 @@
 [![npm version](https://img.shields.io/npm/v/argustack.svg)](https://www.npmjs.com/package/argustack)
 [![npm downloads](https://img.shields.io/npm/dm/argustack.svg)](https://www.npmjs.com/package/argustack)
 [![license](https://img.shields.io/npm/l/argustack.svg)](LICENSE)
-[![docs](https://img.shields.io/badge/docs-DataRoom-blue)](https://app.paperlink.online/s/0aa7d2d6/argustack)
 
 **Ask AI about your Jira, Git, and GitHub — powered by local data, not cloud APIs.**
 
-[**Documentation & Examples →**](https://app.paperlink.online/s/0aa7d2d6/argustack)
-
-Argustack downloads your project data into local PostgreSQL, cross-references everything, and gives Claude direct access via 32 MCP tools. All data stays on your machine.
+Argustack downloads your project data into local PostgreSQL, indexes your codebases into Neo4j + Qdrant, and gives Claude direct access via 46 MCP tools. All data stays on your machine.
 
 > *Was ticket PROJ-123 implemented as described?*
 > *Who reviewed the PR and what was the feedback?*
@@ -29,7 +26,8 @@ Argustack downloads your project data into local PostgreSQL, cross-references ev
 - **Update & push** — modify issues locally, push changes back to Jira (Markdown descriptions auto-converted to rich ADF)
 - **Global workspace registry** — `~/.argustack/workspaces.json`, switch between workspaces from any directory
 - **Knowledge graph** — entity-relationship graph (issues, developers, modules, PRs) with impact analysis and code dependencies
-- **32 MCP tools** — Claude queries your data directly via SQL
+- **Code intelligence** — Cursor-style RAG: tree-sitter AST + Neo4j call graph + Qdrant semantic search over your codebases (TypeScript first). Local embeddings via LM Studio (Qwen3-Embedding-4B), no cloud APIs.
+- **46 MCP tools** — Claude queries your data directly via SQL + Cypher + vector search
 - **IDE Plugin** — kanban board for JetBrains IDEs where columns are Claude Code skills
 - **100% local** — no cloud, no accounts, no telemetry
 
@@ -77,6 +75,12 @@ argustack status                     # workspace info
 argustack workspaces                 # list all known workspaces
 argustack graph build                # build knowledge graph from synced data
 argustack graph stats                # show graph entity/relationship counts
+argustack code init                  # generate ~/.argustack/code/docker-compose.yml + start Neo4j + Qdrant
+argustack code register --name X    # register a codebase for indexing
+argustack code index                 # incremental index of registered project (--full / --status / --lsp)
+argustack code watch                 # real-time re-index on file save (--daemon for background)
+argustack code list                  # list registered code projects
+argustack code stats <projectId>     # symbols, vectors, last job
 ```
 
 ## MCP Tools
@@ -116,6 +120,20 @@ After sync, Claude queries your data through these tools:
 | `build_business_graph` | Claude identifies business processes from issue data |
 | `add_relationship` | Manually add semantic relationships (survives rebuild) |
 | `add_observation` | Add knowledge notes to any entity |
+| `find_symbol` | Locate functions, classes, methods, types by name fragment (with layer/kind filter) |
+| `get_dependencies` | Files this file imports (transitive) |
+| `get_dependents` | Files that import this file (upstream) |
+| `get_callers` | Symbols that call this qualified name (transitively) |
+| `get_callees` | Symbols called by this qualified name (transitively) |
+| `get_call_path` | Shortest call path between two symbols |
+| `find_arch_violations` | Clean Architecture violations (domain → infra, etc.) |
+| `find_unused_exports` | Exported symbols with no incoming references |
+| `get_implementers` | Classes implementing an interface |
+| `get_layer_symbols` | All symbols in a layer (domain / application / infrastructure / presentation) |
+| `search_semantic` | Code chunks by intent (embedding-based, layer/kind filter) |
+| `find_similar_code` | Chunks similar to a given symbol |
+| `explain_feature` | 4-stage pipeline (semantic → graph expand → rerank → cluster by layer) |
+| `plan_feature_files` | Files Claude should consider when planning a new feature, grouped by layer |
 
 ## IDE Plugin
 
@@ -136,13 +154,12 @@ Argustack is a CLI tool with no backend, no cloud, no accounts. Credentials stay
 
 ## Documentation
 
-Full documentation available at **[Argustack DataRoom](https://app.paperlink.online/s/0aa7d2d6/argustack)**:
+- [`llms.txt`](./llms.txt) — full project summary for AI agents (read this if you're Claude)
+- [`CLAUDE.md`](./CLAUDE.md) — architecture, tech stack, conventions for contributors
+- [`AGENTS.md`](./AGENTS.md) — build commands, file map, debugging tips
+- [`Docs/Tasks/`](./Docs/Tasks/) — business requirements (ARG-XXX) and technical plans
 
-- **Quick Start Guide** — from zero to first query in 5 minutes
-- **Use Cases & Examples** — real scenarios for PMs, team leads, developers, CTOs
-- **MCP Tools Reference** — all 32 tools with parameters and examples
-- **Estimate Tool Deep Dive** — algorithm, scoring, data sources
-- **Architecture Guide** — hexagonal architecture, directory structure, extending
+MCP tools are self-documenting — each `server.registerTool()` call in `src/mcp/tools/*.ts` includes a description that Claude reads at runtime.
 
 ## License
 
