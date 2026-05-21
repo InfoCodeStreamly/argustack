@@ -1,11 +1,3 @@
-import dotenv from 'dotenv';
-import { readdirSync, readFileSync, writeFileSync, existsSync, statSync, mkdirSync } from 'node:fs';
-import { join, dirname, basename } from 'node:path';
-import { homedir } from 'node:os';
-import { findWorkspaceRoot } from '../workspace/resolver.js';
-import { readConfig, getEnabledSources } from '../workspace/config.js';
-import { listRegisteredWorkspaces } from '../workspace/registry.js';
-import type { WorkspaceConfig, SourceType } from '../core/types/index.js';
 import type { ISourceProvider } from '../core/ports/source-provider.js';
 import type { IStorage } from '../core/ports/storage.js';
 import type { ICodeGraph } from '../core/ports/code-graph.js';
@@ -13,263 +5,43 @@ import type { ICodeVectorStore } from '../core/ports/code-vector-store.js';
 import type { ICodeParser } from '../core/ports/code-parser.js';
 import type { ICodeEmbedding } from '../core/ports/code-embedding.js';
 import type { ICodeMetaStore } from '../core/ports/code-meta.js';
+import type { IWorkspaceStore } from '../core/ports/workspace-store.js';
+import type { Workspace, WorkspaceConfig } from '../core/types/index.js';
+import { loadHubConfig } from '../workspace/hub-config.js';
+import {
+  getActiveWorkspace,
+  setActiveWorkspace,
+  clearActiveWorkspace,
+} from '../workspace/active-workspace.js';
+import { readWorkspaceConfigFromHub } from '../workspace/config.js';
 import type { ToolResponse } from './types.js';
 
+export interface WorkspaceContext {
+  readonly workspaceId: string;
+  readonly workspace: Workspace;
+  readonly config: WorkspaceConfig;
+}
+
 export type WorkspaceResult =
-  | { ok: true; root: string; config: WorkspaceConfig }
+  | { ok: true; workspaceId: string; workspace: Workspace; config: WorkspaceConfig }
   | { ok: false; reason: string };
 
-export interface WorkspaceListItem {
-  name: string;
-  path: string;
-  sources: SourceType[];
-  active: boolean;
-}
-
 let activeStorage: IStorage | null = null;
-let overrideWorkspaceRoot: string | null = null;
-let initialEnvWorkspace: string | null = null;
-let initialEnvCaptured = false;
+let activeWorkspaceStore: IWorkspaceStore | null = null;
 
-interface ActiveWorkspaceSwitch {
-  switchedTo: string;
-  switchedAt: string;
+interface CachedCodeAdapters {
+  graph: ICodeGraph;
+  vec: ICodeVectorStore;
+  parser: ICodeParser;
+  embedding: ICodeEmbedding;
+  meta: ICodeMetaStore;
+  storage: IStorage & ICodeMetaStore;
+  projectRoot: string;
 }
 
-function getActiveWsFile(): string {
-  return join(homedir(), '.argustack', 'active-workspace.json');
-}
+export type CodeAdapters = Omit<CachedCodeAdapters, 'projectRoot'>;
 
-function persistWorkspaceSwitch(fromPath: string, toPath: string): void {
-  const dir = join(homedir(), '.argustack');
-  if (!existsSync(dir)) {
-    mkdirSync(dir, { recursive: true });
-  }
-
-  let data: Record<string, ActiveWorkspaceSwitch> = {};
-  const filePath = getActiveWsFile();
-  if (existsSync(filePath)) {
-    try {
-      data = JSON.parse(readFileSync(filePath, 'utf-8')) as Record<string, ActiveWorkspaceSwitch>;
-    } catch { /* start fresh */ }
-  }
-
-  data[fromPath] = { switchedTo: toPath, switchedAt: new Date().toISOString() };
-  writeFileSync(filePath, JSON.stringify(data, null, 2) + '\n');
-}
-
-function getPersistedWorkspaceSwitch(fromPath: string): string | null {
-  const filePath = getActiveWsFile();
-  if (!existsSync(filePath)) {
-    return null;
-  }
-  try {
-    const data = JSON.parse(readFileSync(filePath, 'utf-8')) as Record<string, ActiveWorkspaceSwitch>;
-    const entry = data[fromPath];
-    if (entry?.switchedTo && existsSync(join(entry.switchedTo, '.argustack'))) {
-      return entry.switchedTo;
-    }
-  } catch { /* ignore */ }
-  return null;
-}
-
-function clearPersistedWorkspaceSwitch(fromPath: string): void {
-  const filePath = getActiveWsFile();
-  if (!existsSync(filePath)) {
-    return;
-  }
-  try {
-    const data = JSON.parse(readFileSync(filePath, 'utf-8')) as Record<string, ActiveWorkspaceSwitch>;
-    Reflect.deleteProperty(data, fromPath);
-    writeFileSync(filePath, JSON.stringify(data, null, 2) + '\n');
-  } catch { /* ignore */ }
-}
-
-export function loadWorkspace(): WorkspaceResult {
-  if (!initialEnvCaptured) {
-    initialEnvWorkspace = process.env['ARGUSTACK_WORKSPACE'] ?? null;
-    initialEnvCaptured = true;
-
-    if (initialEnvWorkspace && !overrideWorkspaceRoot) {
-      const persisted = getPersistedWorkspaceSwitch(initialEnvWorkspace);
-      if (persisted) {
-        overrideWorkspaceRoot = persisted;
-      }
-    }
-  }
-
-  if (overrideWorkspaceRoot) {
-    const config = readConfig(overrideWorkspaceRoot);
-    if (config) {
-      return { ok: true, root: overrideWorkspaceRoot, config };
-    }
-    overrideWorkspaceRoot = null;
-    if (initialEnvWorkspace) {
-      clearPersistedWorkspaceSwitch(initialEnvWorkspace);
-    }
-  }
-
-  const envVar = process.env['ARGUSTACK_WORKSPACE'];
-  const root = findWorkspaceRoot();
-
-  if (!root) {
-    if (envVar) {
-      return {
-        ok: false,
-        reason: `ARGUSTACK_WORKSPACE is set to "${envVar}" but no .argustack/ marker found there or in parent directories.`,
-      };
-    }
-    const registered = listRegisteredWorkspaces();
-    if (registered.length > 0) {
-      const names = registered.map((w) => w.name).join(', ');
-      return {
-        ok: false,
-        reason: `Workspace not found from current directory. Available workspaces: ${names}. Use switch_workspace("name") to connect.`,
-      };
-    }
-    return { ok: false, reason: 'No workspaces found. Run "argustack init" to create one.' };
-  }
-
-  const config = readConfig(root);
-  if (!config) {
-    return {
-      ok: false,
-      reason: `Workspace found at ${root} but .argustack/config.json is missing or invalid. Run "argustack init".`,
-    };
-  }
-
-  return { ok: true, root, config };
-}
-
-/**
- * Switch to a different workspace by name.
- * Closes current storage connection, updates env, reloads .env.
- */
-export async function switchWorkspace(name: string): Promise<WorkspaceResult> {
-  const currentRoot = overrideWorkspaceRoot ?? process.env['ARGUSTACK_WORKSPACE'];
-
-  let targetDir: string | null = null;
-
-  if (currentRoot) {
-    const parentDir = dirname(currentRoot);
-    const siblingDir = join(parentDir, name);
-    if (existsSync(join(siblingDir, '.argustack'))) {
-      targetDir = siblingDir;
-    }
-  }
-
-  if (!targetDir) {
-    const registered = listRegisteredWorkspaces(currentRoot ?? undefined);
-    const match = registered.find((w) => w.name === name || basename(w.path) === name);
-    if (match) {
-      targetDir = match.path;
-    }
-  }
-
-  if (!targetDir) {
-    const available = listSiblingWorkspaces();
-    const names = available.map((w) => w.name).join(', ');
-    return {
-      ok: false,
-      reason: `Workspace '${name}' not found. Available: ${names || 'none'}`,
-    };
-  }
-
-  if (activeStorage) {
-    try {
-      await activeStorage.close();
-    } catch { /* ignore close errors */ }
-    activeStorage = null;
-  }
-
-  overrideWorkspaceRoot = targetDir;
-  process.env['ARGUSTACK_WORKSPACE'] = targetDir;
-
-  if (initialEnvWorkspace) {
-    if (targetDir === initialEnvWorkspace) {
-      clearPersistedWorkspaceSwitch(initialEnvWorkspace);
-      overrideWorkspaceRoot = null;
-    } else {
-      persistWorkspaceSwitch(initialEnvWorkspace, targetDir);
-    }
-  }
-
-  const keysToRemove = Object.keys(process.env).filter((key) =>
-    key.startsWith('JIRA_') || key.startsWith('GIT_') || key.startsWith('GITHUB_') ||
-    key.startsWith('DB_') || key.startsWith('TARGET_DB_') || key.startsWith('CSV_') ||
-    key === 'OPENAI_API_KEY',
-  );
-  for (const key of keysToRemove) {
-    Reflect.deleteProperty(process.env, key);
-  }
-
-  dotenv.config({ path: join(targetDir, '.env'), override: true });
-
-  return loadWorkspace();
-}
-
-/**
- * Scan parent directory for sibling workspaces.
- */
-export function listSiblingWorkspaces(): WorkspaceListItem[] {
-  const currentRoot = overrideWorkspaceRoot ?? process.env['ARGUSTACK_WORKSPACE'];
-  if (!currentRoot) {
-    return [];
-  }
-
-  const parentDir = dirname(currentRoot);
-  const currentName = basename(currentRoot);
-
-  let entries: string[];
-  try {
-    entries = readdirSync(parentDir);
-  } catch {
-    return [];
-  }
-
-  const workspaces: WorkspaceListItem[] = [];
-
-  for (const name of entries) {
-    if (name.startsWith('.')) {
-      continue;
-    }
-
-    const subdir = join(parentDir, name);
-    try {
-      if (!statSync(subdir).isDirectory()) {
-        continue;
-      }
-    } catch {
-      continue;
-    }
-
-    if (!existsSync(join(subdir, '.argustack'))) {
-      continue;
-    }
-
-    const config = readConfig(subdir);
-    if (!config) {
-      continue;
-    }
-
-    workspaces.push({
-      name: config.name ?? name,
-      path: subdir,
-      sources: getEnabledSources(config),
-      active: name === currentName,
-    });
-  }
-
-  const registered = listRegisteredWorkspaces(currentRoot);
-  for (const rw of registered) {
-    const alreadyListed = workspaces.some((w) => w.path === rw.path);
-    if (!alreadyListed) {
-      workspaces.push(rw);
-    }
-  }
-
-  return workspaces;
-}
+let activeCodeAdapters: CachedCodeAdapters | null = null;
 
 export function setActiveStorage(storage: IStorage): void {
   activeStorage = storage;
@@ -279,58 +51,176 @@ export function getActiveStorage(): IStorage | null {
   return activeStorage;
 }
 
-export async function createAdapters(workspaceRoot: string): Promise<{
-  source: ISourceProvider | null;
-  storage: IStorage;
-}> {
-  dotenv.config({ path: `${workspaceRoot}/.env`, override: true });
+export function setActiveWorkspaceStore(store: IWorkspaceStore): void {
+  activeWorkspaceStore = store;
+}
 
-  const { JIRA_URL, JIRA_EMAIL, JIRA_API_TOKEN } = process.env;
-  const { DB_HOST, DB_PORT, DB_USER, DB_PASSWORD, DB_NAME } = process.env;
+export async function getWorkspaceStore(): Promise<IWorkspaceStore> {
+  if (activeWorkspaceStore) {
+    return activeWorkspaceStore;
+  }
+  const { db } = loadHubConfig();
+  const { PostgresWorkspaceStore, createPool } = await import('../adapters/postgres/index.js');
+  const store = new PostgresWorkspaceStore(createPool(db));
+  activeWorkspaceStore = store;
+  return store;
+}
 
-  let source: ISourceProvider | null = null;
-
-  const wsConfig = readConfig(workspaceRoot);
-  const issueTypes = wsConfig?.sources.jira?.issueTypeIds;
-
-  const { proxyConfigExists, loadProxyConfig, ProxyJiraProvider } = await import('../adapters/jira-proxy/index.js');
-  if (proxyConfigExists(workspaceRoot)) {
-    const proxyConfig = loadProxyConfig(workspaceRoot);
-    source = new ProxyJiraProvider(proxyConfig, issueTypes);
-  } else if (JIRA_URL && JIRA_EMAIL && JIRA_API_TOKEN) {
-    const { JiraProvider } = await import('../adapters/jira/index.js');
-    source = new JiraProvider({
-      host: JIRA_URL,
-      email: JIRA_EMAIL,
-      apiToken: JIRA_API_TOKEN,
-    }, issueTypes);
+/**
+ * Resolve the workspace for a tool invocation.
+ *
+ * Resolution order (mirrors {@link import('../workspace/resolver').requireWorkspaceId}):
+ *   1. `explicit` (the tool's `workspace_id` schema field).
+ *   2. `ARGUSTACK_WORKSPACE_ID` env var.
+ *   3. `~/.argustack/active-workspace.json#activeWorkspaceId`.
+ *   4. Auto-pick when exactly one workspace exists in the hub.
+ *
+ * Returns a structured result so MCP tools can render a tool-friendly
+ * error response instead of throwing.
+ */
+export async function loadWorkspace(explicit?: string): Promise<WorkspaceResult> {
+  let store: IWorkspaceStore;
+  try {
+    store = await getWorkspaceStore();
+  } catch (err) {
+    return { ok: false, reason: getErrorMessage(err) };
   }
 
-  const { PostgresStorage } = await import('../adapters/postgres/index.js');
-  const storage: IStorage = new PostgresStorage({
-    host: DB_HOST ?? 'localhost',
-    port: parseInt(DB_PORT ?? '5434', 10),
-    user: DB_USER ?? 'argustack',
-    password: DB_PASSWORD ?? 'argustack_local',
-    database: DB_NAME ?? 'argustack',
-  });
+  const explicitId = explicit?.trim();
+  if (explicitId) {
+    const workspace = (await store.getById(explicitId)) ?? (await store.getByName(explicitId));
+    if (!workspace) {
+      return { ok: false, reason: `Workspace "${explicitId}" not found in hub.` };
+    }
+    return buildResult(workspace, store);
+  }
 
-  return { source, storage };
+  const envId = process.env['ARGUSTACK_WORKSPACE_ID']?.trim();
+  if (envId) {
+    const workspace = await store.getById(envId);
+    if (!workspace) {
+      return { ok: false, reason: `ARGUSTACK_WORKSPACE_ID="${envId}" not found in hub.` };
+    }
+    return buildResult(workspace, store);
+  }
+
+  const active = getActiveWorkspace();
+  if (active) {
+    const workspace = await store.getById(active.activeWorkspaceId);
+    if (workspace) {
+      return buildResult(workspace, store);
+    }
+    clearActiveWorkspace();
+  }
+
+  const all = await store.list();
+  if (all.length === 1) {
+    const only = all[0];
+    if (only) {
+      return buildResult(only, store);
+    }
+  }
+
+  if (all.length === 0) {
+    return {
+      ok: false,
+      reason: 'No workspaces registered. Run "argustack workspace add <name>" to create one.',
+    };
+  }
+
+  const names = all.map((w) => w.name).join(', ');
+  return {
+    ok: false,
+    reason: `No active workspace. Pass workspace_id, or call switch_workspace. Available: ${names}.`,
+  };
 }
 
-export interface CodeAdapters {
-  graph: ICodeGraph;
-  vec: ICodeVectorStore;
-  parser: ICodeParser;
-  embedding: ICodeEmbedding;
-  meta: ICodeMetaStore;
-  storage: IStorage & ICodeMetaStore;
+async function buildResult(workspace: Workspace, store: IWorkspaceStore): Promise<WorkspaceResult> {
+  const config = await readWorkspaceConfigFromHub(workspace.id, store);
+  if (!config) {
+    return { ok: false, reason: `Workspace "${workspace.id}" was not found after lookup.` };
+  }
+  return { ok: true, workspaceId: workspace.id, workspace, config };
 }
 
-let activeCodeAdapters: CodeAdapters | null = null;
+/**
+ * Switch the active workspace. Writes the hub `active-workspace.json`,
+ * touches `last_active_at`, and resets cached connections so subsequent
+ * tool calls reconnect with whatever per-workspace settings apply.
+ */
+export async function switchWorkspace(name: string): Promise<WorkspaceResult> {
+  const store = await getWorkspaceStore();
+  const workspace = (await store.getById(name)) ?? (await store.getByName(name));
+  if (!workspace) {
+    const all = await store.list();
+    const known = all.map((w) => w.name).join(', ') || 'none';
+    return { ok: false, reason: `Workspace "${name}" not found. Available: ${known}` };
+  }
+
+  setActiveWorkspace(workspace.id, workspace.name);
+  await store.touchActive(workspace.id);
+
+  if (activeStorage) {
+    try { await activeStorage.close(); } catch { /* ignore */ }
+    activeStorage = null;
+  }
+  if (activeCodeAdapters) {
+    try { await activeCodeAdapters.storage.close(); } catch { /* ignore */ }
+    activeCodeAdapters = null;
+  }
+
+  return buildResult(workspace, store);
+}
+
+export interface ResolvedAdapters {
+  source: ISourceProvider | null;
+  storage: IStorage;
+  workspaceId: string;
+}
+
+/**
+ * Build the per-tool adapter set. The hub Postgres pool is reused
+ * across invocations via {@link activeStorage}; the source provider
+ * (Jira/proxy) is recreated each call since per-workspace project
+ * filters can change.
+ */
+export async function createAdapters(workspaceId: string): Promise<ResolvedAdapters> {
+  const hub = loadHubConfig();
+  const store = await getWorkspaceStore();
+  const workspace = await store.getById(workspaceId);
+  if (!workspace) {
+    throw new Error(`Workspace "${workspaceId}" not found in hub.`);
+  }
+
+  if (!activeStorage) {
+    const { PostgresStorage } = await import('../adapters/postgres/index.js');
+    activeStorage = new PostgresStorage(hub.db);
+  }
+
+  const issueTypeIds: string[] | undefined = undefined;
+
+  let source: ISourceProvider | null = null;
+  const { proxyConfigExistsForWorkspace, loadProxyConfigForWorkspace, ProxyJiraProvider } =
+    await import('../adapters/jira-proxy/index.js');
+  if (proxyConfigExistsForWorkspace(workspace.id)) {
+    const proxyConfig = loadProxyConfigForWorkspace(workspace.id);
+    source = new ProxyJiraProvider(proxyConfig, issueTypeIds);
+  } else if (hub.credentials.jiraUrl && hub.credentials.jiraEmail && hub.credentials.jiraApiToken) {
+    const { JiraProvider } = await import('../adapters/jira/index.js');
+    source = new JiraProvider({
+      host: hub.credentials.jiraUrl,
+      email: hub.credentials.jiraEmail,
+      apiToken: hub.credentials.jiraApiToken,
+    }, issueTypeIds);
+  }
+
+  return { source, storage: activeStorage, workspaceId };
+}
 
 export function setActiveCodeAdapters(adapters: CodeAdapters | null): void {
-  activeCodeAdapters = adapters;
+  activeCodeAdapters = adapters
+    ? { ...adapters, projectRoot: '' }
+    : null;
 }
 
 export function getActiveCodeAdapters(): CodeAdapters | null {
@@ -338,36 +228,22 @@ export function getActiveCodeAdapters(): CodeAdapters | null {
 }
 
 /**
- * Build adapters needed by code-intelligence MCP tools.
- * Returns null if env is missing required vars (NEO4J_URI, QDRANT_URL,
- * VOYAGE_API_KEY). Caller must report the error to the user via errorResponse.
+ * Build adapters used by code-intelligence MCP tools for a specific
+ * workspace. Returns `null` if the hub config is missing the bits
+ * required by the chosen embedding provider.
  */
-export async function createCodeAdapters(workspaceRoot: string): Promise<CodeAdapters | null> {
+export async function createCodeAdapters(workspaceId: string): Promise<CodeAdapters | null> {
+  const hub = loadHubConfig();
+  const store = await getWorkspaceStore();
+  const workspace = await store.getById(workspaceId);
+  if (!workspace) {
+    return null;
+  }
   if (activeCodeAdapters) {
     return activeCodeAdapters;
   }
-  dotenv.config({ path: `${workspaceRoot}/.env`, override: false });
 
-  const {
-    NEO4J_URI,
-    NEO4J_USER,
-    NEO4J_PASSWORD,
-    QDRANT_URL,
-    QDRANT_API_KEY,
-    VOYAGE_API_KEY,
-    LMSTUDIO_URL,
-    EMBEDDING_MODEL,
-    EMBEDDING_DIMS,
-    CODE_EMBEDDING_PROVIDER,
-    RERANK_MODEL,
-  } = process.env;
-
-  if (!NEO4J_URI || !QDRANT_URL) {
-    return null;
-  }
-
-  const provider = (CODE_EMBEDDING_PROVIDER ?? 'lmstudio').toLowerCase();
-  if (provider === 'voyage' && !VOYAGE_API_KEY) {
+  if (hub.embedding.provider === 'voyage' && !hub.embedding.voyageApiKey) {
     return null;
   }
 
@@ -376,44 +252,59 @@ export async function createCodeAdapters(workspaceRoot: string): Promise<CodeAda
   const { QdrantCodeVectorStore } = await import('../adapters/qdrant/index.js');
   const { TreeSitterParser } = await import('../adapters/tree-sitter/index.js');
 
-  const { DB_HOST, DB_PORT, DB_USER, DB_PASSWORD, DB_NAME } = process.env;
-  const storage = new PostgresStorage({
-    host: DB_HOST ?? 'localhost',
-    port: parseInt(DB_PORT ?? '5434', 10),
-    user: DB_USER ?? 'argustack',
-    password: DB_PASSWORD ?? 'argustack_local',
-    database: DB_NAME ?? 'argustack',
-  });
-  const graph = new Neo4jCodeGraphStore({
-    uri: NEO4J_URI,
-    user: NEO4J_USER ?? 'neo4j',
-    password: NEO4J_PASSWORD ?? 'argustack_local',
-  });
-  const qdrantOpts: ConstructorParameters<typeof QdrantCodeVectorStore>[0] = {
-    url: QDRANT_URL,
-  };
-  if (QDRANT_API_KEY) {
-    qdrantOpts.apiKey = QDRANT_API_KEY;
-  }
-  const vec = new QdrantCodeVectorStore(qdrantOpts);
-  const parser = new TreeSitterParser({ projectRoot: workspaceRoot });
+  const storage = new PostgresStorage(hub.db);
+  const graph = new Neo4jCodeGraphStore(hub.neo4j);
+  const vec = new QdrantCodeVectorStore({ url: hub.qdrant.url });
+
+  const projectRoot = workspace.settings?.gitRepoPaths?.[0] ?? hub.hubDir;
+  const parser = new TreeSitterParser({ projectRoot });
 
   let embedding: ICodeEmbedding;
-  if (provider === 'voyage' && VOYAGE_API_KEY) {
+  if (hub.embedding.provider === 'voyage' && hub.embedding.voyageApiKey) {
     const { VoyageCodeEmbeddingProvider } = await import('../adapters/voyage/index.js');
-    embedding = new VoyageCodeEmbeddingProvider({ apiKey: VOYAGE_API_KEY });
+    embedding = new VoyageCodeEmbeddingProvider({ apiKey: hub.embedding.voyageApiKey });
+  } else if (hub.embedding.provider === 'ollama' || hub.embedding.provider === 'custom') {
+    const { OllamaCodeEmbeddingProvider } = await import('../adapters/ollama/index.js');
+    const url = hub.embedding.provider === 'custom'
+      ? hub.embedding.customUrl
+      : hub.embedding.ollamaUrl;
+    embedding = new OllamaCodeEmbeddingProvider({
+      model: hub.embedding.model,
+      dimensions: hub.embedding.dimensions,
+      ...(url ? { url } : {}),
+    });
   } else {
     const { LmStudioCodeEmbeddingProvider } = await import('../adapters/lmstudio/index.js');
-    const lmsOpts: ConstructorParameters<typeof LmStudioCodeEmbeddingProvider>[0] = {};
-    if (LMSTUDIO_URL) {lmsOpts.url = LMSTUDIO_URL;}
-    if (EMBEDDING_MODEL) {lmsOpts.model = EMBEDDING_MODEL;}
-    if (EMBEDDING_DIMS) {lmsOpts.dimensions = parseInt(EMBEDDING_DIMS, 10);}
-    if (RERANK_MODEL) {lmsOpts.rerankModel = RERANK_MODEL;}
+    const lmsOpts: ConstructorParameters<typeof LmStudioCodeEmbeddingProvider>[0] = {
+      model: hub.embedding.model,
+      dimensions: hub.embedding.dimensions,
+    };
+    if (hub.embedding.lmstudioUrl) { lmsOpts.url = hub.embedding.lmstudioUrl; }
+    if (hub.embedding.rerankModel) { lmsOpts.rerankModel = hub.embedding.rerankModel; }
     embedding = new LmStudioCodeEmbeddingProvider(lmsOpts);
   }
 
-  return { graph, vec, parser, embedding, meta: storage, storage };
+  activeCodeAdapters = { graph, vec, parser, embedding, meta: storage, storage, projectRoot };
+  return activeCodeAdapters;
 }
+
+/**
+ * Annotation presets reused across MCP tool registrations.
+ * Mirrors the `ToolAnnotations` shape from @modelcontextprotocol/sdk.
+ *
+ * - READ_ONLY    — pure query, no side effects, safe to retry.
+ * - LOCAL_WRITE  — mutates hub-local state (board.md / Postgres rows),
+ *                  no remote calls (e.g. create_issue with source='local').
+ * - REMOTE_WRITE — pushes to or pulls from external systems (Jira, GitHub).
+ *                  destructiveHint flips on so clients can warn the user
+ *                  before invocation.
+ */
+export const ANNOTATIONS = {
+  READ_ONLY: { readOnlyHint: true, idempotentHint: true, openWorldHint: false } as const,
+  REMOTE_READ: { readOnlyHint: true, idempotentHint: true, openWorldHint: true } as const,
+  LOCAL_WRITE: { readOnlyHint: false, destructiveHint: false, idempotentHint: false, openWorldHint: false } as const,
+  REMOTE_WRITE: { readOnlyHint: false, destructiveHint: true, idempotentHint: false, openWorldHint: true } as const,
+} as const;
 
 export function textResponse(text: string): ToolResponse {
   return { content: [{ type: 'text' as const, text }] };
@@ -428,6 +319,23 @@ export function getErrorMessage(err: unknown): string {
     return err.message;
   }
   return String(err);
+}
+
+/**
+ * High-level helper: resolve workspace, build adapters, run callback.
+ * Centralises the boilerplate for MCP tools that just need a scoped
+ * `storage` and `workspaceId`.
+ */
+export async function withWorkspace<T>(
+  explicit: string | undefined,
+  fn: (ctx: { storage: IStorage; workspaceId: string; workspace: Workspace; config: WorkspaceConfig }) => Promise<T>,
+): Promise<T | ToolResponse> {
+  const ws = await loadWorkspace(explicit);
+  if (!ws.ok) {
+    return errorResponse(ws.reason);
+  }
+  const { storage } = await createAdapters(ws.workspaceId);
+  return fn({ storage, workspaceId: ws.workspaceId, workspace: ws.workspace, config: ws.config });
 }
 
 export function str(value: unknown): string {
@@ -445,5 +353,3 @@ export function str(value: unknown): string {
   }
   return JSON.stringify(value);
 }
-
-export { getEnabledSources };

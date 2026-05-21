@@ -25,7 +25,7 @@ export class EmbedUseCase {
     private readonly storage: IStorage,
   ) {}
 
-  async execute(options: EmbedOptions = {}): Promise<EmbedResult> {
+  async execute(workspaceId: string, options: EmbedOptions = {}): Promise<EmbedResult> {
     const log = options.onProgress ?? noop;
     const batchSize = options.batchSize ?? 100;
     let embeddedCount = 0;
@@ -34,7 +34,7 @@ export class EmbedUseCase {
     await this.storage.initialize();
 
     while (true) {
-      const keys = await this.storage.getUnembeddedIssueKeys(batchSize);
+      const keys = await this.storage.getUnembeddedIssueKeys(workspaceId, batchSize);
       if (keys.length === 0) { break; }
 
       log(`Embedding batch of ${String(keys.length)} issues...`);
@@ -43,8 +43,9 @@ export class EmbedUseCase {
       const validKeys: string[] = [];
 
       for (const key of keys) {
-        const result = await this.storage.query(
-          `SELECT summary, description FROM issues WHERE issue_key = $1`,
+        const result = await this.storage.queryForWorkspace(
+          workspaceId,
+          `SELECT summary, description FROM issues WHERE workspace_id = $1 AND issue_key = $2`,
           [key],
         );
         if (result.rows.length > 0) {
@@ -67,7 +68,7 @@ export class EmbedUseCase {
         const key = validKeys[i];
         const vec = vectors[i];
         if (key && vec) {
-          await this.storage.saveEmbedding(key, vec);
+          await this.storage.saveEmbedding(workspaceId, key, vec);
         }
       }
 

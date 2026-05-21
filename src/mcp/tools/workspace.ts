@@ -4,181 +4,185 @@ import { SOURCE_META } from '../../core/types/index.js';
 import {
   loadWorkspace,
   createAdapters,
-  getEnabledSources,
   switchWorkspace,
-  listSiblingWorkspaces,
+  getWorkspaceStore,
   textResponse,
   errorResponse,
   getErrorMessage,
+  ANNOTATIONS,
 } from '../helpers.js';
-import { registerWorkspace } from '../../workspace/registry.js';
+import { readWorkspaceConfigFromHub } from '../../workspace/config.js';
+import { getActiveWorkspaceId } from '../../workspace/active-workspace.js';
+
+const workspaceIdParam = z.string().optional().describe('Workspace id or name (defaults to active workspace)');
 
 export function registerWorkspaceTools(server: McpServer): void {
   server.registerTool(
     'workspace_info',
     {
-      description: 'Get current workspace status: name, root path, creation date, enabled sources (Jira/Git/GitHub/Database) and their order. Use to verify setup or check what data is available. Related: list_workspaces, switch_workspace.',
+      title: 'Workspace info',
+      description: 'Show the active (or selected) workspace: id, name, bindings, last activity.',
+      inputSchema: {
+        workspace_id: workspaceIdParam,
+      },
+      annotations: ANNOTATIONS.READ_ONLY,
     },
-    () => {
-      const ws = loadWorkspace();
-      if (!ws.ok) {
-        return errorResponse(`No Argustack workspace found.\n\nDiagnostic: ${ws.reason}\n\nRun \`argustack init\` to create one.`);
-      }
+    async ({ workspace_id: workspaceIdInput }) => {
+      const ws = await loadWorkspace(workspaceIdInput);
+      if (!ws.ok) { return errorResponse(ws.reason); }
+      const settings = ws.workspace.settings ?? {};
 
-      const enabled = getEnabledSources(ws.config);
-      const sourceInfo = enabled.map(
-        (s) => `  • ${SOURCE_META[s].label}: ${SOURCE_META[s].description}`
-      );
-
-      const nameLine = ws.config.name
-        ? `Argustack Workspace: ${ws.config.name} (active)`
-        : 'Argustack Workspace (active)';
-
-      const text = [
-        nameLine,
-        `Root: ${ws.root}`,
-        `Created: ${ws.config.createdAt}`,
-        ``,
-        `Configured sources (${String(enabled.length)}):`,
-        ...(sourceInfo.length > 0 ? sourceInfo : ['  (none)']),
-        ``,
-        `Source order: ${enabled.map((s) => SOURCE_META[s].label).join(' → ') || 'none'}`,
-      ].join('\n');
-
-      return textResponse(text);
-    }
+      const lines = [
+        `Argustack Hub Workspace`,
+        `Name:        ${ws.workspace.name}`,
+        `Id:          ${ws.workspace.id}`,
+        `Last active: ${ws.workspace.lastActiveAt ?? 'never'}`,
+        '',
+        `Jira projects:  ${(settings.jiraProjectKeys ?? []).join(', ') || '(none)'}`,
+        `Git repos:      ${(settings.gitRepoPaths ?? []).join(', ') || '(none)'}`,
+        `GitHub repos:   ${(settings.githubRepos ?? []).map((r) => `${r.owner}/${r.repo}`).join(', ') || '(none)'}`,
+        `CSV files:      ${(settings.csvFilePaths ?? []).map((c) => c.path).join(', ') || '(none)'}`,
+        `External DBs:   ${(settings.dbConfigs ?? []).map((d) => d.name).join(', ') || '(none)'}`,
+      ];
+      return textResponse(lines.join('\n'));
+    },
   );
 
   server.registerTool(
     'list_projects',
     {
-      description: 'List all Jira projects available in the configured Jira instance. Returns project keys and names. Use to find valid project keys for query_issues or pull_jira.',
+      title: 'List Jira projects',
+      description: 'List Jira projects available with the configured credentials.',
+      inputSchema: {
+        workspace_id: workspaceIdParam,
+      },
+      annotations: ANNOTATIONS.REMOTE_READ,
     },
-    async () => {
-      const ws = loadWorkspace();
-      if (!ws.ok) {
-        return errorResponse(`Workspace not found: ${ws.reason}`);
-      }
-
-      const { source } = await createAdapters(ws.root);
+    async ({ workspace_id: workspaceIdInput }) => {
+      const ws = await loadWorkspace(workspaceIdInput);
+      if (!ws.ok) { return errorResponse(ws.reason); }
+      const { source } = await createAdapters(ws.workspaceId);
       if (!source) {
-        return errorResponse('Jira is not configured. Add credentials to .env.');
+        return errorResponse('Jira is not configured. Add credentials with `argustack add jira --url ... --email ... --token ...`.');
       }
-
       try {
         const projects = await source.getProjects();
-        const lines = projects.map(
-          (p) => `  ${p.key} — ${p.name}`
-        );
+        const lines = projects.map((p) => `  ${p.key} — ${p.name}`);
         return textResponse(`Found ${String(projects.length)} Jira projects:\n${lines.join('\n')}`);
-      } catch (err: unknown) {
+      } catch (err) {
         return errorResponse(`Failed to list projects: ${getErrorMessage(err)}`);
       }
-    }
+    },
   );
 
   server.registerTool(
     'switch_workspace',
     {
-      description: 'Switch active workspace. All subsequent queries will use the new workspace database and .env credentials. Use list_workspaces first to see available names. Related: list_workspaces, workspace_info.',
+      title: 'Switch active workspace',
+      description: 'Set the active workspace (writes ~/.argustack/active-workspace.json).',
       inputSchema: {
-        name: z.string().describe('Workspace name to switch to (e.g. "myapp", "client-project")'),
+        name: z.string().describe('Workspace id or name to switch to'),
       },
+      annotations: ANNOTATIONS.LOCAL_WRITE,
     },
     async ({ name }) => {
       const result = await switchWorkspace(name);
-      if (!result.ok) {
-        return errorResponse(result.reason);
-      }
-
-      const enabled = getEnabledSources(result.config);
-      const sources = enabled.map((s) => SOURCE_META[s].label).join(', ') || 'none';
-
+      if (!result.ok) { return errorResponse(result.reason); }
+      const settings = result.workspace.settings ?? {};
+      const enabled: string[] = [];
+      if ((settings.jiraProjectKeys?.length ?? 0) > 0) { enabled.push(SOURCE_META.jira.label); }
+      if ((settings.gitRepoPaths?.length ?? 0) > 0) { enabled.push(SOURCE_META.git.label); }
+      if ((settings.githubRepos?.length ?? 0) > 0) { enabled.push(SOURCE_META.github.label); }
+      if ((settings.csvFilePaths?.length ?? 0) > 0) { enabled.push(SOURCE_META.csv.label); }
+      if ((settings.dbConfigs?.length ?? 0) > 0) { enabled.push(SOURCE_META.db.label); }
       return textResponse(
-        `Switched to workspace: ${result.config.name ?? name}\n` +
-        `Root: ${result.root}\n` +
-        `Sources: ${sources}`
+        `Switched to workspace: ${result.workspace.name} [${result.workspace.id}]\n` +
+        `Sources: ${enabled.join(', ') || 'none'}`,
       );
-    }
+    },
   );
 
   server.registerTool(
     'list_workspaces',
     {
-      description: 'List all Argustack workspaces (local + global registry). Shows name, enabled sources, and which is active (●). Use before switch_workspace to find available names. Related: switch_workspace, workspace_info.',
+      title: 'List workspaces',
+      description: 'List all workspaces registered in the hub. Marks the active one with ●.',
+      outputSchema: {
+        workspaces: z.array(z.object({
+          id: z.string(),
+          name: z.string(),
+          active: z.boolean(),
+          sources: z.array(z.string()),
+        })),
+      },
+      annotations: ANNOTATIONS.READ_ONLY,
     },
-    () => {
-      const ws = loadWorkspace();
-      if (ws.ok) {
-        registerWorkspace(ws.root, ws.config.name);
+    async () => {
+      try {
+        const store = await getWorkspaceStore();
+        const all = await store.list();
+        if (all.length === 0) {
+          return {
+            content: [{ type: 'text' as const, text: 'No workspaces in the hub. Run `argustack workspace add <name>` to create one.' }],
+            structuredContent: { workspaces: [] },
+          };
+        }
+        const activeId = getActiveWorkspaceId();
+        const structured = await Promise.all(all.map(async (w) => {
+          const cfg = await readWorkspaceConfigFromHub(w.id, store);
+          const sources = (cfg?.order ?? []).map((s) => SOURCE_META[s].label);
+          return { id: w.id, name: w.name, active: w.id === activeId, sources };
+        }));
+        const lines = structured.map((w) => {
+          const marker = w.active ? '●' : '○';
+          const suffix = w.active ? ' (active)' : '';
+          return `  ${marker} ${w.name}${suffix} [${w.id}] — ${w.sources.join(', ') || 'no sources'}`;
+        });
+        return {
+          content: [{ type: 'text' as const, text: `Workspaces (${String(all.length)}):\n${lines.join('\n')}` }],
+          structuredContent: { workspaces: structured },
+        };
+      } catch (err) {
+        return errorResponse(`list_workspaces failed: ${getErrorMessage(err)}`);
       }
-
-      const workspaces = listSiblingWorkspaces();
-
-      if (workspaces.length === 0) {
-        return textResponse('No workspaces found. Run `argustack init <name>` to create one.');
-      }
-
-      const lines = workspaces.map((w) => {
-        const sources = w.sources.map((s) => SOURCE_META[s].label).join(', ') || 'no sources';
-        const marker = w.active ? ' (active)' : '';
-        return `  ${w.active ? '●' : '○'} ${w.name}${marker} — ${sources}`;
-      });
-
-      return textResponse(`Workspaces (${String(workspaces.length)}):\n${lines.join('\n')}`);
-    }
+    },
   );
 
   server.registerTool(
     'pull_jira',
     {
-      description: 'Sync Jira issues into local database. Fetches ALL fields, comments, changelogs, worklogs, links. Auto-incremental: only fetches new/updated issues since last sync. Run this before querying if data seems stale. Next step: use query_issues or hybrid_search to explore synced data.',
+      title: 'Pull Jira issues',
+      description: 'Pull Jira issues into the workspace database (incremental by default).',
       inputSchema: {
-        project: z.string().optional().describe('Specific project key (e.g. "PROJ"). Omit to pull all configured projects.'),
-        since: z.string().optional().describe('Pull issues updated since this date (YYYY-MM-DD). Omit for auto-incremental.'),
+        workspace_id: workspaceIdParam,
+        project: z.string().optional(),
+        since: z.string().optional(),
       },
+      annotations: ANNOTATIONS.REMOTE_WRITE,
     },
-    async ({ project, since }) => {
-      const ws = loadWorkspace();
-      if (!ws.ok) {
-        return errorResponse(`Workspace not found: ${ws.reason}`);
-      }
-
-      const { source, storage } = await createAdapters(ws.root);
-      if (!source) {
-        return errorResponse('Jira is not configured.');
-      }
+    async ({ workspace_id: workspaceIdInput, project, since }) => {
+      const ws = await loadWorkspace(workspaceIdInput);
+      if (!ws.ok) { return errorResponse(ws.reason); }
+      const { source, storage, workspaceId } = await createAdapters(ws.workspaceId);
+      if (!source) { return errorResponse('Jira is not configured.'); }
 
       try {
         const { PullUseCase } = await import('../../use-cases/pull.js');
         const pullUseCase = new PullUseCase(source, storage);
-
         const progressLines: string[] = [];
-
-        const results = await pullUseCase.execute({
+        const results = await pullUseCase.execute(workspaceId, {
           ...(project ? { projectKey: project } : {}),
           ...(since ? { since } : {}),
           onProgress: (msg) => progressLines.push(msg),
         });
 
-        await storage.close();
-
-        const summary = results.map(
-          (r) =>
-            `${r.projectKey}: ${String(r.issuesCount)} issues, ${String(r.commentsCount)} comments, ${String(r.changelogsCount)} changelogs, ${String(r.worklogsCount)} worklogs, ${String(r.linksCount)} links`
+        const summary = results.map((r) =>
+          `${r.projectKey}: ${String(r.issuesCount)} issues, ${String(r.commentsCount)} comments, ${String(r.changelogsCount)} changelogs, ${String(r.worklogsCount)} worklogs, ${String(r.linksCount)} links`,
         );
-
-        return textResponse([
-          'Pull complete!',
-          '',
-          ...summary,
-          '',
-          `Progress log:`,
-          ...progressLines,
-        ].join('\n'));
-      } catch (err: unknown) {
+        return textResponse(['Pull complete!', '', ...summary, '', 'Progress log:', ...progressLines].join('\n'));
+      } catch (err) {
         return errorResponse(`Pull failed: ${getErrorMessage(err)}`);
       }
-    }
+    },
   );
 }

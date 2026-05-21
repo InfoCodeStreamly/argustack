@@ -1,519 +1,283 @@
 import type { Command } from 'commander';
 import chalk from 'chalk';
 import ora from 'ora';
-import dotenv from 'dotenv';
-import { requireWorkspace } from '../workspace/resolver.js';
-import { readConfig, writeConfig, getEnabledSources } from '../workspace/config.js';
 import { JiraProvider } from '../adapters/jira/index.js';
-import { ProxyJiraProvider, loadProxyConfig, proxyConfigExists } from '../adapters/jira-proxy/index.js';
+import {
+  ProxyJiraProvider,
+  loadProxyConfigForWorkspace,
+  proxyConfigExistsForWorkspace,
+} from '../adapters/jira-proxy/index.js';
 import { GitProvider } from '../adapters/git/index.js';
 import { CsvProvider } from '../adapters/csv/index.js';
+import { GitHubProvider } from '../adapters/github/index.js';
+import { DbProvider } from '../adapters/db/index.js';
 import { PostgresStorage } from '../adapters/postgres/index.js';
 import { PullUseCase } from '../use-cases/pull.js';
 import { PullGitUseCase } from '../use-cases/pull-git.js';
-import { GitHubProvider } from '../adapters/github/index.js';
 import { PullGitHubUseCase } from '../use-cases/pull-github.js';
-import { DbProvider } from '../adapters/db/index.js';
 import { PullDbUseCase } from '../use-cases/pull-db.js';
-import type { DbEngine } from '../core/types/database.js';
+import { loadHubConfig } from '../workspace/hub-config.js';
 import type { ISourceProvider } from '../core/ports/source-provider.js';
-import type { SourceType } from '../core/types/index.js';
-import { registerWorkspace } from '../workspace/registry.js';
-import { ALL_SOURCES, SOURCE_META } from '../core/types/index.js';
-import { maskHost } from './init/types.js';
+import type { Workspace, SourceType } from '../core/types/index.js';
+import { openHubStore, resolveWorkspaceFlag } from './add/shared.js';
+import { ALL_SOURCES } from '../core/types/index.js';
 
-/**
- * Create PostgresStorage from workspace .env.
- */
-function createStorage(workspaceRoot: string): PostgresStorage {
-  dotenv.config({ path: `${workspaceRoot}/.env`, quiet: true });
-
-  return new PostgresStorage({
-    host: process.env['DB_HOST'] ?? 'localhost',
-    port: parseInt(process.env['DB_PORT'] ?? '5434', 10),
-    user: process.env['DB_USER'] ?? 'argustack',
-    password: process.env['DB_PASSWORD'] ?? 'argustack_local',
-    database: process.env['DB_NAME'] ?? 'argustack',
-  });
+interface SyncOptions {
+  workspace?: string;
+  project?: string;
+  since?: string;
+  file?: string;
 }
 
-/**
- * Sync Jira data → PostgreSQL.
- */
-async function syncJira(
-  workspaceRoot: string,
-  options: { project?: string; since?: string },
-): Promise<void> {
-  dotenv.config({ path: `${workspaceRoot}/.env`, quiet: true });
+function createStorage(): PostgresStorage {
+  const hub = loadHubConfig();
+  return new PostgresStorage(hub.db);
+}
 
-  const config = readConfig(workspaceRoot);
-  let issueTypes = config?.sources.jira?.issueTypeIds;
+async function syncJira(workspace: Workspace, options: SyncOptions): Promise<void> {
+  const hub = loadHubConfig();
+  const projectKeys = options.project
+    ? [options.project]
+    : workspace.settings?.jiraProjectKeys
+      ? [...workspace.settings.jiraProjectKeys]
+      : [];
 
-  if (!issueTypes && config?.sources.jira?.issueTypes) {
-    issueTypes = await resolveTypeNamesToIds(config.sources.jira.issueTypes, workspaceRoot);
+  if (projectKeys.length === 0) {
+    console.log(chalk.yellow(`  No Jira projects bound to workspace "${workspace.id}"`));
+    console.log(chalk.dim(`  Run: argustack add jira --workspace ${workspace.id} --projects KEY,KEY2`));
+    return;
   }
 
-  const useProxy = proxyConfigExists(workspaceRoot);
   let source: ISourceProvider;
-
-  if (useProxy) {
-    const proxyConfig = loadProxyConfig(workspaceRoot);
-    source = new ProxyJiraProvider(proxyConfig, issueTypes);
+  if (proxyConfigExistsForWorkspace(workspace.id)) {
+    const proxyConfig = loadProxyConfigForWorkspace(workspace.id);
+    source = new ProxyJiraProvider(proxyConfig);
     console.log(chalk.dim(`  Using proxy: ${proxyConfig.name}`));
-  } else {
-    const jiraUrl = process.env['JIRA_URL'];
-    const jiraEmail = process.env['JIRA_EMAIL'];
-    const jiraToken = process.env['JIRA_API_TOKEN'];
-
-    if (!jiraUrl || !jiraEmail || !jiraToken) {
-      console.log(chalk.red('  Missing Jira credentials in .env'));
-      console.log(chalk.dim('  Required: JIRA_URL, JIRA_EMAIL, JIRA_API_TOKEN'));
-      process.exit(1);
-    }
-
+  } else if (hub.credentials.jiraUrl && hub.credentials.jiraEmail && hub.credentials.jiraApiToken) {
     source = new JiraProvider({
-      host: jiraUrl,
-      email: jiraEmail,
-      apiToken: jiraToken,
-    }, issueTypes);
-  }
-
-  const configuredProjects = (process.env['JIRA_PROJECTS'] ?? '')
-    .split(',')
-    .map((p) => p.trim())
-    .filter(Boolean);
-
-  const storage = createStorage(workspaceRoot);
-  const spinner = ora('Syncing Jira...').start();
-
-  try {
-    const projectKeys = options.project
-      ? [options.project]
-      : configuredProjects.length > 0
-        ? configuredProjects
-        : null;
-
-    if (projectKeys) {
-      const allResults = [];
-      for (const projectKey of projectKeys) {
-        const pullUseCase = new PullUseCase(source, storage);
-        const results = await pullUseCase.execute({
-          projectKey,
-          ...(options.since ? { since: options.since } : {}),
-          onProgress: (msg) => { spinner.text = msg; },
-        });
-        allResults.push(...results);
-      }
-
-      spinner.succeed('Jira sync complete!');
-      console.log('');
-      for (const r of allResults) {
-        console.log(
-          chalk.green(
-            `  ${r.projectKey}: ${String(r.issuesCount)} issues, ${String(r.commentsCount)} comments, ${String(r.changelogsCount)} changelogs`,
-          ),
-        );
-      }
-    } else {
-      const pullUseCase = new PullUseCase(source, storage);
-      const results = await pullUseCase.execute({
-        ...(options.since ? { since: options.since } : {}),
-        onProgress: (msg) => { spinner.text = msg; },
-      });
-
-      spinner.succeed('Jira sync complete!');
-      console.log('');
-      for (const r of results) {
-        console.log(
-          chalk.green(
-            `  ${r.projectKey}: ${String(r.issuesCount)} issues, ${String(r.commentsCount)} comments, ${String(r.changelogsCount)} changelogs`,
-          ),
-        );
-      }
-    }
-    console.log('');
-  } finally {
-    await storage.close();
-  }
-}
-
-/**
- * Sync Git data → PostgreSQL.
- * Supports multiple repos via GIT_REPO_PATHS (comma-separated).
- * Falls back to GIT_REPO_PATH for backwards compatibility.
- */
-async function syncGit(
-  workspaceRoot: string,
-  options: { since?: string },
-): Promise<void> {
-  dotenv.config({ path: `${workspaceRoot}/.env`, quiet: true });
-
-  const rawPaths = process.env['GIT_REPO_PATHS'] ?? process.env['GIT_REPO_PATH'];
-
-  if (!rawPaths) {
-    console.log(chalk.red('  Missing Git repo paths in .env'));
-    console.log(chalk.dim('  Required: GIT_REPO_PATHS'));
-    process.exit(1);
-  }
-
-  const repoPaths = rawPaths.split(',').map((p) => p.trim()).filter(Boolean);
-
-  if (repoPaths.length === 0) {
-    console.log(chalk.red('  No Git repo paths configured in .env'));
-    process.exit(1);
-  }
-
-  const storage = createStorage(workspaceRoot);
-  const spinner = ora('Syncing Git...').start();
-
-  try {
-    const since = options.since ? new Date(options.since) : undefined;
-
-    for (const repoPath of repoPaths) {
-      const repoName = repoPath.split('/').pop() ?? repoPath;
-      spinner.text = `Syncing Git: ${repoName}...`;
-
-      try {
-        const git = new GitProvider(repoPath);
-        const pullGit = new PullGitUseCase(git, storage);
-
-        const result = await pullGit.execute(repoPath, {
-          ...(since ? { since } : {}),
-          onProgress: (msg) => { spinner.text = msg; },
-        });
-
-        console.log(
-          chalk.green(
-            `  ✓ ${repoName}: ${String(result.commitsCount)} commits, ${String(result.filesCount)} files, ${String(result.issueRefsCount)} issue refs`,
-          ),
-        );
-      } catch (err: unknown) {
-        console.log(
-          chalk.red(`  ✗ ${repoName}: ${err instanceof Error ? err.message : String(err)}`),
-        );
-      }
-    }
-
-    spinner.succeed('Git sync complete!');
-    console.log('');
-  } finally {
-    await storage.close();
-  }
-}
-
-/**
- * Sync GitHub data → PostgreSQL.
- */
-async function syncGithub(
-  workspaceRoot: string,
-  options: { since?: string },
-): Promise<void> {
-  dotenv.config({ path: `${workspaceRoot}/.env`, quiet: true });
-
-  const githubToken = process.env['GITHUB_TOKEN'];
-  const githubOwner = process.env['GITHUB_OWNER'];
-  const githubRepo = process.env['GITHUB_REPO'];
-
-  if (!githubToken || !githubOwner || !githubRepo) {
-    console.log(chalk.red('  Missing GitHub credentials in .env'));
-    console.log(chalk.dim('  Required: GITHUB_TOKEN, GITHUB_OWNER, GITHUB_REPO'));
-    process.exit(1);
-  }
-
-  const github = new GitHubProvider({
-    token: githubToken,
-    owner: githubOwner,
-    repo: githubRepo,
-  });
-
-  const storage = createStorage(workspaceRoot);
-  const spinner = ora('Syncing GitHub PRs...').start();
-
-  try {
-    const pullGithub = new PullGitHubUseCase(github, storage);
-    const repoFullName = `${githubOwner}/${githubRepo}`;
-    const since = options.since ? new Date(options.since) : undefined;
-
-    const result = await pullGithub.execute(repoFullName, {
-      ...(since ? { since } : {}),
-      onProgress: (msg) => { spinner.text = msg; },
+      host: hub.credentials.jiraUrl,
+      email: hub.credentials.jiraEmail,
+      apiToken: hub.credentials.jiraApiToken,
     });
-
-    spinner.succeed('GitHub sync complete!');
-    console.log('');
-    console.log(
-      chalk.green(
-        `  ${result.prsCount} PRs, ${result.reviewsCount} reviews, ${result.releasesCount} releases`,
-      ),
-    );
-    console.log('');
-  } finally {
-    await storage.close();
-  }
-}
-
-/**
- * Sync Jira CSV file → PostgreSQL.
- */
-async function syncCsv(
-  workspaceRoot: string,
-  options: { project?: string; since?: string; file?: string },
-): Promise<void> {
-  dotenv.config({ path: `${workspaceRoot}/.env`, quiet: true });
-
-  const csvFilePath = options.file ?? process.env['CSV_FILE_PATH'];
-
-  if (!csvFilePath) {
-    console.log(chalk.red('  Missing CSV file path'));
-    console.log(chalk.dim('  Use --file <path> or set CSV_FILE_PATH in .env'));
-    process.exit(1);
+  } else {
+    console.log(chalk.red('  Missing Jira credentials in ~/.argustack/config.env'));
+    console.log(chalk.dim(`  Run: argustack add jira --workspace ${workspace.id} --url ... --email ... --token ...`));
+    return;
   }
 
-  const source = new CsvProvider(csvFilePath);
-  const storage = createStorage(workspaceRoot);
-  const spinner = ora('Importing Jira CSV...').start();
-
+  const storage = createStorage();
+  const spinner = ora('Syncing Jira...').start();
   try {
-    const projects = await source.getProjects();
-    const projectKeys = options.project
-      ? [options.project]
-      : projects.map((p) => p.key);
-
-    const allResults = [];
     for (const projectKey of projectKeys) {
-      const pullUseCase = new PullUseCase(source, storage);
-      const results = await pullUseCase.execute({
+      const pull = new PullUseCase(source, storage);
+      const results = await pull.execute(workspace.id, {
         projectKey,
         ...(options.since ? { since: options.since } : {}),
         onProgress: (msg) => { spinner.text = msg; },
       });
-      allResults.push(...results);
-    }
-
-    spinner.succeed('CSV import complete!');
-    console.log('');
-    for (const r of allResults) {
-      console.log(
-        chalk.green(
-          `  ${r.projectKey}: ${String(r.issuesCount)} issues, ${String(r.commentsCount)} comments, ${String(r.changelogsCount)} changelogs`,
-        ),
-      );
-    }
-    console.log('');
-  } finally {
-    await storage.close();
-  }
-}
-
-/**
- * Called from `argustack init` to run first sync immediately after workspace creation.
- * Always passes epoch date to force a full pull — Docker volume may contain stale data
- * from a previous workspace, making incremental pull return 0 results.
- */
-export async function syncJiraFromInit(workspaceRoot: string): Promise<void> {
-  await syncJira(workspaceRoot, { since: '1970-01-01' });
-}
-
-export async function syncGitFromInit(workspaceRoot: string): Promise<void> {
-  await syncGit(workspaceRoot, { since: '1970-01-01' });
-}
-
-export async function syncGithubFromInit(workspaceRoot: string): Promise<void> {
-  await syncGithub(workspaceRoot, { since: '1970-01-01' });
-}
-
-export async function syncCsvFromInit(workspaceRoot: string, filePath?: string): Promise<void> {
-  await syncCsv(workspaceRoot, { since: '1970-01-01', ...(filePath ? { file: filePath } : {}) });
-}
-
-/**
- * Sync external database schema → PostgreSQL.
- */
-async function syncDb(
-  workspaceRoot: string,
-  _options: { since?: string },
-): Promise<void> {
-  dotenv.config({ path: `${workspaceRoot}/.env`, quiet: true });
-
-  const engine = (process.env['TARGET_DB_ENGINE'] ?? 'postgresql') as DbEngine;
-  const host = process.env['TARGET_DB_HOST'];
-  const port = process.env['TARGET_DB_PORT'];
-  const user = process.env['TARGET_DB_USER'];
-  const password = process.env['TARGET_DB_PASSWORD'];
-  const database = process.env['TARGET_DB_NAME'];
-
-  if (!host || !user || !database) {
-    console.log(chalk.red('  Missing target database credentials in .env'));
-    console.log(chalk.dim('  Required: TARGET_DB_HOST, TARGET_DB_USER, TARGET_DB_NAME'));
-    process.exit(1);
-  }
-
-  const sourceName = `${engine}:${maskHost(host)}:${port ?? ''}/${database}`;
-  const db = new DbProvider({
-    engine,
-    host,
-    port: parseInt(port ?? '5432', 10),
-    user,
-    password: password ?? '',
-    database,
-    name: sourceName,
-  });
-
-  const storage = createStorage(workspaceRoot);
-  const spinner = ora('Syncing database schema...').start();
-
-  try {
-    const pullDb = new PullDbUseCase(db, storage);
-
-    const result = await pullDb.execute(sourceName, {
-      onProgress: (msg) => { spinner.text = msg; },
-    });
-
-    spinner.succeed('Database sync complete!');
-    console.log('');
-    console.log(
-      chalk.green(
-        `  ${String(result.tablesCount)} tables, ${String(result.columnsCount)} columns, ${String(result.foreignKeysCount)} FKs, ${String(result.indexesCount)} indexes`,
-      ),
-    );
-    console.log('');
-  } finally {
-    await storage.close();
-  }
-}
-
-export async function syncDbFromInit(workspaceRoot: string): Promise<void> {
-  await syncDb(workspaceRoot, {});
-}
-
-/**
- * Register `argustack sync [type]` command.
- *
- * Usage:
- *   argustack sync              — sync all enabled sources
- *   argustack sync jira         — sync Jira only
- *   argustack sync jira -p KEY  — sync specific project
- *   argustack sync jira --since 2024-01-01
- */
-async function resolveTypeNamesToIds(names: string[], workspaceRoot: string): Promise<string[] | undefined> {
-  try {
-    dotenv.config({ path: `${workspaceRoot}/.env`, quiet: true });
-    const jiraUrl = process.env['JIRA_URL'];
-    const jiraEmail = process.env['JIRA_EMAIL'];
-    const jiraToken = process.env['JIRA_API_TOKEN'];
-    if (!jiraUrl || !jiraEmail || !jiraToken) { return undefined; }
-
-    const { Version3Client } = await import('jira.js');
-    const client = new Version3Client({
-      host: jiraUrl,
-      authentication: { basic: { email: jiraEmail, apiToken: jiraToken } },
-    });
-    const allTypes = await client.issueTypes.getIssueAllTypes();
-    const nameSet = new Set(names);
-    const ids = allTypes
-      .filter((t): t is typeof t & { id: string } => typeof t.name === 'string' && typeof t.id === 'string' && nameSet.has(t.name))
-      .map((t) => t.id);
-
-    if (ids.length > 0) {
-      const wsConfig = readConfig(workspaceRoot);
-      if (wsConfig?.sources.jira) {
-        wsConfig.sources.jira.issueTypeIds = ids;
-        writeConfig(workspaceRoot, wsConfig);
+      for (const r of results) {
+        console.log(chalk.green(`  ${r.projectKey}: ${String(r.issuesCount)} issues, ${String(r.commentsCount)} comments, ${String(r.changelogsCount)} changelogs`));
       }
     }
-
-    return ids.length > 0 ? ids : undefined;
-  } catch {
-    return undefined;
+    spinner.succeed('Jira sync complete!');
+  } catch (err) {
+    spinner.fail(`Jira sync failed: ${err instanceof Error ? err.message : String(err)}`);
+  } finally {
+    await storage.close();
   }
+}
+
+async function syncGit(workspace: Workspace, options: SyncOptions): Promise<void> {
+  const repos = workspace.settings?.gitRepoPaths ?? [];
+  if (repos.length === 0) {
+    console.log(chalk.yellow(`  No git repos bound to workspace "${workspace.id}"`));
+    console.log(chalk.dim(`  Run: argustack add git --workspace ${workspace.id} --root /path/to/repo`));
+    return;
+  }
+
+  const storage = createStorage();
+  const spinner = ora('Syncing Git...').start();
+  const since = options.since ? new Date(options.since) : undefined;
+  try {
+    for (const repoPath of repos) {
+      const repoName = repoPath.split('/').pop() ?? repoPath;
+      spinner.text = `Syncing Git: ${repoName}`;
+      try {
+        const git = new GitProvider(repoPath);
+        const pull = new PullGitUseCase(git, storage);
+        const result = await pull.execute(workspace.id, repoPath, {
+          ...(since ? { since } : {}),
+          onProgress: (msg) => { spinner.text = msg; },
+        });
+        console.log(chalk.green(`  ✓ ${repoName}: ${String(result.commitsCount)} commits, ${String(result.filesCount)} files, ${String(result.issueRefsCount)} issue refs`));
+      } catch (err) {
+        console.log(chalk.red(`  ✗ ${repoName}: ${err instanceof Error ? err.message : String(err)}`));
+      }
+    }
+    spinner.succeed('Git sync complete!');
+  } finally {
+    await storage.close();
+  }
+}
+
+async function syncGithub(workspace: Workspace, options: SyncOptions): Promise<void> {
+  const hub = loadHubConfig();
+  if (!hub.credentials.githubToken) {
+    console.log(chalk.red('  Missing GITHUB_TOKEN in ~/.argustack/config.env'));
+    return;
+  }
+  const repos = workspace.settings?.githubRepos ?? [];
+  if (repos.length === 0) {
+    console.log(chalk.yellow(`  No GitHub repos bound to workspace "${workspace.id}"`));
+    console.log(chalk.dim(`  Run: argustack add github --workspace ${workspace.id} --owner X --repo Y`));
+    return;
+  }
+
+  const storage = createStorage();
+  const spinner = ora('Syncing GitHub PRs...').start();
+  const since = options.since ? new Date(options.since) : undefined;
+  try {
+    for (const { owner, repo } of repos) {
+      const provider = new GitHubProvider({ token: hub.credentials.githubToken, owner, repo });
+      const pull = new PullGitHubUseCase(provider, storage);
+      const repoFullName = `${owner}/${repo}`;
+      spinner.text = `Syncing GitHub: ${repoFullName}`;
+      const result = await pull.execute(workspace.id, repoFullName, {
+        ...(since ? { since } : {}),
+        onProgress: (msg) => { spinner.text = msg; },
+      });
+      console.log(chalk.green(`  ✓ ${repoFullName}: ${String(result.prsCount)} PRs, ${String(result.reviewsCount)} reviews, ${String(result.releasesCount)} releases`));
+    }
+    spinner.succeed('GitHub sync complete!');
+  } finally {
+    await storage.close();
+  }
+}
+
+async function syncCsv(workspace: Workspace, options: SyncOptions): Promise<void> {
+  const explicit = options.file;
+  const bound = workspace.settings?.csvFilePaths ?? [];
+  const paths = explicit ? [explicit] : bound.map((b) => b.path);
+  if (paths.length === 0) {
+    console.log(chalk.yellow(`  No CSV files bound to workspace "${workspace.id}"`));
+    return;
+  }
+
+  const storage = createStorage();
+  const spinner = ora('Importing Jira CSV...').start();
+  try {
+    for (const csvFilePath of paths) {
+      const source = new CsvProvider(csvFilePath);
+      const projects = await source.getProjects();
+      const projectKeys = options.project ? [options.project] : projects.map((p) => p.key);
+      for (const projectKey of projectKeys) {
+        const pull = new PullUseCase(source, storage);
+        const results = await pull.execute(workspace.id, {
+          projectKey,
+          ...(options.since ? { since: options.since } : {}),
+          onProgress: (msg) => { spinner.text = msg; },
+        });
+        for (const r of results) {
+          console.log(chalk.green(`  ${r.projectKey}: ${String(r.issuesCount)} issues, ${String(r.commentsCount)} comments`));
+        }
+      }
+    }
+    spinner.succeed('CSV import complete!');
+  } finally {
+    await storage.close();
+  }
+}
+
+async function syncDb(workspace: Workspace, _options: SyncOptions): Promise<void> {
+  const dbs = workspace.settings?.dbConfigs ?? [];
+  if (dbs.length === 0) {
+    console.log(chalk.yellow(`  No external DBs bound to workspace "${workspace.id}"`));
+    return;
+  }
+  const storage = createStorage();
+  const spinner = ora('Syncing database schema...').start();
+  try {
+    for (const cfg of dbs) {
+      const provider = new DbProvider({
+        engine: cfg.engine,
+        host: cfg.host,
+        port: cfg.port,
+        user: cfg.user,
+        password: cfg.password,
+        database: cfg.database,
+        name: cfg.name,
+      });
+      const pull = new PullDbUseCase(provider, storage);
+      const result = await pull.execute(workspace.id, cfg.name, {
+        onProgress: (msg) => { spinner.text = msg; },
+      });
+      console.log(chalk.green(`  ✓ ${cfg.name}: ${String(result.tablesCount)} tables, ${String(result.columnsCount)} columns`));
+    }
+    spinner.succeed('DB sync complete!');
+  } finally {
+    await storage.close();
+  }
+}
+
+function enabledSourcesFor(workspace: Workspace): SourceType[] {
+  const settings = workspace.settings ?? {};
+  const sources: SourceType[] = [];
+  if ((settings.jiraProjectKeys?.length ?? 0) > 0) { sources.push('jira'); }
+  if ((settings.gitRepoPaths?.length ?? 0) > 0) { sources.push('git'); }
+  if ((settings.githubRepos?.length ?? 0) > 0) { sources.push('github'); }
+  if ((settings.csvFilePaths?.length ?? 0) > 0) { sources.push('csv'); }
+  if ((settings.dbConfigs?.length ?? 0) > 0) { sources.push('db'); }
+  return sources;
 }
 
 export function registerSyncCommand(program: Command): void {
   program
     .command('sync [type]')
-    .description('Sync data from sources (all enabled or specific)')
-    .option('-p, --project <key>', 'Sync specific project only')
-    .option('--since <date>', 'Sync issues updated since date (YYYY-MM-DD)')
+    .description('Sync data for the active or selected workspace')
+    .option('--workspace <name>', 'Target workspace (defaults to active)')
+    .option('-p, --project <key>', 'Sync only a specific Jira project key')
+    .option('--since <date>', 'Sync entries updated since YYYY-MM-DD')
     .option('-f, --file <path>', 'CSV file path (for csv source)')
-    .action(async (type: string | undefined, options: { project?: string; since?: string; file?: string }) => {
+    .action(async (type: string | undefined, options: SyncOptions) => {
+      const { store, close } = await openHubStore();
       try {
-        const workspaceRoot = requireWorkspace();
-        const config = readConfig(workspaceRoot);
-
-        if (!config) {
-          console.log(chalk.red('\n  No config found. Run: argustack init'));
-          process.exit(1);
+        const workspaceId = await resolveWorkspaceFlag(store, options.workspace);
+        const workspace = await store.getById(workspaceId);
+        if (!workspace) {
+          throw new Error(`Workspace "${workspaceId}" disappeared during resolution.`);
         }
 
-        registerWorkspace(workspaceRoot, config.name);
+        const sources = type
+          ? [type.toLowerCase() as SourceType]
+          : enabledSourcesFor(workspace);
 
-        let sourcesToSync: SourceType[];
-
-        if (type) {
-          const source = type.toLowerCase() as SourceType;
-          if (!ALL_SOURCES.includes(source)) {
-            console.log(chalk.red(`\n  Unknown source: ${type}`));
-            console.log(chalk.dim(`  Available: ${ALL_SOURCES.join(', ')}`));
-            process.exit(1);
-          }
-          if (!config.sources[source]?.enabled) {
-            console.log(chalk.red(`\n  ${SOURCE_META[source].label} is not enabled.`));
-            console.log(chalk.dim(`  Enable it: ${chalk.cyan(`argustack source add ${source}`)}`));
-            process.exit(1);
-          }
-          sourcesToSync = [source];
-        } else {
-          sourcesToSync = getEnabledSources(config);
-          if (sourcesToSync.length === 0) {
-            console.log(chalk.yellow('\n  No sources enabled.'));
-            console.log(chalk.dim(`  Add one: ${chalk.cyan('argustack source add jira')}`));
-            process.exit(1);
+        if (sources.length === 0) {
+          console.log(chalk.yellow(`\n  No sources configured for "${workspace.name}".`));
+          console.log(chalk.dim(`  Add one: argustack add jira --workspace ${workspace.id} --projects KEY`));
+          return;
+        }
+        for (const s of sources) {
+          if (!ALL_SOURCES.includes(s)) {
+            throw new Error(`Unknown source "${s}". Available: ${ALL_SOURCES.join(', ')}.`);
           }
         }
 
         console.log('');
-
-        dotenv.config({ path: `${workspaceRoot}/.env`, quiet: true });
-        const githubToken = process.env['GITHUB_TOKEN'];
-        const githubEnabled = config.sources.github?.enabled;
-        if (githubToken && !githubEnabled && !type) {
-          console.log(chalk.yellow('  ⚠ GitHub token found in .env but "github" source is not enabled.'));
-          console.log(chalk.dim(`    Enable: ${chalk.cyan('argustack source add github')}\n`));
-        }
-
-        for (const source of sourcesToSync) {
+        for (const source of sources) {
           switch (source) {
-            case 'jira': {
-              await syncJira(workspaceRoot, options);
-              break;
-            }
-            case 'git': {
-              await syncGit(workspaceRoot, options);
-              break;
-            }
-            case 'github': {
-              await syncGithub(workspaceRoot, options);
-              break;
-            }
-            case 'csv': {
-              await syncCsv(workspaceRoot, options);
-              break;
-            }
-            case 'db': {
-              await syncDb(workspaceRoot, options);
-              break;
-            }
-            case 'board': {
-              break;
-            }
-            case 'code': {
-              break;
-            }
+            case 'jira': await syncJira(workspace, options); break;
+            case 'git': await syncGit(workspace, options); break;
+            case 'github': await syncGithub(workspace, options); break;
+            case 'csv': await syncCsv(workspace, options); break;
+            case 'db': await syncDb(workspace, options); break;
+            case 'board': break;
+            case 'code': break;
           }
         }
-      } catch (err: unknown) {
-        console.error(chalk.red(`\n  Error: ${err instanceof Error ? err.message : String(err)}`));
-        process.exit(1);
+
+        await store.touchActive(workspace.id);
+      } finally {
+        await close();
       }
     });
 }

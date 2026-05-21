@@ -114,12 +114,19 @@ export class QdrantCodeVectorStore implements ICodeVectorStore {
   ): Promise<SemanticHit[]> {
     const name = collectionName(projectId);
     const pointId = hashId(`${projectId}:${symbolId}`);
-    const result = await this.client.recommend(name, {
-      positive: [pointId],
-      limit: topK,
-      with_payload: true,
-    });
-    return result.map(pointToHit);
+    try {
+      const result = await this.client.recommend(name, {
+        positive: [pointId],
+        limit: topK,
+        with_payload: true,
+      });
+      return result.map(pointToHit);
+    } catch (err) {
+      if (isNotFoundError(err)) {
+        return [];
+      }
+      throw err;
+    }
   }
 
   async getCollectionStats(projectId: string): Promise<CollectionStats> {
@@ -136,9 +143,33 @@ export class QdrantCodeVectorStore implements ICodeVectorStore {
     };
   }
 
+  async collectionExists(projectId: string): Promise<boolean> {
+    const name = collectionName(projectId);
+    const existing = await this.client.getCollections();
+    return existing.collections.some((c) => c.name === name);
+  }
+
   async deleteCollection(projectId: string): Promise<void> {
     await this.client.deleteCollection(collectionName(projectId));
   }
 
   async close(): Promise<void> { /* QdrantClient has no explicit close */ }
+}
+
+/**
+ * Qdrant returns 404 when `recommend` is called with a positive id that
+ * does not exist in the collection. Treat this as "no seed → no neighbours"
+ * rather than a transport-level failure so MCP tools can present an empty
+ * result instead of leaking infrastructure details to the LLM.
+ */
+function isNotFoundError(err: unknown): boolean {
+  if (err === null || typeof err !== 'object') {
+    return false;
+  }
+  const status = (err as { status?: unknown }).status;
+  if (typeof status === 'number' && status === 404) {
+    return true;
+  }
+  const message = (err as { message?: unknown }).message;
+  return typeof message === 'string' && /not\s*found/i.test(message);
 }

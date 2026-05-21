@@ -57,7 +57,7 @@ describe('MCP code-graph tools', () => {
 
     const result = (await fix.client.callTool({
       name: 'find_symbol',
-      arguments: { query: 'Invoice', project_id: CODE_TEST_IDS.projectA },
+      arguments: { query: 'Invoice', workspace_id: fix.workspaceId },
     })) as ToolTextResult;
 
     expect(result.isError).toBeFalsy();
@@ -68,7 +68,7 @@ describe('MCP code-graph tools', () => {
   it('find_symbol returns "no symbols" when nothing matches', async () => {
     const result = (await fix.client.callTool({
       name: 'find_symbol',
-      arguments: { query: 'Nonexistent', project_id: CODE_TEST_IDS.projectA },
+      arguments: { query: 'Nonexistent', workspace_id: fix.workspaceId },
     })) as ToolTextResult;
 
     expect(result.content[0]?.text.toLowerCase()).toContain('no symbols');
@@ -84,7 +84,7 @@ describe('MCP code-graph tools', () => {
 
     const result = (await fix.client.callTool({
       name: 'get_layer_symbols',
-      arguments: { layer: 'domain', project_id: CODE_TEST_IDS.projectA },
+      arguments: { layer: 'domain', workspace_id: fix.workspaceId },
     })) as ToolTextResult;
 
     expect(result.content[0]?.text).toContain('domainQn');
@@ -101,7 +101,7 @@ describe('MCP code-graph tools', () => {
 
     const result = (await fix.client.callTool({
       name: 'get_callers',
-      arguments: { qualified_name: 'B', project_id: CODE_TEST_IDS.projectA },
+      arguments: { qualified_name: 'B', workspace_id: fix.workspaceId },
     })) as ToolTextResult;
 
     expect(result.content[0]?.text).toContain('A');
@@ -119,7 +119,7 @@ describe('MCP code-graph tools', () => {
 
     const result = (await fix.client.callTool({
       name: 'get_dependencies',
-      arguments: { file: 'src/A.ts', project_id: CODE_TEST_IDS.projectA },
+      arguments: { file: 'src/A.ts', workspace_id: fix.workspaceId },
     })) as ToolTextResult;
 
     expect(result.content[0]?.text).toContain('B.ts');
@@ -128,16 +128,17 @@ describe('MCP code-graph tools', () => {
   it('find_arch_violations returns violations or empty result', async () => {
     const result = (await fix.client.callTool({
       name: 'find_arch_violations',
-      arguments: { project_id: CODE_TEST_IDS.projectA },
+      arguments: { workspace_id: fix.workspaceId },
     })) as ToolTextResult;
 
     expect(result.content[0]?.text).toBeTruthy();
   });
 
-  it('errors when project_id is missing and CWD has no project', async () => {
+  it('errors when workspace has no registered code project', async () => {
+    fix.meta.clear();
     const result = (await fix.client.callTool({
       name: 'find_symbol',
-      arguments: { query: 'X' },
+      arguments: { query: 'X', workspace_id: fix.workspaceId },
     })) as ToolTextResult;
 
     expect(result.content[0]?.text).toMatch(/not registered|Project/);

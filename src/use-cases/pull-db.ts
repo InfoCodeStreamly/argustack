@@ -27,7 +27,7 @@ export class PullDbUseCase {
     private readonly storage: IStorage,
   ) {}
 
-  async execute(sourceName: string, options: PullDbOptions = {}): Promise<PullDbResult> {
+  async execute(workspaceId: string, sourceName: string, options: PullDbOptions = {}): Promise<PullDbResult> {
     const log = options.onProgress ?? noop;
 
     await this.storage.initialize();
@@ -42,7 +42,7 @@ export class PullDbUseCase {
 
     log(`Pulling schema from ${this.db.name}${total !== null ? ` (${String(total)} tables)` : ''}...`);
 
-    await this.storage.deleteDbSchema(sourceName);
+    await this.storage.deleteDbSchema(workspaceId, sourceName);
 
     const result: PullDbResult = {
       sourceName,
@@ -54,7 +54,7 @@ export class PullDbUseCase {
 
     try {
       for await (const batch of this.db.introspect()) {
-        await this.storage.saveDbSchemaBatch(batch, sourceName);
+        await this.storage.saveDbSchemaBatch(workspaceId, batch, sourceName);
 
         result.tablesCount += batch.tables.length;
         for (const table of batch.tables) {

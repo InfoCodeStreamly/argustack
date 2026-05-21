@@ -1,6 +1,6 @@
 import type { McpServer } from '@modelcontextprotocol/sdk/server/mcp.js';
 import { z } from 'zod/v4';
-import type { DbEngine } from '../../core/types/database.js';
+import type { DbSourceConfig } from '../../core/types/index.js';
 import {
   loadWorkspace,
   createAdapters,
@@ -8,7 +8,10 @@ import {
   errorResponse,
   getErrorMessage,
   str,
+  ANNOTATIONS,
 } from '../helpers.js';
+
+const workspaceIdParam = z.string().optional().describe('Workspace id or name (defaults to active workspace)');
 
 interface DbTableRow {
   source_name: string;
@@ -17,7 +20,6 @@ interface DbTableRow {
   row_count: number | null;
   size_bytes: number | null;
 }
-
 interface DbColumnRow {
   table_name: string;
   column_name: string;
@@ -27,14 +29,12 @@ interface DbColumnRow {
   is_primary_key: boolean;
   ordinal_position: number;
 }
-
 interface DbFkRow {
   table_name: string;
   column_name: string;
   referenced_table: string;
   referenced_column: string;
 }
-
 interface DbIndexRow {
   table_name: string;
   index_name: string;
@@ -42,20 +42,17 @@ interface DbIndexRow {
   is_unique: boolean;
   is_primary: boolean;
 }
-
 interface DbStatsRow {
   total_tables: string;
   total_columns: string;
   total_fks: string;
   total_indexes: string;
 }
-
 interface SchemaGroupRow {
   table_schema: string;
   table_count: string;
   total_rows: string;
 }
-
 interface LargestTableRow {
   table_name: string;
   row_count: number;
@@ -66,111 +63,77 @@ export function registerDatabaseTools(server: McpServer): void {
   server.registerTool(
     'db_schema',
     {
-      description: 'Browse the schema of an external database connected to Argustack. Shows tables, columns, foreign keys, and indexes. Use table parameter to get details for a specific table.',
+      title: 'External DB schema',
+      description: 'Browse schema metadata for the workspace\'s external databases. Run `argustack sync db` first.',
       inputSchema: {
-        table: z.string().optional().describe('Filter by table name (exact or partial match)'),
-        schema: z.string().optional().describe('Filter by schema name (e.g. "public", "dbo")'),
-        source: z.string().optional().describe('Filter by source name (if multiple databases synced)'),
+        workspace_id: workspaceIdParam,
+        table: z.string().optional(),
+        schema: z.string().optional(),
+        source: z.string().optional(),
       },
+      annotations: ANNOTATIONS.READ_ONLY,
     },
-    async ({ table, schema, source }) => {
-      const ws = loadWorkspace();
-      if (!ws.ok) {
-        return errorResponse(`Workspace not found: ${ws.reason}`);
-      }
-
-      const { storage } = await createAdapters(ws.root);
+    async ({ workspace_id: workspaceIdInput, table, schema, source }) => {
+      const ws = await loadWorkspace(workspaceIdInput);
+      if (!ws.ok) { return errorResponse(ws.reason); }
+      const { storage, workspaceId } = await createAdapters(ws.workspaceId);
 
       try {
         await storage.initialize();
 
-        const conditions: string[] = [];
+        const conditions: string[] = ['workspace_id = $1'];
         const params: unknown[] = [];
-        let paramIdx = 1;
+        let paramIdx = 2;
+        if (source) { conditions.push(`source_name = $${String(paramIdx)}`); params.push(source); paramIdx++; }
+        if (schema) { conditions.push(`table_schema = $${String(paramIdx)}`); params.push(schema); paramIdx++; }
+        if (table) { conditions.push(`table_name ILIKE $${String(paramIdx)}`); params.push(`%${table}%`); paramIdx++; }
+        const where = `WHERE ${conditions.join(' AND ')}`;
 
-        if (source) {
-          conditions.push(`source_name = $${String(paramIdx)}`);
-          params.push(source);
-          paramIdx++;
-        }
-        if (schema) {
-          conditions.push(`table_schema = $${String(paramIdx)}`);
-          params.push(schema);
-          paramIdx++;
-        }
-        if (table) {
-          conditions.push(`table_name ILIKE $${String(paramIdx)}`);
-          params.push(`%${table}%`);
-          paramIdx++;
-        }
-
-        const where = conditions.length > 0 ? `WHERE ${conditions.join(' AND ')}` : '';
-
-        const tablesResult = await storage.query(
+        const tablesResult = await storage.queryForWorkspace(workspaceId,
           `SELECT source_name, table_schema, table_name, row_count, size_bytes
-           FROM db_tables ${where}
-           ORDER BY table_schema, table_name
-           LIMIT 200`,
-          params,
-        );
+           FROM db_tables ${where} ORDER BY table_schema, table_name LIMIT 200`, params);
 
         if (tablesResult.rows.length === 0) {
-          return textResponse('No tables found. Run `argustack sync db` to pull schema from the target database.');
+          return textResponse('No tables found. Run `argustack sync db` first.');
         }
 
-        const columnsResult = await storage.query(
+        const columnsResult = await storage.queryForWorkspace(workspaceId,
           `SELECT table_name, column_name, data_type, is_nullable, default_value, is_primary_key, ordinal_position
-           FROM db_columns ${where}
-           ORDER BY table_name, ordinal_position`,
-          params,
-        );
+           FROM db_columns ${where} ORDER BY table_name, ordinal_position`, params);
 
-        const fksResult = await storage.query(
+        const fksResult = await storage.queryForWorkspace(workspaceId,
           `SELECT table_name, column_name, referenced_table, referenced_column
-           FROM db_foreign_keys ${where}
-           ORDER BY table_name, column_name`,
-          params,
-        );
+           FROM db_foreign_keys ${where} ORDER BY table_name, column_name`, params);
 
-        const indexesResult = await storage.query(
+        const indexesResult = await storage.queryForWorkspace(workspaceId,
           `SELECT table_name, index_name, columns, is_unique, is_primary
-           FROM db_indexes ${where}
-           ORDER BY table_name, index_name`,
-          params,
-        );
+           FROM db_indexes ${where} ORDER BY table_name, index_name`, params);
 
         const colsByTable = new Map<string, DbColumnRow[]>();
         for (const row of columnsResult.rows) {
           const col = row as unknown as DbColumnRow;
           const arr = colsByTable.get(col.table_name) ?? [];
-          arr.push(col);
-          colsByTable.set(col.table_name, arr);
+          arr.push(col); colsByTable.set(col.table_name, arr);
         }
-
         const fksByTable = new Map<string, DbFkRow[]>();
         for (const row of fksResult.rows) {
           const fk = row as unknown as DbFkRow;
           const arr = fksByTable.get(fk.table_name) ?? [];
-          arr.push(fk);
-          fksByTable.set(fk.table_name, arr);
+          arr.push(fk); fksByTable.set(fk.table_name, arr);
         }
-
         const idxByTable = new Map<string, DbIndexRow[]>();
         for (const row of indexesResult.rows) {
           const idx = row as unknown as DbIndexRow;
           const arr = idxByTable.get(idx.table_name) ?? [];
-          arr.push(idx);
-          idxByTable.set(idx.table_name, arr);
+          arr.push(idx); idxByTable.set(idx.table_name, arr);
         }
 
-        const lines: string[] = [`Database Schema (${String(tablesResult.rows.length)} tables)`, ''];
-
+        const lines: string[] = [`Database Schema (${String(tablesResult.rows.length)} tables) — workspace ${workspaceId}`, ''];
         for (const row of tablesResult.rows) {
           const t = row as unknown as DbTableRow;
           const sizeStr = t.size_bytes ? ` (${formatBytes(t.size_bytes)})` : '';
           const rowStr = t.row_count !== null ? `, ~${String(t.row_count)} rows` : '';
           lines.push(`## ${t.table_schema}.${t.table_name}${sizeStr}${rowStr}`);
-
           const cols = colsByTable.get(t.table_name) ?? [];
           for (const c of cols) {
             const pk = c.is_primary_key ? ' PK' : '';
@@ -178,7 +141,6 @@ export function registerDatabaseTools(server: McpServer): void {
             const def = c.default_value ? ` DEFAULT ${c.default_value}` : '';
             lines.push(`  ${c.column_name}: ${c.data_type}${pk}${nullable}${def}`);
           }
-
           const tableFks = fksByTable.get(t.table_name) ?? [];
           if (tableFks.length > 0) {
             lines.push('  Foreign keys:');
@@ -186,7 +148,6 @@ export function registerDatabaseTools(server: McpServer): void {
               lines.push(`    ${fk.column_name} → ${fk.referenced_table}.${fk.referenced_column}`);
             }
           }
-
           const tableIdx = idxByTable.get(t.table_name) ?? [];
           if (tableIdx.length > 0) {
             lines.push('  Indexes:');
@@ -195,15 +156,11 @@ export function registerDatabaseTools(server: McpServer): void {
               lines.push(`    ${idx.index_name}${unique}: (${idx.columns.join(', ')})`);
             }
           }
-
           lines.push('');
         }
-
         return textResponse(lines.join('\n'));
-      } catch (err: unknown) {
+      } catch (err) {
         return errorResponse(`Failed to read DB schema: ${getErrorMessage(err)}`);
-      } finally {
-        await storage.close();
       }
     },
   );
@@ -211,75 +168,56 @@ export function registerDatabaseTools(server: McpServer): void {
   server.registerTool(
     'db_query',
     {
-      description: 'Execute read-only SQL on your APPLICATION database (not Argustack). IMPORTANT: this queries YOUR app DB (TARGET_DB_* in .env), not Jira/Git data. For Argustack data use query_issues/query_commits/query_prs. Only SELECT/EXPLAIN/SHOW/DESCRIBE allowed. Max 1000 rows, 30s timeout. Requires TARGET_DB_HOST, TARGET_DB_USER, TARGET_DB_NAME in .env.',
+      title: 'Query external DB (read-only)',
+      description: 'Execute read-only SQL on a workspace\'s APPLICATION database (not Argustack hub). The DB config comes from `workspaces.settings.dbConfigs[0]` (or `source`).',
       inputSchema: {
-        sql: z.string().describe('SQL query to execute (read-only: SELECT, EXPLAIN, SHOW, DESCRIBE)'),
+        workspace_id: workspaceIdParam,
+        sql: z.string().describe('SQL query (SELECT/EXPLAIN/SHOW/DESCRIBE only)'),
+        source: z.string().optional().describe('DB source name when several are bound to the workspace'),
       },
+      annotations: ANNOTATIONS.REMOTE_READ,
     },
-    async ({ sql }) => {
-      const ws = loadWorkspace();
-      if (!ws.ok) {
-        return errorResponse(`Workspace not found: ${ws.reason}`);
+    async ({ workspace_id: workspaceIdInput, sql, source }) => {
+      const ws = await loadWorkspace(workspaceIdInput);
+      if (!ws.ok) { return errorResponse(ws.reason); }
+      const bindings = ws.workspace.settings?.dbConfigs ?? [];
+      const dbCfg: DbSourceConfig | undefined = source
+        ? bindings.find((b) => b.name === source)
+        : bindings[0];
+
+      if (!dbCfg) {
+        return errorResponse(`No external database configured for workspace "${ws.workspaceId}". Add one with: argustack add db --workspace ${ws.workspaceId} ...`);
       }
 
       try {
-        const dotenv = await import('dotenv');
-        dotenv.config({ path: `${ws.root}/.env`, quiet: true });
-
-        const engine = (process.env['TARGET_DB_ENGINE'] ?? 'postgresql') as DbEngine;
-        const host = process.env['TARGET_DB_HOST'];
-        const user = process.env['TARGET_DB_USER'];
-        const database = process.env['TARGET_DB_NAME'];
-
-        if (!host || !user || !database) {
-          return errorResponse('No target database configured. Add TARGET_DB_HOST, TARGET_DB_USER, TARGET_DB_NAME to .env and run `argustack sync db`.\n\nTo query Argustack data (Jira issues, Git commits, GitHub PRs), use query_issues(sql:) or query_commits(sql:) instead.');
-        }
-
         const { DbProvider } = await import('../../adapters/db/index.js');
-        const sourceName = `${engine}:${host}/${database}`;
         const db = new DbProvider({
-          engine,
-          host,
-          port: parseInt(process.env['TARGET_DB_PORT'] ?? '5432', 10),
-          user,
-          password: process.env['TARGET_DB_PASSWORD'] ?? '',
-          database,
-          name: sourceName,
+          engine: dbCfg.engine,
+          host: dbCfg.host,
+          port: dbCfg.port,
+          user: dbCfg.user,
+          password: dbCfg.password,
+          database: dbCfg.database,
+          name: dbCfg.name,
         });
 
         await db.connect();
         try {
           const result = await db.query(sql);
-
           if (result.rows.length === 0) {
             return textResponse('Query returned 0 rows.');
           }
-
           const firstRow = result.rows[0];
-          if (!firstRow) {
-            return textResponse('Query returned 0 rows.');
-          }
+          if (!firstRow) { return textResponse('Query returned 0 rows.'); }
           const cols = Object.keys(firstRow);
           const header = cols.join(' | ');
           const separator = cols.map((c) => '-'.repeat(c.length)).join(' | ');
-
-          const rows = result.rows.map((row) => {
-            return cols.map((c) => str(row[c])).join(' | ');
-          });
-
-          const text = [
-            `${String(result.rows.length)} rows`,
-            '',
-            header,
-            separator,
-            ...rows,
-          ].join('\n');
-
-          return textResponse(text);
+          const rows = result.rows.map((row) => cols.map((c) => str(row[c])).join(' | '));
+          return textResponse([`${String(result.rows.length)} rows`, '', header, separator, ...rows].join('\n'));
         } finally {
           await db.disconnect();
         }
-      } catch (err: unknown) {
+      } catch (err) {
         return errorResponse(`Query failed: ${getErrorMessage(err)}`);
       }
     },
@@ -288,57 +226,49 @@ export function registerDatabaseTools(server: McpServer): void {
   server.registerTool(
     'db_stats',
     {
-      description: 'Get statistics about the external database schema — total tables, columns, foreign keys, indexes, row counts. Use for "how big is the database?" or "what tables exist?" overview. Run `argustack sync db` first to populate schema data.',
+      title: 'External DB statistics',
+      description: 'Statistics about external DB schema cached for a workspace.',
       inputSchema: {
-        source: z.string().optional().describe('Filter by source name (if multiple databases synced)'),
+        workspace_id: workspaceIdParam,
+        source: z.string().optional(),
       },
+      annotations: ANNOTATIONS.READ_ONLY,
     },
-    async ({ source }) => {
-      const ws = loadWorkspace();
-      if (!ws.ok) {
-        return errorResponse(`Workspace not found: ${ws.reason}`);
-      }
-
-      const { storage } = await createAdapters(ws.root);
+    async ({ workspace_id: workspaceIdInput, source }) => {
+      const ws = await loadWorkspace(workspaceIdInput);
+      if (!ws.ok) { return errorResponse(ws.reason); }
+      const { storage, workspaceId } = await createAdapters(ws.workspaceId);
 
       try {
         await storage.initialize();
+        const conditions = ['workspace_id = $1'];
+        const params: unknown[] = [];
+        if (source) { conditions.push('source_name = $2'); params.push(source); }
+        const where = `WHERE ${conditions.join(' AND ')}`;
 
-        const sourceFilter = source ? `WHERE source_name = $1` : '';
-        const params = source ? [source] : [];
-
-        const statsResult = await storage.query(
+        const statsResult = await storage.queryForWorkspace(workspaceId,
           `SELECT
-            (SELECT COUNT(*) FROM db_tables ${sourceFilter}) AS total_tables,
-            (SELECT COUNT(*) FROM db_columns ${sourceFilter}) AS total_columns,
-            (SELECT COUNT(*) FROM db_foreign_keys ${sourceFilter}) AS total_fks,
-            (SELECT COUNT(*) FROM db_indexes ${sourceFilter}) AS total_indexes`,
-          params,
-        );
+            (SELECT COUNT(*) FROM db_tables ${where}) AS total_tables,
+            (SELECT COUNT(*) FROM db_columns ${where}) AS total_columns,
+            (SELECT COUNT(*) FROM db_foreign_keys ${where}) AS total_fks,
+            (SELECT COUNT(*) FROM db_indexes ${where}) AS total_indexes`,
+          params);
 
         const s = statsResult.rows[0] as unknown as DbStatsRow | undefined;
         if (!s) {
-          return textResponse('No database schema data found. Run `argustack sync db` first.');
+          return textResponse('No database schema data found.');
         }
 
-        const tablesResult = await storage.query(
+        const tablesResult = await storage.queryForWorkspace(workspaceId,
           `SELECT table_schema, COUNT(*) AS table_count, COALESCE(SUM(row_count), 0) AS total_rows
-           FROM db_tables ${sourceFilter}
-           GROUP BY table_schema
-           ORDER BY table_count DESC`,
-          params,
-        );
+           FROM db_tables ${where} GROUP BY table_schema ORDER BY table_count DESC`, params);
 
-        const largestResult = await storage.query(
+        const largestResult = await storage.queryForWorkspace(workspaceId,
           `SELECT table_name, row_count, size_bytes
-           FROM db_tables ${sourceFilter}
-           ORDER BY COALESCE(row_count, 0) DESC
-           LIMIT 10`,
-          params,
-        );
+           FROM db_tables ${where} ORDER BY COALESCE(row_count, 0) DESC LIMIT 10`, params);
 
         const lines: string[] = [
-          'Database Schema Statistics',
+          `Database Schema Statistics — workspace ${workspaceId}`,
           '',
           `Tables: ${s.total_tables}`,
           `Columns: ${s.total_columns}`,
@@ -347,12 +277,10 @@ export function registerDatabaseTools(server: McpServer): void {
           '',
           'By schema:',
         ];
-
         for (const row of tablesResult.rows) {
           const typed = row as unknown as SchemaGroupRow;
           lines.push(`  ${typed.table_schema}: ${typed.table_count} tables, ~${typed.total_rows} rows`);
         }
-
         if (largestResult.rows.length > 0) {
           lines.push('', 'Largest tables (by row count):');
           for (const row of largestResult.rows) {
@@ -361,26 +289,17 @@ export function registerDatabaseTools(server: McpServer): void {
             lines.push(`  ${typed.table_name}: ~${String(typed.row_count)} rows${size}`);
           }
         }
-
         return textResponse(lines.join('\n'));
-      } catch (err: unknown) {
+      } catch (err) {
         return errorResponse(`Failed to get DB stats: ${getErrorMessage(err)}`);
-      } finally {
-        await storage.close();
       }
     },
   );
 }
 
 export function formatBytes(bytes: number): string {
-  if (bytes < 1024) {
-    return `${String(bytes)}B`;
-  }
-  if (bytes < 1024 * 1024) {
-    return `${String(Math.round(bytes / 1024))}KB`;
-  }
-  if (bytes < 1024 * 1024 * 1024) {
-    return `${String(Math.round(bytes / (1024 * 1024)))}MB`;
-  }
+  if (bytes < 1024) { return `${String(bytes)}B`; }
+  if (bytes < 1024 * 1024) { return `${String(Math.round(bytes / 1024))}KB`; }
+  if (bytes < 1024 * 1024 * 1024) { return `${String(Math.round(bytes / (1024 * 1024)))}MB`; }
   return `${String(Math.round(bytes / (1024 * 1024 * 1024)))}GB`;
 }

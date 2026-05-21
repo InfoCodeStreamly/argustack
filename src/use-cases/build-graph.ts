@@ -14,14 +14,14 @@ export interface BuildGraphOptions {
 export class BuildGraphUseCase {
   constructor(private readonly storage: IStorage) {}
 
-  async execute(options: BuildGraphOptions = {}): Promise<GraphStats> {
+  async execute(workspaceId: string, options: BuildGraphOptions = {}): Promise<GraphStats> {
     const log = options.onProgress ?? noop;
 
     await this.storage.initialize();
 
     if (!options.since) {
       log('Clearing structural graph...');
-      await this.storage.clearGraph();
+      await this.storage.clearGraph(workspaceId);
     }
 
     const entities: GraphEntity[] = [];
@@ -42,9 +42,10 @@ export class BuildGraphUseCase {
     };
 
     log('Extracting entities from issues...');
-    const issueResult = await this.storage.query(
+    const issueResult = await this.storage.queryForWorkspace(
+      workspaceId,
       `SELECT issue_key, summary, issue_type, status, assignee, reporter, labels, components, parent_key
-       FROM issues ${options.since ? 'WHERE updated >= $1' : ''} ORDER BY issue_key`,
+       FROM issues WHERE workspace_id = $1 ${options.since ? 'AND updated >= $2' : ''} ORDER BY issue_key`,
       options.since ? [options.since] : []
     );
 
@@ -93,8 +94,9 @@ export class BuildGraphUseCase {
     log(`  ${String(issueResult.rows.length)} issues processed`);
 
     log('Extracting entities from commits...');
-    const commitResult = await this.storage.query(
-      `SELECT hash, author, message FROM commits ${options.since ? 'WHERE committed_at >= $1' : ''} ORDER BY committed_at`,
+    const commitResult = await this.storage.queryForWorkspace(
+      workspaceId,
+      `SELECT hash, author, message FROM commits WHERE workspace_id = $1 ${options.since ? 'AND committed_at >= $2' : ''} ORDER BY committed_at`,
       options.since ? [options.since] : []
     );
 
@@ -107,9 +109,12 @@ export class BuildGraphUseCase {
     log(`  ${String(commitResult.rows.length)} commits processed`);
 
     log('Extracting commit→issue references...');
-    const refResult = await this.storage.query(
+    const refResult = await this.storage.queryForWorkspace(
+      workspaceId,
       `SELECT cr.commit_hash, cr.issue_key, c.author
-       FROM commit_issue_refs cr JOIN commits c ON c.hash = cr.commit_hash`,
+       FROM commit_issue_refs cr
+       JOIN commits c ON c.workspace_id = cr.workspace_id AND c.hash = cr.commit_hash
+       WHERE cr.workspace_id = $1`,
       []
     );
 
@@ -125,9 +130,12 @@ export class BuildGraphUseCase {
     log(`  ${String(refResult.rows.length)} commit→issue refs`);
 
     log('Extracting commit→file modules...');
-    const fileResult = await this.storage.query(
+    const fileResult = await this.storage.queryForWorkspace(
+      workspaceId,
       `SELECT cf.commit_hash, cf.file_path, c.author
-       FROM commit_files cf JOIN commits c ON c.hash = cf.commit_hash`,
+       FROM commit_files cf
+       JOIN commits c ON c.workspace_id = cf.workspace_id AND c.hash = cf.commit_hash
+       WHERE cf.workspace_id = $1`,
       []
     );
 
@@ -150,9 +158,13 @@ export class BuildGraphUseCase {
     log(`  ${String(fileResult.rows.length)} file changes processed`);
 
     log('Extracting PR→issue references...');
-    const prRefResult = await this.storage.query(
+    const prRefResult = await this.storage.queryForWorkspace(
+      workspaceId,
       `SELECT pr.number, pr.author, pri.issue_key
-       FROM pr_issue_refs pri JOIN pull_requests pr ON pr.number = pri.pr_number AND pr.repo_full_name = pri.repo_full_name`,
+       FROM pr_issue_refs pri
+       JOIN pull_requests pr ON pr.workspace_id = pri.workspace_id
+         AND pr.number = pri.pr_number AND pr.repo_full_name = pri.repo_full_name
+       WHERE pri.workspace_id = $1`,
       []
     );
 
@@ -173,10 +185,12 @@ export class BuildGraphUseCase {
     log(`  ${String(prRefResult.rows.length)} PR→issue refs`);
 
     log('Co-change analysis...');
-    const coChangeResult = await this.storage.query(
+    const coChangeResult = await this.storage.queryForWorkspace(
+      workspaceId,
       `SELECT a.file_path as file_a, b.file_path as file_b, COUNT(*) as co_count
        FROM commit_files a
-       JOIN commit_files b ON a.commit_hash = b.commit_hash AND a.file_path < b.file_path
+       JOIN commit_files b ON a.workspace_id = b.workspace_id AND a.commit_hash = b.commit_hash AND a.file_path < b.file_path
+       WHERE a.workspace_id = $1
        GROUP BY a.file_path, b.file_path
        HAVING COUNT(*) >= 3
        ORDER BY co_count DESC
@@ -197,9 +211,11 @@ export class BuildGraphUseCase {
     log(`  ${String(coChangeResult.rows.length)} co-change pairs`);
 
     log('Extracting causal relationships from issue links...');
-    const causalLinkResult = await this.storage.query(
+    const causalLinkResult = await this.storage.queryForWorkspace(
+      workspaceId,
       `SELECT source_key, target_key, link_type FROM issue_links
-       WHERE link_type IN ('Cause', 'Blocked', 'is caused by', 'is blocked by', 'Causes', 'Blocks')`,
+       WHERE workspace_id = $1
+         AND link_type IN ('Cause', 'Blocked', 'is caused by', 'is blocked by', 'Causes', 'Blocks')`,
       []
     );
 
@@ -215,11 +231,13 @@ export class BuildGraphUseCase {
     log(`  ${String(causalLinkResult.rows.length)} causal links from Jira`);
 
     log('Detecting regressions (Reopened after Done)...');
-    const regressionResult = await this.storage.query(
+    const regressionResult = await this.storage.queryForWorkspace(
+      workspaceId,
       `SELECT DISTINCT ic.issue_key, ic.to_value as reopen_status,
               ic.changed_at as reopen_date
        FROM issue_changelogs ic
-       WHERE ic.field = 'status' AND ic.to_value = 'Reopened'
+       WHERE ic.workspace_id = $1
+         AND ic.field = 'status' AND ic.to_value = 'Reopened'
        ORDER BY ic.changed_at DESC`,
       []
     );
@@ -229,11 +247,13 @@ export class BuildGraphUseCase {
       const reopenDate = row['reopen_date'] as string;
       const issueId = getOrCreateEntity(issueKey, 'issue', {});
 
-      const suspectPrs = await this.storage.query(
+      const suspectPrs = await this.storage.queryForWorkspace(
+        workspaceId,
         `SELECT pr.number FROM pull_requests pr
-         WHERE pr.merged_at IS NOT NULL
-           AND pr.merged_at < $1
-           AND pr.merged_at > ($1::timestamp - interval '14 days')
+         WHERE pr.workspace_id = $1
+           AND pr.merged_at IS NOT NULL
+           AND pr.merged_at < $2
+           AND pr.merged_at > ($2::timestamp - interval '14 days')
          LIMIT 5`,
         [reopenDate]
       );
@@ -247,10 +267,12 @@ export class BuildGraphUseCase {
     log(`  ${String(regressionResult.rows.length)} regressions checked`);
 
     log('Detecting probable causes (bug after PR merge)...');
-    const bugResult = await this.storage.query(
+    const bugResult = await this.storage.queryForWorkspace(
+      workspaceId,
       `SELECT i.issue_key, i.created, i.components
        FROM issues i
-       WHERE i.issue_type IN ('Bug', 'bug', 'Defect', 'defect')
+       WHERE i.workspace_id = $1
+         AND i.issue_type IN ('Bug', 'bug', 'Defect', 'defect')
          AND i.created > NOW() - interval '6 months'
        ORDER BY i.created DESC`,
       []
@@ -264,15 +286,17 @@ export class BuildGraphUseCase {
 
       if (!bugComponents) { continue; }
 
-      const suspectPrs = await this.storage.query(
+      const suspectPrs = await this.storage.queryForWorkspace(
+        workspaceId,
         `SELECT DISTINCT pr.number FROM pull_requests pr
-         JOIN pr_issue_refs pri ON pri.pr_number = pr.number AND pri.repo_full_name = pr.repo_full_name
-         JOIN issues ref_issue ON ref_issue.issue_key = pri.issue_key
-         WHERE pr.merged_at IS NOT NULL
-           AND pr.merged_at < $1
-           AND pr.merged_at > ($1::timestamp - interval '14 days')
+         JOIN pr_issue_refs pri ON pri.workspace_id = pr.workspace_id AND pri.pr_number = pr.number AND pri.repo_full_name = pr.repo_full_name
+         JOIN issues ref_issue ON ref_issue.workspace_id = pr.workspace_id AND ref_issue.issue_key = pri.issue_key
+         WHERE pr.workspace_id = $1
+           AND pr.merged_at IS NOT NULL
+           AND pr.merged_at < $2
+           AND pr.merged_at > ($2::timestamp - interval '14 days')
            AND ref_issue.components IS NOT NULL
-           AND ref_issue.components && $2::text[]
+           AND ref_issue.components && $3::text[]
          LIMIT 5`,
         [bugCreated, bugComponents]
       );
@@ -302,10 +326,11 @@ export class BuildGraphUseCase {
     }
 
     log(`Saving graph: ${String(entities.length)} entities, ${String(relationships.length)} relationships...`);
-    await this.storage.saveGraphEntities(entities);
+    await this.storage.saveGraphEntities(workspaceId, entities);
 
-    const savedEntities = await this.storage.query(
-      `SELECT id, name, type FROM graph_entities`, []
+    const savedEntities = await this.storage.queryForWorkspace(
+      workspaceId,
+      `SELECT id, name, type FROM graph_entities WHERE workspace_id = $1`, []
     );
     const dbEntityMap = new Map<string, number>();
     for (const row of savedEntities.rows) {
@@ -324,9 +349,9 @@ export class BuildGraphUseCase {
       return { ...r, sourceId: dbSourceId, targetId: dbTargetId };
     }).filter((r): r is GraphRelationship => r !== null);
 
-    await this.storage.saveGraphRelationships(mappedRels);
+    await this.storage.saveGraphRelationships(workspaceId, mappedRels);
 
-    const stats = await this.storage.getGraphStats();
+    const stats = await this.storage.getGraphStats(workspaceId);
     log(`Graph built: ${String(stats.entityCount)} entities, ${String(stats.relationshipCount)} relationships, ${String(stats.observationCount)} observations`);
     return stats;
   }

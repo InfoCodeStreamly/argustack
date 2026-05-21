@@ -20,6 +20,14 @@ export class RegisterCodeProjectUseCase {
     private readonly embedding: ICodeEmbedding,
   ) {}
 
+  /**
+   * Register a code-intel project for an EXISTING workspace.
+   *
+   * Precondition: `input.id` must equal an existing `workspaces.id`.
+   * Caller (`argustack add code`) resolves the workspace first via
+   * the hub `IWorkspaceStore`, so the FK on `code_projects.workspace_id`
+   * cannot violate.
+   */
   async execute(input: CodeProject): Promise<CodeProject> {
     await this.meta.registerProject(input);
     await this.graph.ensureProject(input);

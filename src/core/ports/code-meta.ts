@@ -15,6 +15,10 @@ import type {
  * Used by indexer for idempotency (hash compare), job logging, and
  * advisory locks to prevent concurrent watch + manual index.
  *
+ * Tenant invariant: `projectId === workspaceId`. The code-intel data
+ * model is 1:1 with workspaces; there is no separate "project" identity.
+ * Enforced by FK `code_projects.workspace_id REFERENCES workspaces(id)`.
+ *
  * @throws Error when the database is unreachable.
  */
 export interface ICodeMetaStore {

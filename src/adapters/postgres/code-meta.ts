@@ -47,8 +47,8 @@ export class PostgresCodeMetaStore implements ICodeMetaStore {
 
   async registerProject(project: CodeProject): Promise<void> {
     await this.pool.query(
-      `INSERT INTO code_projects (id, name, root_path, language, layer_config, excludes, created_at, last_indexed_at)
-       VALUES ($1, $2, $3, $4, $5::jsonb, $6, COALESCE($7, NOW()), $8)
+      `INSERT INTO code_projects (id, workspace_id, name, root_path, language, layer_config, excludes, created_at, last_indexed_at)
+       VALUES ($1, $1, $2, $3, $4, $5::jsonb, $6, COALESCE($7, NOW()), $8)
        ON CONFLICT (id) DO UPDATE SET
          name = EXCLUDED.name,
          root_path = EXCLUDED.root_path,

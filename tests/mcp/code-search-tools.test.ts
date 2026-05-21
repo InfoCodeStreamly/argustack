@@ -51,7 +51,7 @@ describe('MCP code-search tools', () => {
 
     const result = (await fix.client.callTool({
       name: 'search_semantic',
-      arguments: { query: 'tax calculation invoice', project_id: CODE_TEST_IDS.projectA, top_k: 5 },
+      arguments: { query: 'tax calculation invoice', workspace_id: fix.workspaceId, top_k: 5 },
     })) as ToolTextResult;
 
     expect(result.isError).toBeFalsy();
@@ -61,7 +61,7 @@ describe('MCP code-search tools', () => {
   it('search_semantic returns "no semantic matches" when collection is empty', async () => {
     const result = (await fix.client.callTool({
       name: 'search_semantic',
-      arguments: { query: 'anything', project_id: CODE_TEST_IDS.projectA },
+      arguments: { query: 'anything', workspace_id: fix.workspaceId },
     })) as ToolTextResult;
 
     expect(result.content[0]?.text.toLowerCase()).toContain('no semantic matches');
@@ -90,17 +90,18 @@ describe('MCP code-search tools', () => {
 
     const result = (await fix.client.callTool({
       name: 'search_semantic',
-      arguments: { query: 'invoice', layer: 'domain', project_id: CODE_TEST_IDS.projectA },
+      arguments: { query: 'invoice', layer: 'domain', workspace_id: fix.workspaceId },
     })) as ToolTextResult;
 
     expect(result.content[0]?.text).toContain('Invoice');
     expect(result.content[0]?.text).not.toContain('CreateInvoice');
   });
 
-  it('errors when project_id missing and CWD has no project', async () => {
+  it('errors when workspace has no registered code project', async () => {
+    fix.meta.clear();
     const result = (await fix.client.callTool({
       name: 'search_semantic',
-      arguments: { query: 'anything' },
+      arguments: { query: 'anything', workspace_id: fix.workspaceId },
     })) as ToolTextResult;
 
     expect(result.content[0]?.text).toMatch(/Project not registered/);

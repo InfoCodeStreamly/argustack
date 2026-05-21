@@ -1,105 +1,140 @@
 import type { Command } from 'commander';
 import chalk from 'chalk';
-import dotenv from 'dotenv';
-import { requireWorkspace } from '../workspace/resolver.js';
-import { readConfig, getEnabledSources } from '../workspace/config.js';
+import { execSync } from 'node:child_process';
+import { existsSync } from 'node:fs';
+import { join } from 'node:path';
 import { ALL_SOURCES, SOURCE_META } from '../core/types/index.js';
-import { PostgresStorage } from '../adapters/postgres/index.js';
+import type { Workspace } from '../core/types/index.js';
+import { loadHubConfig, hubDir } from '../workspace/hub-config.js';
+import { getActiveWorkspaceId } from '../workspace/active-workspace.js';
+import { openHubStore } from './workspace/shared.js';
 
-interface IssueCountRow {
-  readonly source: string;
-  readonly cnt: string;
+interface Options {
+  workspace?: string;
 }
 
-/**
- * Register `argustack status` command — workspace overview.
- */
+interface CountRow {
+  cnt: string;
+}
+
+function sourceEnabled(workspace: Workspace, source: string): boolean {
+  const s = workspace.settings ?? {};
+  switch (source) {
+    case 'jira': return (s.jiraProjectKeys?.length ?? 0) > 0;
+    case 'git': return (s.gitRepoPaths?.length ?? 0) > 0;
+    case 'github': return (s.githubRepos?.length ?? 0) > 0;
+    case 'csv': return (s.csvFilePaths?.length ?? 0) > 0;
+    case 'db': return (s.dbConfigs?.length ?? 0) > 0;
+    default: return false;
+  }
+}
+
+function containerRunning(name: string): boolean {
+  try {
+    const out = execSync(`docker ps --filter "name=^/${name}$" --format "{{.Names}}"`, { encoding: 'utf-8' });
+    return out.trim() === name;
+  } catch {
+    return false;
+  }
+}
+
 export function registerStatusCommand(program: Command): void {
   program
     .command('status')
-    .description('Show workspace overview: sources, last sync, issue counts')
-    .action(async () => {
+    .description('Hub overview + workspace stats')
+    .option('--workspace <name>', 'Show stats for a specific workspace (defaults to active)')
+    .action(async (options: Options) => {
+      const hub = loadHubConfig();
+      const composePath = join(hubDir(), 'docker-compose.yml');
+
+      console.log('');
+      console.log(chalk.bold('  Argustack Hub'));
+      console.log(chalk.dim(`  ${hubDir()}`));
+      console.log('');
+
+      const pg = containerRunning('argustack-hub-pg');
+      const neo4j = containerRunning('argustack-hub-neo4j');
+      const qdrant = containerRunning('argustack-hub-qdrant');
+      const pgweb = containerRunning('argustack-hub-pgweb');
+      const composeReady = existsSync(composePath);
+
+      console.log(chalk.bold('  Containers:'));
+      console.log(`    ${pg ? chalk.green('✓') : chalk.red('✗')} pg`);
+      console.log(`    ${pgweb ? chalk.green('✓') : chalk.red('✗')} pgweb`);
+      console.log(`    ${neo4j ? chalk.green('✓') : chalk.red('✗')} neo4j`);
+      console.log(`    ${qdrant ? chalk.green('✓') : chalk.red('✗')} qdrant`);
+      if (!composeReady) {
+        console.log(chalk.dim(`  (no compose file at ${composePath} — run "argustack init")`));
+      }
+      console.log('');
+
+      const { store, close } = await openHubStore();
       try {
-        const workspaceRoot = requireWorkspace();
-        const config = readConfig(workspaceRoot);
-
-        if (!config) {
-          console.log(chalk.red('\n  No config found. Run: argustack init'));
-          process.exit(1);
+        const all = await store.list();
+        if (all.length === 0) {
+          console.log(chalk.yellow('  No workspaces registered.'));
+          console.log(chalk.dim('  Run: argustack workspace add <name>'));
+          return;
         }
 
-        const enabled = getEnabledSources(config);
+        const activeId = getActiveWorkspaceId();
+        const targetId = options.workspace
+          ? ((await store.getById(options.workspace)) ?? (await store.getByName(options.workspace)))?.id
+          : activeId;
 
-        console.log('');
-        console.log(chalk.bold('  Argustack Workspace'));
-        console.log('');
-        console.log(chalk.bold('  Sources:'));
-
-        const issueCounts = new Map<string, number>();
-        let storageAvailable = false;
-
-        if (enabled.length > 0) {
+        if (targetId) {
+          const workspace = await store.getById(targetId);
+          if (!workspace) {
+            console.log(chalk.yellow(`  Workspace "${targetId}" not found.`));
+            return;
+          }
+          const { createPool } = await import('../adapters/postgres/index.js');
+          const pool = createPool(hub.db);
           try {
-            dotenv.config({ path: `${workspaceRoot}/.env`, quiet: true });
-            const storage = new PostgresStorage({
-              host: process.env['DB_HOST'] ?? 'localhost',
-              port: parseInt(process.env['DB_PORT'] ?? '5434', 10),
-              user: process.env['DB_USER'] ?? 'argustack',
-              password: process.env['DB_PASSWORD'] ?? 'argustack_local',
-              database: process.env['DB_NAME'] ?? 'argustack',
-            });
-
-            try {
-              const result = await storage.query(
-                `SELECT 'jira' as source, COUNT(*)::text as cnt FROM issues`,
-                [],
-              );
-              for (const row of result.rows) {
-                const typed = row as unknown as IssueCountRow;
-                issueCounts.set(typed.source, parseInt(typed.cnt, 10));
+            console.log(chalk.bold(`  Workspace: ${workspace.name}  ${chalk.dim(`[${workspace.id}]`)}${workspace.id === activeId ? chalk.green(' (active)') : ''}`));
+            console.log('');
+            console.log(chalk.bold('  Sources:'));
+            for (const source of ALL_SOURCES) {
+              const meta = SOURCE_META[source];
+              if (sourceEnabled(workspace, source)) {
+                console.log(`    ${chalk.green('✓')} ${meta.label}`);
+              } else {
+                console.log(`    ${chalk.dim('○')} ${chalk.dim(meta.label)}`);
               }
-              storageAvailable = true;
-            } finally {
-              await storage.close();
             }
-          } catch { /* storage unavailable */ }
-        }
 
-        for (const source of ALL_SOURCES) {
-          const meta = SOURCE_META[source];
-          const cfg = config.sources[source];
-          const isEnabled = cfg?.enabled === true;
-
-          if (isEnabled) {
-            const count = issueCounts.get(source);
-            const countStr = count !== undefined
-              ? chalk.dim(`  ${String(count)} issues`)
-              : '';
-            console.log(`    ${chalk.green('✓')} ${chalk.bold(meta.label)}${countStr}`);
-          } else if (cfg?.disabledAt) {
-            console.log(`    ${chalk.yellow('⏸')} ${chalk.dim(meta.label)} — disabled`);
-          } else {
-            console.log(`    ${chalk.dim('○')} ${chalk.dim(meta.label)} — not configured`);
+            const issuesRes = await pool.query<CountRow>(
+              `SELECT COUNT(*)::text AS cnt FROM issues WHERE workspace_id = $1`,
+              [workspace.id],
+            );
+            const commitsRes = await pool.query<CountRow>(
+              `SELECT COUNT(*)::text AS cnt FROM commits WHERE workspace_id = $1`,
+              [workspace.id],
+            );
+            const prsRes = await pool.query<CountRow>(
+              `SELECT COUNT(*)::text AS cnt FROM pull_requests WHERE workspace_id = $1`,
+              [workspace.id],
+            );
+            console.log('');
+            console.log(chalk.bold('  Data:'));
+            console.log(`    issues:   ${issuesRes.rows[0]?.cnt ?? '0'}`);
+            console.log(`    commits:  ${commitsRes.rows[0]?.cnt ?? '0'}`);
+            console.log(`    PRs:      ${prsRes.rows[0]?.cnt ?? '0'}`);
+            console.log('');
+          } finally {
+            await pool.end();
           }
         }
 
-        console.log('');
-
-        if (storageAvailable) {
-          console.log(`  ${chalk.bold('Storage:')} PostgreSQL`);
-        } else if (enabled.length > 0) {
-          console.log(`  ${chalk.bold('Storage:')} ${chalk.yellow('not connected')}`);
+        console.log(chalk.bold('  All workspaces:'));
+        for (const w of all) {
+          const marker = w.id === activeId ? chalk.green('●') : chalk.dim('○');
+          const suffix = w.id === activeId ? chalk.dim(' (active)') : '';
+          console.log(`    ${marker} ${w.name}${suffix}`);
         }
-
         console.log('');
-
-        if (enabled.length === 0) {
-          console.log(chalk.dim('  Get started: argustack source add jira'));
-          console.log('');
-        }
-      } catch (err: unknown) {
-        console.error(chalk.red(`\n  Error: ${err instanceof Error ? err.message : String(err)}`));
-        process.exit(1);
+      } finally {
+        await close();
       }
     });
 }

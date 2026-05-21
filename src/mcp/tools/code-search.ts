@@ -5,6 +5,7 @@ import {
   createCodeAdapters,
   textResponse,
   errorResponse,
+  ANNOTATIONS,
 } from '../helpers.js';
 import type { CodeAdapters } from '../helpers.js';
 import { CodeSearchUseCase } from '../../use-cases/code-search.js';
@@ -24,14 +25,10 @@ const LAYER_VALUES = ['domain', 'application', 'infrastructure', 'presentation']
 
 async function resolveProjectId(
   adapters: CodeAdapters,
-  explicitId: string | undefined,
+  workspaceId: string,
 ): Promise<string | null> {
-  if (explicitId) {
-    const byId = await adapters.storage.getProjectById(explicitId);
-    return byId ? byId.id : null;
-  }
-  const byRoot = await adapters.storage.getProjectByRoot(process.cwd());
-  return byRoot ? byRoot.id : null;
+  const byId = await adapters.storage.getProjectById(workspaceId);
+  return byId ? byId.id : null;
 }
 
 function formatHit(hit: SemanticHit & { rerankScore?: number }): string {
@@ -44,28 +41,25 @@ export function registerCodeSearchTools(server: McpServer): void {
   server.registerTool(
     'search_semantic',
     {
-      description:
-        'Semantic search over indexed code chunks. Embeds your query with voyage-code-3 and finds top matches by intent (not keyword). Returns file/lines/layer/preview.',
+      title: 'Semantic code search',
+      description: 'Semantic search over indexed code chunks for a workspace.',
       inputSchema: {
-        query: z.string().describe('Natural-language query (e.g. "tax calculation", "auth middleware")'),
+        workspace_id: z.string().optional().describe('Workspace id or name (defaults to active workspace)'),
+        query: z.string().describe('Natural-language query'),
         layer: z.enum(LAYER_VALUES).optional(),
         kind: z.enum(KIND_VALUES).optional(),
-        top_k: z.number().optional().describe('Default 10'),
-        project_id: z.string().optional(),
+        top_k: z.number().optional(),
       },
+      annotations: ANNOTATIONS.READ_ONLY,
     },
-    async ({ query, layer, kind, top_k: topK, project_id: projectIdInput }) => {
-      const ws = loadWorkspace();
-      if (!ws.ok) {
-        return errorResponse(`Workspace not found: ${ws.reason}`);
-      }
-      const adapters = await createCodeAdapters(ws.root);
+    async ({ workspace_id: workspaceIdInput, query, layer, kind, top_k: topK }) => {
+      const ws = await loadWorkspace(workspaceIdInput);
+      if (!ws.ok) { return errorResponse(ws.reason); }
+      const adapters = await createCodeAdapters(ws.workspaceId);
       if (!adapters) {
-        return errorResponse(
-          'Code intelligence not configured. Set NEO4J_URI, QDRANT_URL, VOYAGE_API_KEY in workspace .env',
-        );
+        return errorResponse('Code intelligence not configured. Check NEO4J_URI/QDRANT_URL/VOYAGE_API_KEY in ~/.argustack/config.env');
       }
-      const projectId = await resolveProjectId(adapters, projectIdInput);
+      const projectId = await resolveProjectId(adapters, ws.workspaceId);
       if (!projectId) {
         return errorResponse('Project not registered. Run `argustack code register --name <name>`.');
       }
@@ -93,23 +87,21 @@ export function registerCodeSearchTools(server: McpServer): void {
   server.registerTool(
     'find_similar_code',
     {
-      description: 'Find code chunks semantically similar to a given symbol (by qualified name).',
+      title: 'Find similar code',
+      description: 'Find code chunks semantically similar to a given symbol.',
       inputSchema: {
+        workspace_id: z.string().optional().describe('Workspace id or name'),
         qualified_name: z.string(),
         top_k: z.number().optional(),
-        project_id: z.string().optional(),
       },
+      annotations: ANNOTATIONS.READ_ONLY,
     },
-    async ({ qualified_name: qualifiedName, top_k: topK, project_id: projectIdInput }) => {
-      const ws = loadWorkspace();
-      if (!ws.ok) {
-        return errorResponse(`Workspace not found: ${ws.reason}`);
-      }
-      const adapters = await createCodeAdapters(ws.root);
-      if (!adapters) {
-        return errorResponse('Code intelligence not configured.');
-      }
-      const projectId = await resolveProjectId(adapters, projectIdInput);
+    async ({ workspace_id: workspaceIdInput, qualified_name: qualifiedName, top_k: topK }) => {
+      const ws = await loadWorkspace(workspaceIdInput);
+      if (!ws.ok) { return errorResponse(ws.reason); }
+      const adapters = await createCodeAdapters(ws.workspaceId);
+      if (!adapters) { return errorResponse('Code intelligence not configured.'); }
+      const projectId = await resolveProjectId(adapters, ws.workspaceId);
       if (!projectId) {
         return errorResponse('Project not registered.');
       }

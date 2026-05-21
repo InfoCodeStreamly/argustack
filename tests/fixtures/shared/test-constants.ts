@@ -39,6 +39,12 @@ import type {
 
 // ─── IDs ──────────────────────────────────────────────────────────────
 
+export const TEST_WORKSPACE_IDS = {
+  ALPHA: 'wks-alpha',
+  BETA: 'wks-beta',
+  GAMMA: 'wks-gamma',
+} as const;
+
 export const TEST_IDS = {
   projectKey: 'TEST',
   projectName: 'Test Project',
