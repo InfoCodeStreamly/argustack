@@ -3,7 +3,7 @@
  * Stored in .argustack/config.json
  */
 
-export type SourceType = 'jira' | 'git' | 'github' | 'csv' | 'db' | 'board';
+export type SourceType = 'jira' | 'git' | 'github' | 'csv' | 'db' | 'board' | 'code';
 
 export interface SourceConfig {
   enabled: boolean;
@@ -74,6 +74,14 @@ export const SOURCE_META: Record<SourceType, { label: string; description: strin
       'Claude can browse schema structure offline and run read-only SQL queries against the live database. ' +
       'All queries are validated — only SELECT/EXPLAIN/SHOW allowed, 30s timeout, 1000-row limit',
   },
+  code: {
+    label: 'Code Intelligence (Cursor-killer) — graph + semantic search of your TS codebase',
+    description:
+      'Indexes your TypeScript source into a graph (Neo4j) + vector store (Qdrant) using ' +
+      'tree-sitter + voyage-code-3 embeddings. Claude gets MCP tools to find symbols, trace call graphs, ' +
+      'detect Clean Architecture violations, and plan files for new features. ' +
+      'Requires VOYAGE_API_KEY and Docker containers (Neo4j, Qdrant) brought up by `argustack code init`.',
+  },
 };
 
-export const ALL_SOURCES: SourceType[] = ['jira', 'csv', 'git', 'github', 'db', 'board'];
+export const ALL_SOURCES: SourceType[] = ['jira', 'csv', 'git', 'github', 'db', 'board', 'code'];

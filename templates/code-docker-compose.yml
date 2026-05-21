@@ -1,0 +1,51 @@
+# Argustack global Code Intelligence — shared across ALL workspaces.
+#
+# Multi-tenant: one Neo4j + one Qdrant on standard ports, projects isolated
+# by `projectId` (Neo4j) and per-project collection name (Qdrant).
+#
+# Usage:
+#   cd ~/.argustack/code && docker compose up -d
+#
+# Workspaces point to it via .env:
+#   NEO4J_URI=bolt://localhost:7687
+#   QDRANT_URL=http://localhost:6333
+
+services:
+  neo4j:
+    image: neo4j:5-community
+    container_name: argustack-code-neo4j
+    ports:
+      - "7474:7474"   # HTTP / Neo4j Browser
+      - "7687:7687"   # Bolt
+    environment:
+      NEO4J_AUTH: neo4j/argustack_local
+      NEO4J_PLUGINS: '["apoc"]'
+      NEO4J_dbms_memory_pagecache_size: 1G
+      NEO4J_dbms_memory_heap_initial__size: 1G
+      NEO4J_dbms_memory_heap_max__size: 2G
+    volumes:
+      - argustack-code-neo4j-data:/data
+      - argustack-code-neo4j-logs:/logs
+      - argustack-code-neo4j-plugins:/plugins
+    healthcheck:
+      test: ["CMD-SHELL", "wget --no-verbose --tries=1 --spider http://localhost:7474 || exit 1"]
+      interval: 10s
+      timeout: 5s
+      retries: 15
+    restart: unless-stopped
+
+  qdrant:
+    image: qdrant/qdrant:latest
+    container_name: argustack-code-qdrant
+    ports:
+      - "6333:6333"   # REST
+      - "6334:6334"   # gRPC
+    volumes:
+      - argustack-code-qdrant-data:/qdrant/storage
+    restart: unless-stopped
+
+volumes:
+  argustack-code-neo4j-data:
+  argustack-code-neo4j-logs:
+  argustack-code-neo4j-plugins:
+  argustack-code-qdrant-data:

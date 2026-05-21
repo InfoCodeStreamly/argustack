@@ -332,6 +332,45 @@ export async function ensureSchema(pool: pg.Pool): Promise<void> {
     )
   `);
 
+  await pool.query(`
+    CREATE TABLE IF NOT EXISTS code_projects (
+      id TEXT PRIMARY KEY,
+      name TEXT NOT NULL,
+      root_path TEXT NOT NULL,
+      language TEXT NOT NULL,
+      layer_config JSONB,
+      excludes TEXT[],
+      created_at TIMESTAMPTZ DEFAULT NOW(),
+      last_indexed_at TIMESTAMPTZ
+    )
+  `);
+
+  await pool.query(`CREATE UNIQUE INDEX IF NOT EXISTS idx_code_projects_root ON code_projects(root_path)`);
+
+  await pool.query(`
+    CREATE TABLE IF NOT EXISTS code_files (
+      project_id TEXT NOT NULL REFERENCES code_projects(id) ON DELETE CASCADE,
+      path TEXT NOT NULL,
+      hash TEXT NOT NULL,
+      git_sha TEXT,
+      indexed_at TIMESTAMPTZ DEFAULT NOW(),
+      PRIMARY KEY (project_id, path)
+    )
+  `);
+
+  await pool.query(`
+    CREATE TABLE IF NOT EXISTS code_index_jobs (
+      id BIGSERIAL PRIMARY KEY,
+      project_id TEXT NOT NULL,
+      type TEXT NOT NULL,
+      status TEXT NOT NULL,
+      started_at TIMESTAMPTZ DEFAULT NOW(),
+      completed_at TIMESTAMPTZ,
+      stats JSONB,
+      error TEXT
+    )
+  `);
+
   const indexes = [
     'CREATE INDEX IF NOT EXISTS idx_issues_project ON issues(project_key)',
     'CREATE INDEX IF NOT EXISTS idx_issues_status ON issues(status)',
@@ -375,6 +414,9 @@ export async function ensureSchema(pool: pg.Pool): Promise<void> {
     'CREATE INDEX IF NOT EXISTS idx_db_columns_table ON db_columns(source_name, table_name)',
     'CREATE INDEX IF NOT EXISTS idx_db_fk_source ON db_foreign_keys(source_name)',
     'CREATE INDEX IF NOT EXISTS idx_db_indexes_source ON db_indexes(source_name)',
+    'CREATE INDEX IF NOT EXISTS idx_code_files_project ON code_files(project_id)',
+    'CREATE INDEX IF NOT EXISTS idx_code_jobs_project_status ON code_index_jobs(project_id, status)',
+    'CREATE INDEX IF NOT EXISTS idx_code_jobs_started ON code_index_jobs(started_at DESC)',
   ];
 
   for (const idx of indexes) {

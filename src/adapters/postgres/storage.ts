@@ -1,24 +1,32 @@
-import type pg from 'pg';
 import type { IStorage, QueryResult } from '../../core/ports/storage.js';
-import type { Issue, IssueBatch, HybridSearchResult, GraphEntity, GraphRelationship, GraphObservation, GraphQueryResult, GraphStats } from '../../core/types/index.js';
+import type {
+  Issue,
+  IssueBatch,
+  HybridSearchResult,
+  GraphEntity,
+  GraphRelationship,
+  GraphObservation,
+  GraphQueryResult,
+  GraphStats,
+} from '../../core/types/index.js';
 import type { CommitBatch } from '../../core/types/git.js';
 import type { GitHubBatch, Release } from '../../core/types/github.js';
 import type { DbSchemaBatch } from '../../core/types/database.js';
 import { createPool, type DbConfig } from './connection.js';
 import { ensureSchema } from './schema.js';
 import { adfToMarkdown } from '../../workspace/adf.js';
+import { PostgresCodeMetaStore } from './code-meta.js';
 
 /**
- * PostgreSQL adapter — implements IStorage.
+ * PostgreSQL adapter — implements IStorage + ICodeMetaStore (via base class).
  *
  * Uses UPSERT (ON CONFLICT) so re-pulling is safe and idempotent.
  */
-export class PostgresStorage implements IStorage {
+export class PostgresStorage extends PostgresCodeMetaStore implements IStorage {
   readonly name = 'PostgreSQL';
-  private readonly pool: pg.Pool;
 
   constructor(config: DbConfig) {
-    this.pool = createPool(config);
+    super(createPool(config));
   }
 
   async initialize(): Promise<void> {

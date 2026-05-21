@@ -24,6 +24,9 @@ import { registerEstimateTools } from './tools/estimate.js';
 import { registerDatabaseTools } from './tools/database.js';
 import { registerPushTools } from './tools/push.js';
 import { registerGraphTools } from './tools/graph.js';
+import { registerCodeGraphTools } from './tools/code-graph.js';
+import { registerCodeSearchTools } from './tools/code-search.js';
+import { registerCodeHybridTools } from './tools/code-hybrid.js';
 
 const mcpFilename = fileURLToPath(import.meta.url);
 const mcpPackageRoot = resolve(dirname(mcpFilename), '..', '..');
@@ -60,6 +63,9 @@ registerEstimateTools(server);
 registerDatabaseTools(server);
 registerPushTools(server);
 registerGraphTools(server);
+registerCodeGraphTools(server);
+registerCodeSearchTools(server);
+registerCodeHybridTools(server);
 
 export async function startMcpServer(): Promise<void> {
   const transport = new StdioServerTransport();

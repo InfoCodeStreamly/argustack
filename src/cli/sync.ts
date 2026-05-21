@@ -506,6 +506,9 @@ export function registerSyncCommand(program: Command): void {
             case 'board': {
               break;
             }
+            case 'code': {
+              break;
+            }
           }
         }
       } catch (err: unknown) {
