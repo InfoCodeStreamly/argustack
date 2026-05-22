@@ -240,14 +240,14 @@ export function getActiveCodeAdapters(): CodeAdapters | null {
  * required by the chosen embedding provider.
  */
 export async function createCodeAdapters(workspaceId: string): Promise<CodeAdapters | null> {
+  if (activeCodeAdapters !== null) {
+    return activeCodeAdapters;
+  }
   const hub = loadHubConfig();
   const store = await getWorkspaceStore();
   const workspace = await store.getById(workspaceId);
   if (workspace === null) {
     return null;
-  }
-  if (activeCodeAdapters !== null) {
-    return activeCodeAdapters;
   }
 
   if (hub.embedding.provider === 'voyage' && !hasText(hub.embedding.voyageApiKey)) {
