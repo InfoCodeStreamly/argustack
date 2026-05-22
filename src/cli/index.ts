@@ -40,7 +40,7 @@ program
   .action(async (name: string | undefined, options: unknown) => {
     try {
       const flags = options as InitFlags;
-      if (name) {
+      if (name !== undefined && name.length > 0) {
         flags.name = name;
       }
       await runInit(flags);

@@ -61,7 +61,7 @@ export class PostgresWorkspaceStore implements IWorkspaceStore {
 
   async create(workspace: Workspace): Promise<Workspace> {
     assertSlug(workspace.id);
-    if (!workspace.name || workspace.name.trim().length === 0) {
+    if (workspace.name === '' || workspace.name.trim().length === 0) {
       throw new Error('Workspace name is required');
     }
 
@@ -81,7 +81,7 @@ export class PostgresWorkspaceStore implements IWorkspaceStore {
     );
 
     const row = result.rows[0];
-    if (!row) {
+    if (row === undefined) {
       throw new Error(`Failed to create workspace "${workspace.id}"`);
     }
     return rowToWorkspace(row);
@@ -93,7 +93,7 @@ export class PostgresWorkspaceStore implements IWorkspaceStore {
        FROM workspaces WHERE id = $1`,
       [id],
     );
-    return result.rows[0] ? rowToWorkspace(result.rows[0]) : null;
+    return result.rows[0] !== undefined ? rowToWorkspace(result.rows[0]) : null;
   }
 
   async getByName(name: string): Promise<Workspace | null> {
@@ -102,7 +102,7 @@ export class PostgresWorkspaceStore implements IWorkspaceStore {
        FROM workspaces WHERE name = $1`,
       [name],
     );
-    return result.rows[0] ? rowToWorkspace(result.rows[0]) : null;
+    return result.rows[0] !== undefined ? rowToWorkspace(result.rows[0]) : null;
   }
 
   async list(): Promise<Workspace[]> {

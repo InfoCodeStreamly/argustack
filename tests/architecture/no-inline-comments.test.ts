@@ -80,7 +80,7 @@ describe('code quality: no inline comments', () => {
 
         const trimmed = line.trim();
         if (trimmed.startsWith('//')) {
-          const relative = filePath.replace(ROOT + '/', '');
+          const relative = filePath.replace(`${ROOT  }/`, '');
           violations.push(`${relative}:${i + 1} → ${trimmed}`);
         }
       }

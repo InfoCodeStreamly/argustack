@@ -5,7 +5,7 @@ export class FakeEmbeddingProvider implements IEmbeddingProvider {
   readonly dimensions = 1536;
   readonly embedCalls: string[][] = [];
 
-  embed(texts: string[]): Promise<number[][]> {
+  async embed(texts: string[]): Promise<number[][]> {
     this.embedCalls.push(texts);
     return Promise.resolve(
       texts.map((_, i) => {

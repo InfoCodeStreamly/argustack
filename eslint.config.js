@@ -59,6 +59,9 @@ export default tseslint.config(
       '@typescript-eslint/no-floating-promises': 'error',
       '@typescript-eslint/no-misused-promises': 'error',
       '@typescript-eslint/require-await': 'error',
+      '@typescript-eslint/await-thenable': 'error',
+      '@typescript-eslint/return-await': ['error', 'in-try-catch'],
+      '@typescript-eslint/promise-function-async': 'error',
 
       // === Strict checks ===
       '@typescript-eslint/no-non-null-assertion': 'error',
@@ -70,6 +73,29 @@ export default tseslint.config(
       '@typescript-eslint/switch-exhaustiveness-check': 'error',
       '@typescript-eslint/no-shadow': 'error',
       'no-shadow': 'off',
+      '@typescript-eslint/strict-boolean-expressions': [
+        'error',
+        {
+          allowString: false,
+          allowNumber: false,
+          allowNullableObject: false,
+          allowNullableBoolean: false,
+          allowNullableString: false,
+          allowNullableNumber: false,
+          allowAny: false,
+        },
+      ],
+      '@typescript-eslint/prefer-nullish-coalescing': 'error',
+      '@typescript-eslint/prefer-optional-chain': 'error',
+      '@typescript-eslint/no-unnecessary-boolean-literal-compare': 'error',
+      '@typescript-eslint/no-unnecessary-type-assertion': 'error',
+      '@typescript-eslint/no-confusing-void-expression': 'error',
+      '@typescript-eslint/no-meaningless-void-operator': 'error',
+      '@typescript-eslint/no-redundant-type-constituents': 'error',
+      '@typescript-eslint/no-useless-empty-export': 'error',
+      '@typescript-eslint/prefer-reduce-type-parameter': 'error',
+      '@typescript-eslint/prefer-return-this-type': 'error',
+      '@typescript-eslint/prefer-string-starts-ends-with': 'error',
 
       // === Import/export discipline ===
       '@typescript-eslint/consistent-type-imports': [
@@ -81,6 +107,8 @@ export default tseslint.config(
         { fixMixedExportsWithInlineTypeSpecifier: false },
       ],
       '@typescript-eslint/no-import-type-side-effects': 'error',
+      '@typescript-eslint/no-require-imports': 'error',
+      '@typescript-eslint/no-var-requires': 'error',
 
       // === Code quality ===
       '@typescript-eslint/no-unused-vars': [
@@ -101,6 +129,16 @@ export default tseslint.config(
         { allowConstantLoopConditions: true },
       ],
       '@typescript-eslint/no-unnecessary-type-parameters': 'error',
+      '@typescript-eslint/explicit-module-boundary-types': 'error',
+      '@typescript-eslint/explicit-function-return-type': [
+        'error',
+        {
+          allowExpressions: true,
+          allowTypedFunctionExpressions: true,
+          allowHigherOrderFunctions: true,
+          allowDirectConstAssertionInArrowFunctions: true,
+        },
+      ],
 
       // === Naming convention ===
       '@typescript-eslint/naming-convention': [
@@ -147,9 +185,20 @@ export default tseslint.config(
       // === Core JS rules ===
       'eqeqeq': ['error', 'always', { null: 'ignore' }],
       'curly': ['error', 'all'],
-      'no-param-reassign': 'error',
+      'no-param-reassign': ['error', { props: true }],
       'no-var': 'error',
       'prefer-const': 'error',
+      'no-throw-literal': 'off',
+      '@typescript-eslint/only-throw-error': 'error',
+      'no-implicit-coercion': 'error',
+      'no-return-assign': ['error', 'always'],
+      'no-unneeded-ternary': 'error',
+      'object-shorthand': ['error', 'always'],
+      'prefer-template': 'error',
+      'no-else-return': ['error', { allowElseIf: false }],
+      'no-useless-concat': 'error',
+      'no-useless-return': 'error',
+      'no-nested-ternary': 'error',
 
       // === CLI project: console is OK (it's a CLI!) ===
       'no-console': 'off',

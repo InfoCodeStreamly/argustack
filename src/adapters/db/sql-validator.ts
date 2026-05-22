@@ -20,14 +20,14 @@ export interface SqlValidationResult {
 export function validateSql(sql: string): SqlValidationResult {
   const trimmed = sql.trim();
 
-  if (!trimmed) {
+  if (trimmed === '') {
     return { valid: false, reason: 'Empty query' };
   }
 
   const upperSql = trimmed.toUpperCase();
   const firstWord = upperSql.split(/[\s(]+/)[0];
 
-  if (!firstWord || !ALLOWED_FIRST_KEYWORDS.has(firstWord)) {
+  if (firstWord === undefined || firstWord === '' || !ALLOWED_FIRST_KEYWORDS.has(firstWord)) {
     return { valid: false, reason: `Statement must start with SELECT, EXPLAIN, SHOW, or DESCRIBE. Got: ${firstWord ?? '(empty)'}` };
   }
 

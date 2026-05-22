@@ -11,7 +11,7 @@ const CONFIG_FILE = '.argustack/config.json';
 export function createEmptyConfig(name?: string): WorkspaceConfig {
   return {
     version: 1,
-    ...(name ? { name } : {}),
+    ...(name !== undefined && name !== '' ? { name } : {}),
     sources: {},
     order: [],
     createdAt: new Date().toISOString(),
@@ -37,7 +37,7 @@ export function readConfig(workspaceRoot: string): WorkspaceConfig | null {
  */
 export function writeConfig(workspaceRoot: string, config: WorkspaceConfig): void {
   const path = join(workspaceRoot, CONFIG_FILE);
-  writeFileSync(path, JSON.stringify(config, null, 2) + '\n');
+  writeFileSync(path, `${JSON.stringify(config, null, 2)  }\n`);
 }
 
 /**
@@ -45,17 +45,18 @@ export function writeConfig(workspaceRoot: string, config: WorkspaceConfig): voi
  */
 export function addSource(config: WorkspaceConfig, source: SourceType): WorkspaceConfig {
   const existing = config.sources[source];
-
-  config.sources[source] = {
-    enabled: true,
-    addedAt: existing?.addedAt ?? new Date().toISOString(),
+  const next: WorkspaceConfig = {
+    ...config,
+    sources: {
+      ...config.sources,
+      [source]: {
+        enabled: true,
+        addedAt: existing?.addedAt ?? new Date().toISOString(),
+      },
+    },
+    order: config.order.includes(source) ? [...config.order] : [...config.order, source],
   };
-
-  if (!config.order.includes(source)) {
-    config.order.push(source);
-  }
-
-  return config;
+  return next;
 }
 
 /**
@@ -64,18 +65,21 @@ export function addSource(config: WorkspaceConfig, source: SourceType): Workspac
  */
 export function enableSource(config: WorkspaceConfig, source: SourceType): WorkspaceConfig {
   const existing = config.sources[source];
-  if (!existing) {
+  if (existing == null) {
     return addSource(config, source);
   }
 
-  existing.enabled = true;
-  delete existing.disabledAt;
-
-  if (!config.order.includes(source)) {
-    config.order.push(source);
-  }
-
-  return config;
+  const { disabledAt: _disabledAt, ...rest } = existing;
+  void _disabledAt;
+  const next: WorkspaceConfig = {
+    ...config,
+    sources: {
+      ...config.sources,
+      [source]: { ...rest, enabled: true },
+    },
+    order: config.order.includes(source) ? [...config.order] : [...config.order, source],
+  };
+  return next;
 }
 
 /**
@@ -83,21 +87,27 @@ export function enableSource(config: WorkspaceConfig, source: SourceType): Works
  */
 export function disableSource(config: WorkspaceConfig, source: SourceType): WorkspaceConfig {
   const existing = config.sources[source];
-  if (existing) {
-    existing.enabled = false;
-    existing.disabledAt = new Date().toISOString();
+  const nextSources = { ...config.sources };
+  if (existing != null) {
+    nextSources[source] = {
+      ...existing,
+      enabled: false,
+      disabledAt: new Date().toISOString(),
+    };
   }
-
-  config.order = config.order.filter((s) => s !== source);
-
-  return config;
+  const next: WorkspaceConfig = {
+    ...config,
+    sources: nextSources,
+    order: config.order.filter((s) => s !== source),
+  };
+  return next;
 }
 
 /**
  * Get enabled sources in order.
  */
 export function getEnabledSources(config: WorkspaceConfig): SourceType[] {
-  return config.order.filter((s) => config.sources[s]?.enabled);
+  return config.order.filter((s) => config.sources[s]?.enabled === true);
 }
 
 /**
@@ -121,7 +131,7 @@ export async function readWorkspaceConfigFromHub(
   hubStore: IWorkspaceStore,
 ): Promise<WorkspaceConfig | null> {
   const workspace = await hubStore.getById(workspaceId);
-  if (!workspace) {
+  if (workspace == null) {
     return null;
   }
   const settings: WorkspaceSettings = workspace.settings ?? {};

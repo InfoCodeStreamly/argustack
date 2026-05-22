@@ -54,12 +54,12 @@ export function detectSchema(headers: string[]): CsvSchema {
 
   for (let i = 0; i < headers.length; i++) {
     const header = headers[i]?.trim() ?? '';
-    if (!header) {
+    if (header === '') {
       continue;
     }
 
     const linkMatch = ISSUE_LINK_RE.exec(header);
-    if (linkMatch) {
+    if (linkMatch !== null) {
       const direction = linkMatch[1] === 'Inward' ? 'inward' as const : 'outward' as const;
       const linkType = linkMatch[2] ?? '';
       issueLinks.push({ direction, linkType, columnIndex: i });
@@ -67,7 +67,7 @@ export function detectSchema(headers: string[]): CsvSchema {
     }
 
     const customMatch = CUSTOM_FIELD_RE.exec(header);
-    if (customMatch) {
+    if (customMatch !== null) {
       const name = customMatch[1] ?? '';
       customFields.push({ name, columnIndex: i });
       continue;
@@ -75,7 +75,7 @@ export function detectSchema(headers: string[]): CsvSchema {
 
     if (REPEATED_HEADER_NAMES.has(header)) {
       const existing = repeatedGroups.get(header);
-      if (existing) {
+      if (existing !== undefined) {
         existing.count++;
       } else {
         repeatedGroups.set(header, { startIndex: i, count: 1 });
@@ -106,12 +106,13 @@ const MONTH_MAP: Record<string, string> = {
 const JIRA_DATE_RE = /^(\d{1,2})\/([A-Za-z]{3})\/(\d{2})\s+(\d{1,2}):(\d{2})\s+(AM|PM)$/;
 
 export function parseJiraDate(raw: string | null | undefined): string | null {
-  if (!raw?.trim()) {
+  const trimmed = raw?.trim();
+  if (trimmed === undefined || trimmed === '') {
     return null;
   }
 
-  const match = JIRA_DATE_RE.exec(raw.trim());
-  if (!match) {
+  const match = JIRA_DATE_RE.exec(trimmed);
+  if (match === null) {
     return null;
   }
 

@@ -77,7 +77,7 @@ const DEFAULT_PGWEB_PORT = 8086;
 
 export { DEFAULT_DB_PORT, DEFAULT_PGWEB_PORT };
 
-export function isPortAvailable(port: number): Promise<boolean> {
+export async function isPortAvailable(port: number): Promise<boolean> {
   return new Promise((res) => {
     const server = createServer();
     server.once('error', () => { res(false); });
@@ -122,7 +122,7 @@ export function validatePort(val: string, min = 1): string | true {
  */
 export function maskEmail(email: string): string {
   const [user, domain] = email.split('@');
-  if (!user || !domain) {
+  if (user === undefined || user === '' || domain === undefined || domain === '') {
     return '****';
   }
   const prefix = user.slice(0, 2);
@@ -151,12 +151,12 @@ export function maskHost(host: string): string {
 }
 
 export function maskOrgRepo(owner: string, repo?: string): string {
-  const full = repo ? `${owner}/${repo}` : owner;
+  const full = repo !== undefined && repo !== '' ? `${owner}/${repo}` : owner;
   const parts = full.split('/');
   const o = parts[0] ?? '';
   const r = parts[1] ?? '';
   const maskedO = o.length <= 2 ? o : o.slice(0, 2) + '*'.repeat(Math.min(o.length - 2, 10));
-  if (!r) {return maskedO;}
+  if (r === '') {return maskedO;}
   const maskedR = r.length <= 2 ? r : r.slice(0, 2) + '*'.repeat(Math.min(r.length - 2, 10));
   return `${maskedO}/${maskedR}`;
 }

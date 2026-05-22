@@ -36,7 +36,7 @@ export class GitProvider implements IGitProvider {
 
     let sha = revwalk.next();
     while (sha !== null) {
-      if (since) {
+      if (since !== undefined) {
         const commitDate = repo.getCommit(sha).time();
         if (commitDate < since) {
           break;
@@ -60,7 +60,7 @@ export class GitProvider implements IGitProvider {
       const esCommit = repo.getCommit(sha);
       const commitDate = esCommit.time();
 
-      if (since && commitDate < since) {
+      if (since !== undefined && commitDate < since) {
         break;
       }
 
@@ -79,7 +79,7 @@ export class GitProvider implements IGitProvider {
         const deltas = diff.deltas();
         let deltaResult = deltas.next();
 
-        while (!deltaResult.done) {
+        while (deltaResult.done !== true) {
           const delta = deltaResult.value;
           const rawStatus = delta.status();
           const filePath = (rawStatus === 'Deleted' ? delta.oldFile().path() : delta.newFile().path()) ?? '';
@@ -112,7 +112,7 @@ export class GitProvider implements IGitProvider {
 
     const branches = repo.branches({ type: 'Local' });
     let branchResult = branches.next();
-    while (!branchResult.done) {
+    while (branchResult.done !== true) {
       refs.push({
         name: branchResult.value.name,
         type: 'branch',

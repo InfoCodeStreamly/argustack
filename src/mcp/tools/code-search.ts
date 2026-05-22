@@ -5,6 +5,7 @@ import {
   createCodeAdapters,
   textResponse,
   errorResponse,
+  workspaceNotFoundResponse,
   ANNOTATIONS,
 } from '../helpers.js';
 import type { CodeAdapters } from '../helpers.js';
@@ -28,12 +29,12 @@ async function resolveProjectId(
   workspaceId: string,
 ): Promise<string | null> {
   const byId = await adapters.storage.getProjectById(workspaceId);
-  return byId ? byId.id : null;
+  return byId !== null ? byId.id : null;
 }
 
 function formatHit(hit: SemanticHit & { rerankScore?: number }): string {
   const score = hit.rerankScore !== undefined ? hit.rerankScore.toFixed(3) : hit.score.toFixed(3);
-  const layer = hit.payload.layer ? `[${hit.payload.layer}] ` : '';
+  const layer = hit.payload.layer !== null ? `[${hit.payload.layer}] ` : '';
   return `- **${hit.payload.name}** (${hit.payload.kind}) ${layer}— ${hit.payload.filePath}:${String(hit.payload.startLine)} _(score: ${score})_`;
 }
 
@@ -54,21 +55,21 @@ export function registerCodeSearchTools(server: McpServer): void {
     },
     async ({ workspace_id: workspaceIdInput, query, layer, kind, top_k: topK }) => {
       const ws = await loadWorkspace(workspaceIdInput);
-      if (!ws.ok) { return errorResponse(ws.reason); }
+      if (!ws.ok) { return workspaceNotFoundResponse(ws.reason); }
       const adapters = await createCodeAdapters(ws.workspaceId);
-      if (!adapters) {
+      if (adapters === null) {
         return errorResponse('Code intelligence not configured. Check NEO4J_URI/QDRANT_URL/VOYAGE_API_KEY in ~/.argustack/config.env');
       }
       const projectId = await resolveProjectId(adapters, ws.workspaceId);
-      if (!projectId) {
+      if (projectId === null) {
         return errorResponse('Project not registered. Run `argustack code register --name <name>`.');
       }
       const useCase = new CodeSearchUseCase(adapters.graph, adapters.vec, adapters.embedding);
       const input: Parameters<CodeSearchUseCase['searchSemantic']>[0] = { projectId, query };
-      if (layer) {
+      if (layer !== undefined) {
         input.layer = layer;
       }
-      if (kind) {
+      if (kind !== undefined) {
         input.kind = kind;
       }
       if (topK !== undefined) {
@@ -98,11 +99,11 @@ export function registerCodeSearchTools(server: McpServer): void {
     },
     async ({ workspace_id: workspaceIdInput, qualified_name: qualifiedName, top_k: topK }) => {
       const ws = await loadWorkspace(workspaceIdInput);
-      if (!ws.ok) { return errorResponse(ws.reason); }
+      if (!ws.ok) { return workspaceNotFoundResponse(ws.reason); }
       const adapters = await createCodeAdapters(ws.workspaceId);
-      if (!adapters) { return errorResponse('Code intelligence not configured.'); }
+      if (adapters === null) { return errorResponse('Code intelligence not configured.'); }
       const projectId = await resolveProjectId(adapters, ws.workspaceId);
-      if (!projectId) {
+      if (projectId === null) {
         return errorResponse('Project not registered.');
       }
       const hits = await adapters.vec.findSimilar(projectId, qualifiedName, topK ?? 10);

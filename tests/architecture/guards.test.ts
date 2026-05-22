@@ -35,7 +35,9 @@ describe('architecture guard: SourceType coverage in SOURCE_META', () => {
 
     const unionBody = typeMatch?.[1] ?? '';
     const literalMatches = [...unionBody.matchAll(/'([^']+)'/g)];
-    const sourceTypes = literalMatches.map((m) => m[1]);
+    const sourceTypes = literalMatches
+      .map((m) => m[1])
+      .filter((s): s is string => typeof s === 'string');
 
     expect(
       sourceTypes.length,
@@ -58,8 +60,9 @@ describe('architecture guard: SourceType coverage in SOURCE_META', () => {
         depth += opens - closes;
         if (prevDepth === 1) {
           const keyMatch = /^\s{2}(\w+)\s*:/.exec(line);
-          if (keyMatch) {
-            metaKeys.push(keyMatch[1]);
+          const key = keyMatch?.[1];
+          if (key !== undefined && key.length > 0) {
+            metaKeys.push(key);
           }
         }
         if (depth === 0) {
@@ -177,13 +180,13 @@ describe('architecture guard: no cross-adapter dependencies', () => {
         }
 
         const fromMatch = /from\s+['"]([^'"]+)['"]/.exec(line);
-        if (!fromMatch) {
+        if (fromMatch === null) {
           continue;
         }
 
-        const importPath = fromMatch[1];
+        const importPath = fromMatch[1] ?? '';
 
-        if (!importPath.startsWith('.')) {
+        if (importPath.length === 0 || !importPath.startsWith('.')) {
           continue;
         }
 
@@ -230,13 +233,13 @@ describe('architecture guard: use cases depend only on core/', () => {
         }
 
         const fromMatch = /from\s+['"]([^'"]+)['"]/.exec(line);
-        if (!fromMatch) {
+        if (fromMatch === null) {
           continue;
         }
 
-        const importPath = fromMatch[1];
+        const importPath = fromMatch[1] ?? '';
 
-        if (!importPath.startsWith('.')) {
+        if (importPath.length === 0 || !importPath.startsWith('.')) {
           continue;
         }
 

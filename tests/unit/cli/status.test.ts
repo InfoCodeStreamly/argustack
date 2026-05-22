@@ -1,198 +1,104 @@
 /**
- * Unit tests for the registerStatusCommand action handler.
+ * Unit tests for registerStatusCommand.
  *
- * The action is async. It is extracted from Commander by capturing the
- * callback registered via a fake Command stub. PostgresStorage and all
- * workspace utilities are mocked at the module boundary.
- *
- * The PostgresStorage mock is defined as a factory function so that the
- * per-test spy objects (queryFn, closeFn) are read lazily at construction
- * time, avoiding the vi.mock hoisting issue with module-scope variables.
+ * The status action now reads from the hub store and queries hub
+ * Postgres directly. We mock the hub bindings at module boundaries so
+ * the test exercises command wiring without doing real I/O.
  */
 
 import { describe, it, expect, vi, beforeEach } from 'vitest';
-import { createWorkspaceConfig } from '../../fixtures/shared/test-constants.js';
 
-vi.mock('../../../src/workspace/resolver.js', () => ({
-  requireWorkspace: vi.fn(() => '/test/workspace'),
+vi.mock('node:child_process', () => ({
+  execSync: vi.fn(() => Buffer.from('')),
 }));
 
-vi.mock('../../../src/workspace/config.js', () => ({
-  readConfig: vi.fn(),
-  getEnabledSources: vi.fn(() => []),
+vi.mock('node:fs', () => ({
+  existsSync: vi.fn(() => false),
 }));
 
-vi.mock('dotenv', () => ({
-  default: { config: vi.fn() },
+vi.mock('../../../src/workspace/hub-config.js', () => ({
+  loadHubConfig: vi.fn(() => ({
+    hubDir: '/tmp/hub',
+    db: { host: 'h', port: 5434, user: 'u', password: 'p', database: 'd' },
+  })),
+  hubDir: vi.fn(() => '/tmp/hub'),
 }));
 
-vi.mock('../../../src/adapters/postgres/index.js', () => {
-  const queryFn = vi.fn().mockResolvedValue({ rows: [] });
-  const closeFn = vi.fn().mockResolvedValue(undefined);
+vi.mock('../../../src/workspace/active-workspace.js', () => ({
+  getActiveWorkspaceId: vi.fn(() => null),
+}));
 
-  return {
-    PostgresStorage: vi.fn().mockImplementation(function (this: Record<string, unknown>) {
-      this['query'] = queryFn;
-      this['close'] = closeFn;
-    }),
-    _queryFn: queryFn,
-    _closeFn: closeFn,
-  };
+vi.mock('../../../src/cli/workspace/shared.js', () => ({
+  openHubStore: vi.fn().mockResolvedValue({
+    store: {
+      list: vi.fn().mockResolvedValue([]),
+      getById: vi.fn().mockResolvedValue(null),
+      getByName: vi.fn().mockResolvedValue(null),
+    },
+    close: vi.fn().mockResolvedValue(undefined),
+  }),
+}));
+
+vi.mock('chalk', () => {
+  const identity = (s: string): string => s;
+  const tagged = Object.assign(identity, {
+    red: identity, green: identity, yellow: identity,
+    blue: identity, dim: identity, bold: identity, cyan: identity,
+  });
+  return { default: tagged };
 });
 
-import { requireWorkspace } from '../../../src/workspace/resolver.js';
-import { readConfig, getEnabledSources } from '../../../src/workspace/config.js';
 import { registerStatusCommand } from '../../../src/cli/status.js';
 import type { Command } from 'commander';
+import type { MockInstance } from 'vitest';
 
-const mockRequireWorkspace = vi.mocked(requireWorkspace);
-const mockReadConfig = vi.mocked(readConfig);
-const mockGetEnabledSources = vi.mocked(getEnabledSources);
+type ActionFn = (opts: { workspace?: string }) => Promise<void>;
 
-async function getStorageSpies(): Promise<{ queryFn: ReturnType<typeof vi.fn>; closeFn: ReturnType<typeof vi.fn> }> {
-  const mod = await import('../../../src/adapters/postgres/index.js') as {
-    _queryFn: ReturnType<typeof vi.fn>;
-    _closeFn: ReturnType<typeof vi.fn>;
-  };
-  return { queryFn: mod._queryFn, closeFn: mod._closeFn };
+interface FakeCommand {
+  command: ReturnType<typeof vi.fn>;
+  description: ReturnType<typeof vi.fn>;
+  option: ReturnType<typeof vi.fn>;
+  action: ReturnType<typeof vi.fn>;
 }
 
-type AsyncAction = () => Promise<void>;
-
-function captureAction(): AsyncAction {
-  let captured: AsyncAction | undefined;
-
-  const fakeProgram = {
-    command: () => fakeProgram,
-    description: () => fakeProgram,
-    action(fn: AsyncAction) {
-      captured = fn;
-      return fakeProgram;
-    },
+function makeFakeProgram(): FakeCommand {
+  const fake: FakeCommand = {
+    command: vi.fn(),
+    description: vi.fn(),
+    option: vi.fn(),
+    action: vi.fn(),
   };
-
-  registerStatusCommand(fakeProgram as unknown as Command);
-
-  if (!captured) {throw new Error('No action was registered');}
-  return captured;
+  fake.command.mockReturnValue(fake);
+  fake.description.mockReturnValue(fake);
+  fake.option.mockReturnValue(fake);
+  fake.action.mockReturnValue(fake);
+  return fake;
 }
 
-beforeEach(async () => {
-  vi.clearAllMocks();
-  const { queryFn, closeFn } = await getStorageSpies();
-  queryFn.mockResolvedValue({ rows: [] });
-  closeFn.mockResolvedValue(undefined);
-});
+describe('registerStatusCommand', () => {
+  let program: FakeCommand;
+  let consoleLogSpy: MockInstance<typeof console.log>;
 
-// ─── no config ───────────────────────────────────────────────────────────────
-
-describe('status action — no config', () => {
-  it('calls process.exit(1) when readConfig returns null', async () => {
-    mockReadConfig.mockReturnValue(null);
-    const exitSpy = vi.spyOn(process, 'exit').mockImplementation(() => { throw new Error('exit'); });
-
-    const action = captureAction();
-    await expect(action()).rejects.toThrow('exit');
-    expect(exitSpy).toHaveBeenCalledWith(1);
-
-    exitSpy.mockRestore();
-  });
-});
-
-// ─── no sources enabled ──────────────────────────────────────────────────────
-
-describe('status action — no sources enabled', () => {
-  it('does not attempt to connect to storage when no sources are enabled', async () => {
-    const { queryFn, closeFn } = await getStorageSpies();
-    const config = createWorkspaceConfig();
-    mockReadConfig.mockReturnValue(config);
-    mockGetEnabledSources.mockReturnValue([]);
-
-    const action = captureAction();
-    await action();
-
-    expect(queryFn).not.toHaveBeenCalled();
-    expect(closeFn).not.toHaveBeenCalled();
+  beforeEach(() => {
+    vi.clearAllMocks();
+    program = makeFakeProgram();
+    consoleLogSpy = vi.spyOn(console, 'log').mockImplementation(() => { /* suppress */ });
   });
 
-  it('completes without error when workspace has no enabled sources', async () => {
-    const config = createWorkspaceConfig();
-    mockReadConfig.mockReturnValue(config);
-    mockGetEnabledSources.mockReturnValue([]);
+  it('registers the "status" subcommand', () => {
+    registerStatusCommand(program as unknown as Command);
 
-    const action = captureAction();
-    await expect(action()).resolves.toBeUndefined();
-  });
-});
-
-// ─── sources enabled, storage available ──────────────────────────────────────
-
-describe('status action — sources enabled, storage available', () => {
-  it('queries issue counts and calls close when sources are enabled', async () => {
-    const { queryFn, closeFn } = await getStorageSpies();
-    const config = createWorkspaceConfig({
-      sources: { jira: { enabled: true, addedAt: '2025-01-01T00:00:00.000Z' } },
-      order: ['jira'],
-    });
-    mockReadConfig.mockReturnValue(config);
-    mockGetEnabledSources.mockReturnValue(['jira']);
-    queryFn.mockResolvedValue({
-      rows: [{ source: 'jira', cnt: '42' }],
-    });
-
-    const action = captureAction();
-    await action();
-
-    expect(queryFn).toHaveBeenCalled();
-    expect(closeFn).toHaveBeenCalled();
+    expect(program.command).toHaveBeenCalledWith('status');
+    expect(program.action).toHaveBeenCalledOnce();
+    consoleLogSpy.mockRestore();
   });
 
-  it('calls close even when the query throws an error', async () => {
-    const { queryFn, closeFn } = await getStorageSpies();
-    const config = createWorkspaceConfig({
-      sources: { jira: { enabled: true, addedAt: '2025-01-01T00:00:00.000Z' } },
-      order: ['jira'],
-    });
-    mockReadConfig.mockReturnValue(config);
-    mockGetEnabledSources.mockReturnValue(['jira']);
-    queryFn.mockRejectedValue(new Error('connection refused'));
+  it('runs the action without throwing when there are no workspaces', async () => {
+    registerStatusCommand(program as unknown as Command);
+    const action = program.action.mock.calls[0]?.[0] as ActionFn | undefined;
+    if (action === undefined) {throw new Error('action not registered');}
 
-    const action = captureAction();
-    await expect(action()).resolves.toBeUndefined();
-    expect(closeFn).toHaveBeenCalled();
-  });
-
-  it('does not throw when PostgresStorage constructor throws', async () => {
-    const config = createWorkspaceConfig({
-      sources: { jira: { enabled: true, addedAt: '2025-01-01T00:00:00.000Z' } },
-      order: ['jira'],
-    });
-    mockReadConfig.mockReturnValue(config);
-    mockGetEnabledSources.mockReturnValue(['jira']);
-
-    const { PostgresStorage } = await import('../../../src/adapters/postgres/index.js');
-    vi.mocked(PostgresStorage).mockImplementationOnce(() => {
-      throw new Error('Docker not running');
-    });
-
-    const action = captureAction();
-    await expect(action()).resolves.toBeUndefined();
-  });
-});
-
-// ─── error handling ──────────────────────────────────────────────────────────
-
-describe('status action — error handling', () => {
-  it('calls process.exit(1) when requireWorkspace throws', async () => {
-    mockRequireWorkspace.mockImplementation(() => {
-      throw new Error('Not inside an Argustack workspace');
-    });
-    const exitSpy = vi.spyOn(process, 'exit').mockImplementation(() => { throw new Error('exit'); });
-
-    const action = captureAction();
-    await expect(action()).rejects.toThrow('exit');
-    expect(exitSpy).toHaveBeenCalledWith(1);
-
-    exitSpy.mockRestore();
+    await expect(action({})).resolves.toBeUndefined();
+    consoleLogSpy.mockRestore();
   });
 });

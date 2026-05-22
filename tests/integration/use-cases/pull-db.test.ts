@@ -2,8 +2,10 @@ import { describe, it, expect, beforeEach } from 'vitest';
 import { PullDbUseCase } from '../../../src/use-cases/pull-db.js';
 import { FakeDbProvider } from '../../fixtures/fakes/fake-db-provider.js';
 import { FakeStorage } from '../../fixtures/fakes/fake-storage.js';
-import { createDbSchemaBatch, createDbTable, createDbColumn, DB_TEST_IDS } from '../../fixtures/shared/test-constants.js';
+import { createDbSchemaBatch, createDbTable, createDbColumn, DB_TEST_IDS, TEST_WORKSPACE_IDS } from '../../fixtures/shared/test-constants.js';
 import type { DbSchemaBatch } from '../../../src/core/types/database.js';
+
+const WS = TEST_WORKSPACE_IDS.ALPHA;
 
 describe('PullDbUseCase', () => {
   let storage: FakeStorage;
@@ -21,30 +23,30 @@ describe('PullDbUseCase', () => {
   });
 
   it('initializes storage', async () => {
-    await useCase.execute(DB_TEST_IDS.sourceName);
+    await useCase.execute(WS, DB_TEST_IDS.sourceName);
     expect(storage.initialized).toBe(true);
   });
 
   it('connects and disconnects the DB provider', async () => {
-    await useCase.execute(DB_TEST_IDS.sourceName);
+    await useCase.execute(WS, DB_TEST_IDS.sourceName);
     expect(provider.connected).toBe(true);
     expect(provider.disconnected).toBe(true);
   });
 
   it('deletes old schema before saving new one', async () => {
-    await useCase.execute(DB_TEST_IDS.sourceName);
-    expect(storage.deletedDbSources).toContain(DB_TEST_IDS.sourceName);
+    await useCase.execute(WS, DB_TEST_IDS.sourceName);
+    expect(storage.deletedDbSources.map((d) => d.sourceName)).toContain(DB_TEST_IDS.sourceName);
   });
 
   it('saves schema batches from provider', async () => {
-    await useCase.execute(DB_TEST_IDS.sourceName);
+    await useCase.execute(WS, DB_TEST_IDS.sourceName);
     expect(storage.savedDbBatches).toHaveLength(1);
     expect(storage.savedDbBatches[0]?.sourceName).toBe(DB_TEST_IDS.sourceName);
     expect(storage.savedDbBatches[0]?.batch.tables).toHaveLength(1);
   });
 
   it('returns correct result counts', async () => {
-    const result = await useCase.execute(DB_TEST_IDS.sourceName);
+    const result = await useCase.execute(WS, DB_TEST_IDS.sourceName);
     expect(result.sourceName).toBe(DB_TEST_IDS.sourceName);
     expect(result.tablesCount).toBe(1);
     expect(result.columnsCount).toBe(1);
@@ -61,7 +63,7 @@ describe('PullDbUseCase', () => {
     });
     const multiUseCase = new PullDbUseCase(multiProvider, storage);
 
-    const result = await multiUseCase.execute(DB_TEST_IDS.sourceName);
+    const result = await multiUseCase.execute(WS, DB_TEST_IDS.sourceName);
     expect(result.tablesCount).toBe(2);
     expect(result.foreignKeysCount).toBe(2);
     expect(result.indexesCount).toBe(2);
@@ -71,14 +73,14 @@ describe('PullDbUseCase', () => {
     const emptyProvider = new FakeDbProvider({ batches: [], tableCount: 0 });
     const emptyUseCase = new PullDbUseCase(emptyProvider, storage);
 
-    const result = await emptyUseCase.execute(DB_TEST_IDS.sourceName);
+    const result = await emptyUseCase.execute(WS, DB_TEST_IDS.sourceName);
     expect(result.tablesCount).toBe(0);
     expect(result.columnsCount).toBe(0);
   });
 
   it('calls onProgress callback', async () => {
     const messages: string[] = [];
-    await useCase.execute(DB_TEST_IDS.sourceName, {
+    await useCase.execute(WS, DB_TEST_IDS.sourceName, {
       onProgress: (msg) => messages.push(msg),
     });
 
@@ -89,8 +91,8 @@ describe('PullDbUseCase', () => {
 
   it('disconnects even if introspection fails', async () => {
     const failProvider = new FakeDbProvider({ batches: [] });
-    failProvider.connect = () => Promise.resolve();
-    failProvider.disconnect = () => { failProvider.disconnected = true; return Promise.resolve(); };
+    failProvider.connect = async () => Promise.resolve();
+    failProvider.disconnect = async () => { failProvider.disconnected = true; return Promise.resolve(); };
     const originalIntrospect = failProvider.introspect.bind(failProvider);
     failProvider.introspect = async function* () {
       yield* originalIntrospect();
@@ -99,7 +101,7 @@ describe('PullDbUseCase', () => {
 
     const failUseCase = new PullDbUseCase(failProvider, storage);
 
-    await expect(failUseCase.execute(DB_TEST_IDS.sourceName)).rejects.toThrow('Introspection failed');
+    await expect(failUseCase.execute(WS, DB_TEST_IDS.sourceName)).rejects.toThrow('Introspection failed');
     expect(failProvider.disconnected).toBe(true);
   });
 
@@ -114,7 +116,7 @@ describe('PullDbUseCase', () => {
     const multiColProvider = new FakeDbProvider({ batches: [batchWithMultipleColumns], tableCount: 1 });
     const multiColUseCase = new PullDbUseCase(multiColProvider, storage);
 
-    const result = await multiColUseCase.execute(DB_TEST_IDS.sourceName);
+    const result = await multiColUseCase.execute(WS, DB_TEST_IDS.sourceName);
 
     expect(result.tablesCount).toBe(1);
     expect(result.columnsCount).toBe(3);
@@ -122,7 +124,7 @@ describe('PullDbUseCase', () => {
 
   it('shows percentage in progress when table count available', async () => {
     const messages: string[] = [];
-    await useCase.execute(DB_TEST_IDS.sourceName, {
+    await useCase.execute(WS, DB_TEST_IDS.sourceName, {
       onProgress: (msg) => messages.push(msg),
     });
 
@@ -137,7 +139,7 @@ describe('PullDbUseCase', () => {
     const noCountUseCase = new PullDbUseCase(noCountProvider, storage);
 
     const messages: string[] = [];
-    await noCountUseCase.execute(DB_TEST_IDS.sourceName, {
+    await noCountUseCase.execute(WS, DB_TEST_IDS.sourceName, {
       onProgress: (msg) => messages.push(msg),
     });
 
@@ -147,7 +149,7 @@ describe('PullDbUseCase', () => {
 
   it('progress message includes table count from header', async () => {
     const messages: string[] = [];
-    await useCase.execute(DB_TEST_IDS.sourceName, {
+    await useCase.execute(WS, DB_TEST_IDS.sourceName, {
       onProgress: (msg) => messages.push(msg),
     });
 
@@ -156,7 +158,7 @@ describe('PullDbUseCase', () => {
 
   it('done message includes exact table, column, FK and index counts', async () => {
     const messages: string[] = [];
-    await useCase.execute(DB_TEST_IDS.sourceName, {
+    await useCase.execute(WS, DB_TEST_IDS.sourceName, {
       onProgress: (msg) => messages.push(msg),
     });
 
@@ -172,19 +174,19 @@ describe('PullDbUseCase', () => {
     const deletionOrder: string[] = [];
 
     const trackingStorage = new (class extends FakeStorage {
-      override deleteDbSchema(sourceName: string): Promise<void> {
+      override async deleteDbSchema(workspaceId: string, sourceName: string): Promise<void> {
         deletionOrder.push(`delete:${sourceName}`);
-        return super.deleteDbSchema(sourceName);
+        return super.deleteDbSchema(workspaceId, sourceName);
       }
 
-      override saveDbSchemaBatch(batch: DbSchemaBatch, sourceName: string): Promise<void> {
+      override async saveDbSchemaBatch(workspaceId: string, batch: DbSchemaBatch, sourceName: string): Promise<void> {
         deletionOrder.push(`save:${sourceName}`);
-        return super.saveDbSchemaBatch(batch, sourceName);
+        return super.saveDbSchemaBatch(workspaceId, batch, sourceName);
       }
     })();
 
     const trackingUseCase = new PullDbUseCase(provider, trackingStorage);
-    await trackingUseCase.execute(DB_TEST_IDS.sourceName);
+    await trackingUseCase.execute(WS, DB_TEST_IDS.sourceName);
 
     const deleteIdx = deletionOrder.indexOf(`delete:${DB_TEST_IDS.sourceName}`);
     const saveIdx = deletionOrder.indexOf(`save:${DB_TEST_IDS.sourceName}`);
@@ -204,12 +206,12 @@ describe('PullDbUseCase', () => {
     const bigUseCase = new PullDbUseCase(bigProvider, storage);
 
     const messages: string[] = [];
-    await bigUseCase.execute(DB_TEST_IDS.sourceName, { onProgress: (msg) => messages.push(msg) });
+    await bigUseCase.execute(WS, DB_TEST_IDS.sourceName, { onProgress: (msg) => messages.push(msg) });
 
     const percentMatches = messages.filter((m) => m.includes('%'));
     for (const msg of percentMatches) {
       const pctMatch = /\((\d+)%\)/.exec(msg);
-      if (pctMatch) {
+      if (pctMatch !== null) {
         expect(Number(pctMatch[1])).toBeLessThanOrEqual(100);
       }
     }

@@ -15,7 +15,7 @@ export function registerCsvCommand(group: Command): void {
     .option('--workspace <name>', 'Target workspace (defaults to active)')
     .requiredOption('--file <path>', 'Path to Jira CSV export')
     .action(async (opts: Options) => {
-      if (!opts.file) {
+      if (opts.file === undefined || opts.file === '') {
         throw new Error('--file is required.');
       }
       const absolute = resolve(opts.file);

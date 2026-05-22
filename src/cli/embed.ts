@@ -20,7 +20,7 @@ export function registerEmbedCommand(program: Command): void {
     .option('--batch-size <n>', 'Texts per API call (default: 100)', '100')
     .action(async (options: Options) => {
       const hub = loadHubConfig();
-      if (!hub.embedding.openaiApiKey) {
+      if (hub.embedding.openaiApiKey === undefined || hub.embedding.openaiApiKey === '') {
         console.log(chalk.red('\n  Missing OPENAI_API_KEY in ~/.argustack/config.env'));
         process.exit(1);
       }

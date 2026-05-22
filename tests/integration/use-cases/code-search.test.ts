@@ -115,7 +115,7 @@ describe('CodeSearchUseCase — integration', () => {
       });
 
       const first = plan.domain[0];
-      if (!first) {
+      if (first === undefined) {
         // grouping may put it in another layer; just check structure of any non-empty bucket
         const anyBucket = [...plan.domain, ...plan.application, ...plan.infrastructure, ...plan.presentation];
         expect(anyBucket.length).toBeGreaterThan(0);

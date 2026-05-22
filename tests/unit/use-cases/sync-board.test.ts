@@ -29,15 +29,15 @@ const SYNC_IDS = {
 
 // ─── Factory helpers ─────────────────────────────────────────────────────────
 
-function seedPipeline(store: FakeBoardStore, columnNames: string[] = [SYNC_IDS.backlog, SYNC_IDS.done]): void {
-  store.pipeline = {
+async function seedPipeline(targetStore: FakeBoardStore, columnNames: string[] = [SYNC_IDS.backlog, SYNC_IDS.done]): Promise<void> {
+  await targetStore.savePipeline({
     columns: columnNames.map((name) => ({
       name,
       displayName: name.charAt(0).toUpperCase() + name.slice(1),
       type: 'system' as const,
     })),
     port: SYNC_IDS.port,
-  };
+  });
 }
 
 async function seedTask(store: FakeBoardStore, column = SYNC_IDS.backlog): Promise<void> {
@@ -65,7 +65,7 @@ describe('SyncBoardUseCase', () => {
 
   describe('execute — pipeline output', () => {
     it('returns a pipeline config that contains the base system columns', async () => {
-      seedPipeline(store, [SYNC_IDS.backlog, SYNC_IDS.inProgress, SYNC_IDS.done]);
+      await seedPipeline(store, [SYNC_IDS.backlog, SYNC_IDS.inProgress, SYNC_IDS.done]);
 
       const output = await useCase.execute(SYNC_IDS.tasksDir, []);
 
@@ -76,7 +76,7 @@ describe('SyncBoardUseCase', () => {
     });
 
     it('preserves the port number in the returned pipeline config', async () => {
-      seedPipeline(store);
+      await seedPipeline(store);
 
       const output = await useCase.execute(SYNC_IDS.tasksDir, []);
 
@@ -84,7 +84,7 @@ describe('SyncBoardUseCase', () => {
     });
 
     it('injects available skills as skill-type columns before the last system column', async () => {
-      seedPipeline(store, [SYNC_IDS.backlog, SYNC_IDS.done]);
+      await seedPipeline(store, [SYNC_IDS.backlog, SYNC_IDS.done]);
 
       const output = await useCase.execute(SYNC_IDS.tasksDir, [SYNC_IDS.skillA]);
 
@@ -93,7 +93,7 @@ describe('SyncBoardUseCase', () => {
     });
 
     it('marks injected skill columns with type "skill"', async () => {
-      seedPipeline(store, [SYNC_IDS.backlog, SYNC_IDS.done]);
+      await seedPipeline(store, [SYNC_IDS.backlog, SYNC_IDS.done]);
 
       const output = await useCase.execute(SYNC_IDS.tasksDir, [SYNC_IDS.skillA]);
 
@@ -102,7 +102,7 @@ describe('SyncBoardUseCase', () => {
     });
 
     it('injects multiple skills when several are available', async () => {
-      seedPipeline(store, [SYNC_IDS.backlog, SYNC_IDS.done]);
+      await seedPipeline(store, [SYNC_IDS.backlog, SYNC_IDS.done]);
 
       const output = await useCase.execute(SYNC_IDS.tasksDir, [SYNC_IDS.skillA, SYNC_IDS.skillB]);
 
@@ -138,7 +138,7 @@ describe('SyncBoardUseCase', () => {
 
   describe('execute — task output', () => {
     it('returns an empty tasks array when the store has no tasks', async () => {
-      seedPipeline(store);
+      await seedPipeline(store);
 
       const output = await useCase.execute(SYNC_IDS.tasksDir, []);
 
@@ -146,7 +146,7 @@ describe('SyncBoardUseCase', () => {
     });
 
     it('returns all tasks present in the store after file sync', async () => {
-      seedPipeline(store);
+      await seedPipeline(store);
       await seedTask(store);
 
       const output = await useCase.execute(SYNC_IDS.tasksDir, []);
@@ -155,7 +155,7 @@ describe('SyncBoardUseCase', () => {
     });
 
     it('returns tasks with correct data fields', async () => {
-      seedPipeline(store);
+      await seedPipeline(store);
       await seedTask(store);
 
       const output = await useCase.execute(SYNC_IDS.tasksDir, []);
@@ -166,7 +166,7 @@ describe('SyncBoardUseCase', () => {
     });
 
     it('returns all tasks when multiple tasks exist', async () => {
-      seedPipeline(store);
+      await seedPipeline(store);
       await store.createTask({
         title: 'Task alpha',
         mdPath: 'tasks/alpha.md',
@@ -194,7 +194,7 @@ describe('SyncBoardUseCase', () => {
 
   describe('execute — store interactions', () => {
     it('delegates file sync to the store with the provided tasksDir', async () => {
-      seedPipeline(store);
+      await seedPipeline(store);
       let capturedDir: string | undefined;
       const originalSync = store.syncFromFiles.bind(store);
       store.syncFromFiles = async (dir: string) => {
@@ -208,7 +208,7 @@ describe('SyncBoardUseCase', () => {
     });
 
     it('persists the updated pipeline back to the store', async () => {
-      seedPipeline(store, [SYNC_IDS.backlog, SYNC_IDS.done]);
+      await seedPipeline(store, [SYNC_IDS.backlog, SYNC_IDS.done]);
       const pipelineBefore = JSON.stringify(store.pipeline);
 
       await useCase.execute(SYNC_IDS.tasksDir, [SYNC_IDS.skillA]);
@@ -218,7 +218,7 @@ describe('SyncBoardUseCase', () => {
     });
 
     it('saved pipeline contains injected skill columns', async () => {
-      seedPipeline(store, [SYNC_IDS.backlog, SYNC_IDS.done]);
+      await seedPipeline(store, [SYNC_IDS.backlog, SYNC_IDS.done]);
 
       await useCase.execute(SYNC_IDS.tasksDir, [SYNC_IDS.skillA]);
 
@@ -227,7 +227,7 @@ describe('SyncBoardUseCase', () => {
     });
 
     it('saved pipeline and returned pipeline are consistent', async () => {
-      seedPipeline(store, [SYNC_IDS.backlog, SYNC_IDS.done]);
+      await seedPipeline(store, [SYNC_IDS.backlog, SYNC_IDS.done]);
 
       const output = await useCase.execute(SYNC_IDS.tasksDir, [SYNC_IDS.skillA]);
 
@@ -237,7 +237,7 @@ describe('SyncBoardUseCase', () => {
 
   describe('execute — idempotency', () => {
     it('running sync twice does not duplicate tasks', async () => {
-      seedPipeline(store);
+      await seedPipeline(store);
       await seedTask(store);
 
       await useCase.execute(SYNC_IDS.tasksDir, []);
@@ -247,7 +247,7 @@ describe('SyncBoardUseCase', () => {
     });
 
     it('running sync twice does not duplicate skill columns', async () => {
-      seedPipeline(store, [SYNC_IDS.backlog, SYNC_IDS.done]);
+      await seedPipeline(store, [SYNC_IDS.backlog, SYNC_IDS.done]);
 
       await useCase.execute(SYNC_IDS.tasksDir, [SYNC_IDS.skillA]);
       const output = await useCase.execute(SYNC_IDS.tasksDir, [SYNC_IDS.skillA]);
@@ -257,7 +257,7 @@ describe('SyncBoardUseCase', () => {
     });
 
     it('produces same pipeline structure for identical calls', async () => {
-      seedPipeline(store, [SYNC_IDS.backlog, SYNC_IDS.done]);
+      await seedPipeline(store, [SYNC_IDS.backlog, SYNC_IDS.done]);
 
       const out1 = await useCase.execute(SYNC_IDS.tasksDir, [SYNC_IDS.skillA]);
       const out2 = await useCase.execute(SYNC_IDS.tasksDir, [SYNC_IDS.skillA]);
@@ -270,7 +270,7 @@ describe('SyncBoardUseCase', () => {
 
   describe('execute — with different tasksDir', () => {
     it('accepts any string as tasksDir without error', async () => {
-      seedPipeline(store);
+      await seedPipeline(store);
 
       await expect(
         useCase.execute(SYNC_IDS.tasksDir2, []),
@@ -278,9 +278,9 @@ describe('SyncBoardUseCase', () => {
     });
 
     it('passes the alternate tasksDir to the store', async () => {
-      seedPipeline(store);
+      await seedPipeline(store);
       let capturedDir: string | undefined;
-      store.syncFromFiles = (dir: string): Promise<void> => { capturedDir = dir; return Promise.resolve(); };
+      store.syncFromFiles = async (dir: string): Promise<void> => { capturedDir = dir; return Promise.resolve(); };
 
       await useCase.execute(SYNC_IDS.tasksDir2, []);
 

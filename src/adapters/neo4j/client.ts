@@ -15,7 +15,7 @@ export function createDriver(config: Neo4jConfig): Driver {
 }
 
 export function openSession(driver: Driver, database?: string): Session {
-  return database ? driver.session({ database }) : driver.session();
+  return database !== undefined && database !== '' ? driver.session({ database }) : driver.session();
 }
 
 export async function verifyConnectivity(driver: Driver): Promise<void> {

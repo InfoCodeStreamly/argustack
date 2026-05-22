@@ -27,17 +27,17 @@ function parseConnectionString(raw: string): DbSetupResult | null {
     const url = new URL(raw);
     const protocol = url.protocol.replace(/:$/, '').toLowerCase();
     const engine = ENGINE_BY_PROTOCOL[protocol];
-    if (!engine) {
+    if (engine === undefined || engine === '') {
       return null;
     }
 
     return {
       targetDbEngine: engine,
-      targetDbHost: url.hostname || 'localhost',
-      targetDbPort: url.port ? parseInt(url.port, 10) : 5432,
-      targetDbUser: decodeURIComponent(url.username || ''),
-      targetDbPassword: decodeURIComponent(url.password || ''),
-      targetDbName: url.pathname.replace(/^\//, '') || '',
+      targetDbHost: url.hostname !== '' ? url.hostname : 'localhost',
+      targetDbPort: url.port !== '' ? parseInt(url.port, 10) : 5432,
+      targetDbUser: decodeURIComponent(url.username !== '' ? url.username : ''),
+      targetDbPassword: decodeURIComponent(url.password !== '' ? url.password : ''),
+      targetDbName: url.pathname.replace(/^\//, ''),
     };
   } catch {
     return null;
@@ -76,8 +76,9 @@ async function tryConnect(result: DbSetupResult): Promise<boolean> {
 }
 
 async function autoDetectEngine(host: string, port: number, user: string, pass: string, dbName: string): Promise<DbSetupResult | null> {
-  const engines = ENGINE_BY_PORT[port]
-    ? [ENGINE_BY_PORT[port], ...Object.values(ENGINE_BY_PORT).filter((e) => e !== ENGINE_BY_PORT[port])]
+  const preferred = ENGINE_BY_PORT[port];
+  const engines: string[] = preferred !== undefined && preferred !== ''
+    ? [preferred, ...Object.values(ENGINE_BY_PORT).filter((e) => e !== preferred)]
     : Object.values(ENGINE_BY_PORT);
 
   for (const engine of engines) {
@@ -109,9 +110,9 @@ export async function setupDbInteractive(): Promise<DbSetupResult | null> {
     mask: '*',
   });
 
-  if (connStr.trim()) {
+  if (connStr.trim() !== '') {
     const parsed = parseConnectionString(connStr.trim());
-    if (!parsed) {
+    if (parsed == null) {
       console.log(chalk.red('  Could not parse connection string.'));
       console.log(chalk.dim('  Expected format: engine://user:password@host:port/database'));
       return setupDbManual();
@@ -138,18 +139,18 @@ async function setupDbManual(): Promise<DbSetupResult | null> {
   const targetDbPort = parseInt(targetDbPortStr, 10);
   const targetDbUser = await input({
     message: 'Username:',
-    validate: (val): string | true => val.trim() ? true : 'Username is required',
+    validate: (val): string | true => val.trim() !== '' ? true : 'Username is required',
   });
   const targetDbPassword = await password({ message: 'Password:' });
   const targetDbName = await input({
     message: 'Database name:',
-    validate: (val): string | true => val.trim() ? true : 'Database name is required',
+    validate: (val): string | true => val.trim() !== '' ? true : 'Database name is required',
   });
 
   const spinner = ora('Detecting database type and connecting...').start();
   const detected = await autoDetectEngine(targetDbHost, targetDbPort, targetDbUser, targetDbPassword, targetDbName);
 
-  if (detected) {
+  if (detected != null) {
     spinner.succeed(`Connected! Detected ${detected.targetDbEngine} at ${maskHost(targetDbHost)}:${String(targetDbPort)}`);
     return detected;
   }
@@ -160,7 +161,11 @@ async function setupDbManual(): Promise<DbSetupResult | null> {
 }
 
 export function setupDbFromFlags(flags: InitFlags): DbSetupResult | null {
-  if (!flags.targetDbHost || !flags.targetDbUser || !flags.targetDbName) {
+  if (
+    flags.targetDbHost === undefined || flags.targetDbHost === '' ||
+    flags.targetDbUser === undefined || flags.targetDbUser === '' ||
+    flags.targetDbName === undefined || flags.targetDbName === ''
+  ) {
     throw new Error('Database requires: --target-db-host, --target-db-user, --target-db-name');
   }
   return {

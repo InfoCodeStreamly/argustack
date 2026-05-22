@@ -41,7 +41,7 @@ export class LspSymbolResolver {
     for (const call of parsed.rawCalls) {
       const uri = pathToFileURL(this.absPath(parsed.filePath)).toString();
       const targetSymbol = await this.lookupDefinition(uri, call.line, call.column);
-      if (!targetSymbol) {
+      if (targetSymbol === null) {
         continue;
       }
       const key = `${call.fromQn}->${targetSymbol.qualifiedName}`;
@@ -77,7 +77,7 @@ export class LspSymbolResolver {
       );
       for (const loc of locations) {
         const target = this.resolveLocation(loc.uri, loc.startLine);
-        if (target) {
+        if (target !== null) {
           return target;
         }
       }
@@ -89,12 +89,12 @@ export class LspSymbolResolver {
 
   private resolveLocation(uri: string, lspLine: number): CodeSymbol | null {
     const filePath = this.uriToRelPath(uri);
-    if (!filePath) {
+    if (filePath === null || filePath === '') {
       return null;
     }
     const candidateLine = lspLine + 1;
     const exact = this.symbolIndex.get(this.locationKey(filePath, candidateLine));
-    if (exact) {
+    if (exact !== undefined) {
       return exact;
     }
     for (const sym of this.symbolIndex.values()) {
@@ -130,7 +130,7 @@ export class LspSymbolResolver {
   }
 }
 
-function withTimeout<T>(promise: Promise<T>, ms: number): Promise<T> {
+async function withTimeout<T>(promise: Promise<T>, ms: number): Promise<T> {
   return new Promise<T>((resolve, reject) => {
     const timer = setTimeout(() => {
       reject(new Error(`LSP timeout after ${String(ms)}ms`));

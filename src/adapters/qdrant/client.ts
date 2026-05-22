@@ -6,7 +6,7 @@ export interface QdrantAdapterConfig {
 }
 
 export function createQdrantClient(config: QdrantAdapterConfig): QdrantClient {
-  if (config.apiKey) {
+  if (config.apiKey !== undefined && config.apiKey !== '') {
     return new QdrantClient({ url: config.url, apiKey: config.apiKey });
   }
   return new QdrantClient({ url: config.url });

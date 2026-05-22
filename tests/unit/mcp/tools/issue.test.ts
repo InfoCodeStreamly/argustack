@@ -12,16 +12,18 @@
 
 import { describe, it, expect, vi, beforeEach } from 'vitest';
 import { TEST_IDS, SEARCH_TEST_IDS, GIT_TEST_IDS, GITHUB_TEST_IDS } from '../../../fixtures/shared/test-constants.js';
+import { createMockMcpStorage } from '../../../fixtures/builders/index.js';
+import type * as McpHelpers from '../../../../src/mcp/helpers.js';
 import type { McpServer } from '@modelcontextprotocol/sdk/server/mcp.js';
 
-vi.mock('../../../../src/mcp/helpers.js', () => ({
-  loadWorkspace: vi.fn(),
-  createAdapters: vi.fn(),
-  textResponse: (text: string) => ({ content: [{ type: 'text', text }] }),
-  errorResponse: (text: string) => ({ content: [{ type: 'text', text }], isError: true }),
-  getErrorMessage: (err: unknown) => (err instanceof Error ? err.message : String(err)),
-  str: (v: unknown): string => (v == null ? '' : typeof v === 'object' ? JSON.stringify(v) : String(v as string | number | boolean)),
-}));
+vi.mock('../../../../src/mcp/helpers.js', async (importOriginal) => {
+  const mod = await importOriginal<typeof McpHelpers>();
+  return {
+    ...mod,
+    loadWorkspace: vi.fn(),
+    createAdapters: vi.fn(),
+  };
+});
 
 // eslint-disable-next-line @typescript-eslint/consistent-type-imports
 let registerIssueTools: typeof import('../../../../src/mcp/tools/issue.js').registerIssueTools;
@@ -39,31 +41,28 @@ const mockServer = {
   }),
 };
 
-const mockStorage = {
-  query: vi.fn(),
-  close: vi.fn(),
-  initialize: vi.fn(),
-};
+const mockStorage = createMockMcpStorage();
 
 function getHandler(name: string): ToolHandler {
   const handler = registeredTools.get(name);
-  if (!handler) {throw new Error(`Tool ${name} not registered`);}
+  if (handler === undefined) {throw new Error(`Tool ${name} not registered`);}
   return handler;
 }
 
 beforeEach(async () => {
   vi.clearAllMocks();
   registeredTools.clear();
-  mockStorage.query.mockResolvedValue({ rows: [] });
-  mockStorage.close.mockResolvedValue(undefined);
+  mockStorage.queryForWorkspaceSpy.mockResolvedValue({ rows: [] });
+  mockStorage.closeSpy.mockResolvedValue(undefined);
 
   const helpers = await import('../../../../src/mcp/helpers.js');
   loadWorkspace = helpers.loadWorkspace;
   createAdapters = helpers.createAdapters;
 
   vi.mocked(createAdapters).mockResolvedValue({
-    storage: mockStorage as never,
+    storage: mockStorage,
     source: null,
+    workspaceId: 'ws-id',
   });
 
   const toolModule = await import('../../../../src/mcp/tools/issue.js');
@@ -71,7 +70,7 @@ beforeEach(async () => {
 });
 
 function getText(result: unknown): string {
-  return (result as { content: { text: string }[] }).content[0].text;
+  return (result as { content: { text: string }[] }).content[0]?.text ?? '';
 }
 
 function isError(result: unknown): boolean {
@@ -86,7 +85,7 @@ describe('get_issue', () => {
   });
 
   it('returns errorResponse when workspace is not found', async () => {
-    vi.mocked(loadWorkspace).mockReturnValue({ ok: false, reason: 'no .argustack/ found' });
+    vi.mocked(loadWorkspace).mockResolvedValue({ ok: false, reason: 'no .argustack/ found' });
 
     const handler = getHandler('get_issue');
     const result = await handler({ issue_key: TEST_IDS.issueKey });
@@ -96,20 +95,29 @@ describe('get_issue', () => {
   });
 
   it('returns errorResponse with "not found" when issue does not exist in database', async () => {
-    vi.mocked(loadWorkspace).mockReturnValue({ ok: true, root: '/ws', config: {} as never });
-    mockStorage.query.mockResolvedValueOnce({ rows: [] });
+    vi.mocked(loadWorkspace).mockResolvedValue({
+      ok: true,
+      workspaceId: 'ws-id',
+      workspace: { id: 'ws-id', name: 'test', createdAt: '2025-01-01', lastActiveAt: '2025-01-01', settings: {} },
+      config: { version: 1, sources: {}, order: [], createdAt: '2025-01-01' },
+    });
+    mockStorage.queryForWorkspaceSpy.mockResolvedValueOnce({ rows: [] });
 
     const handler = getHandler('get_issue');
     const result = await handler({ issue_key: SEARCH_TEST_IDS.notFoundKey });
 
     expect(isError(result)).toBe(true);
     expect(getText(result)).toContain('not found');
-    expect(mockStorage.close).toHaveBeenCalledOnce();
   });
 
   it('returns formatted output with summary, status, type, assignee for a found issue', async () => {
-    vi.mocked(loadWorkspace).mockReturnValue({ ok: true, root: '/ws', config: {} as never });
-    mockStorage.query
+    vi.mocked(loadWorkspace).mockResolvedValue({
+      ok: true,
+      workspaceId: 'ws-id',
+      workspace: { id: 'ws-id', name: 'test', createdAt: '2025-01-01', lastActiveAt: '2025-01-01', settings: {} },
+      config: { version: 1, sources: {}, order: [], createdAt: '2025-01-01' },
+    });
+    mockStorage.queryForWorkspaceSpy
       .mockResolvedValueOnce({
         rows: [{
           issue_key: TEST_IDS.issueKey,
@@ -141,12 +149,16 @@ describe('get_issue', () => {
     expect(text).toContain('Done');
     expect(text).toContain('Bug');
     expect(text).toContain('Dev');
-    expect(mockStorage.close).toHaveBeenCalledOnce();
   });
 
   it('includes Comments section when issue has comments', async () => {
-    vi.mocked(loadWorkspace).mockReturnValue({ ok: true, root: '/ws', config: {} as never });
-    mockStorage.query
+    vi.mocked(loadWorkspace).mockResolvedValue({
+      ok: true,
+      workspaceId: 'ws-id',
+      workspace: { id: 'ws-id', name: 'test', createdAt: '2025-01-01', lastActiveAt: '2025-01-01', settings: {} },
+      config: { version: 1, sources: {}, order: [], createdAt: '2025-01-01' },
+    });
+    mockStorage.queryForWorkspaceSpy
       .mockResolvedValueOnce({
         rows: [{
           issue_key: TEST_IDS.issueKey,
@@ -177,8 +189,13 @@ describe('get_issue', () => {
   });
 
   it('includes Recent Changes section when issue has changelogs', async () => {
-    vi.mocked(loadWorkspace).mockReturnValue({ ok: true, root: '/ws', config: {} as never });
-    mockStorage.query
+    vi.mocked(loadWorkspace).mockResolvedValue({
+      ok: true,
+      workspaceId: 'ws-id',
+      workspace: { id: 'ws-id', name: 'test', createdAt: '2025-01-01', lastActiveAt: '2025-01-01', settings: {} },
+      config: { version: 1, sources: {}, order: [], createdAt: '2025-01-01' },
+    });
+    mockStorage.queryForWorkspaceSpy
       .mockResolvedValueOnce({
         rows: [{
           issue_key: TEST_IDS.issueKey,
@@ -216,8 +233,13 @@ describe('get_issue', () => {
   });
 
   it('includes Custom Fields section when issue has custom_fields', async () => {
-    vi.mocked(loadWorkspace).mockReturnValue({ ok: true, root: '/ws', config: {} as never });
-    mockStorage.query
+    vi.mocked(loadWorkspace).mockResolvedValue({
+      ok: true,
+      workspaceId: 'ws-id',
+      workspace: { id: 'ws-id', name: 'test', createdAt: '2025-01-01', lastActiveAt: '2025-01-01', settings: {} },
+      config: { version: 1, sources: {}, order: [], createdAt: '2025-01-01' },
+    });
+    mockStorage.queryForWorkspaceSpy
       .mockResolvedValueOnce({
         rows: [{
           issue_key: TEST_IDS.issueKey,
@@ -246,8 +268,13 @@ describe('get_issue', () => {
   });
 
   it('calls storage.query exactly three times (issue, comments, changelogs)', async () => {
-    vi.mocked(loadWorkspace).mockReturnValue({ ok: true, root: '/ws', config: {} as never });
-    mockStorage.query
+    vi.mocked(loadWorkspace).mockResolvedValue({
+      ok: true,
+      workspaceId: 'ws-id',
+      workspace: { id: 'ws-id', name: 'test', createdAt: '2025-01-01', lastActiveAt: '2025-01-01', settings: {} },
+      config: { version: 1, sources: {}, order: [], createdAt: '2025-01-01' },
+    });
+    mockStorage.queryForWorkspaceSpy
       .mockResolvedValueOnce({
         rows: [{
           issue_key: TEST_IDS.issueKey,
@@ -269,7 +296,7 @@ describe('get_issue', () => {
     const handler = getHandler('get_issue');
     await handler({ issue_key: TEST_IDS.issueKey });
 
-    expect(mockStorage.query).toHaveBeenCalledTimes(3);
+    expect(mockStorage.queryForWorkspaceSpy).toHaveBeenCalledTimes(3);
   });
 });
 
@@ -281,7 +308,7 @@ describe('issue_stats', () => {
   });
 
   it('returns errorResponse when workspace is not found', async () => {
-    vi.mocked(loadWorkspace).mockReturnValue({ ok: false, reason: 'no workspace' });
+    vi.mocked(loadWorkspace).mockResolvedValue({ ok: false, reason: 'no workspace' });
 
     const handler = getHandler('issue_stats');
     const result = await handler({});
@@ -291,8 +318,13 @@ describe('issue_stats', () => {
   });
 
   it('returns stats with total count, by status, by type, by project, by assignee', async () => {
-    vi.mocked(loadWorkspace).mockReturnValue({ ok: true, root: '/ws', config: {} as never });
-    mockStorage.query
+    vi.mocked(loadWorkspace).mockResolvedValue({
+      ok: true,
+      workspaceId: 'ws-id',
+      workspace: { id: 'ws-id', name: 'test', createdAt: '2025-01-01', lastActiveAt: '2025-01-01', settings: {} },
+      config: { version: 1, sources: {}, order: [], createdAt: '2025-01-01' },
+    });
+    mockStorage.queryForWorkspaceSpy
       .mockResolvedValueOnce({ rows: [{ count: '42' }] })
       .mockResolvedValueOnce({ rows: [{ status: 'Done', count: '30' }, { status: 'In Progress', count: '12' }] })
       .mockResolvedValueOnce({ rows: [{ issue_type: 'Bug', count: '10' }, { issue_type: 'Task', count: '32' }] })
@@ -313,12 +345,16 @@ describe('issue_stats', () => {
     expect(text).toContain('TEST');
     expect(text).toContain('## Top Assignees');
     expect(text).toContain('Dev');
-    expect(mockStorage.close).toHaveBeenCalledOnce();
   });
 
   it('adds WHERE clause and omits By Project section when project filter is provided', async () => {
-    vi.mocked(loadWorkspace).mockReturnValue({ ok: true, root: '/ws', config: {} as never });
-    mockStorage.query
+    vi.mocked(loadWorkspace).mockResolvedValue({
+      ok: true,
+      workspaceId: 'ws-id',
+      workspace: { id: 'ws-id', name: 'test', createdAt: '2025-01-01', lastActiveAt: '2025-01-01', settings: {} },
+      config: { version: 1, sources: {}, order: [], createdAt: '2025-01-01' },
+    });
+    mockStorage.queryForWorkspaceSpy
       .mockResolvedValueOnce({ rows: [{ count: '10' }] })
       .mockResolvedValueOnce({ rows: [{ status: 'Done', count: '10' }] })
       .mockResolvedValueOnce({ rows: [{ issue_type: 'Task', count: '10' }] })
@@ -332,7 +368,7 @@ describe('issue_stats', () => {
     expect(isError(result)).toBe(false);
     expect(text).toContain('(TEST)');
     expect(text).not.toContain('## By Project');
-    const firstCall = mockStorage.query.mock.calls[0] as [string, unknown[]];
+    const firstCall = mockStorage.queryForWorkspaceSpy.mock.calls[0] as [string, unknown[]];
     expect(firstCall[1]).toContain('TEST');
   });
 });
@@ -345,8 +381,13 @@ describe('issue_commits', () => {
   });
 
   it('returns message about running sync when no commits are found', async () => {
-    vi.mocked(loadWorkspace).mockReturnValue({ ok: true, root: '/ws', config: {} as never });
-    mockStorage.query.mockResolvedValueOnce({ rows: [] });
+    vi.mocked(loadWorkspace).mockResolvedValue({
+      ok: true,
+      workspaceId: 'ws-id',
+      workspace: { id: 'ws-id', name: 'test', createdAt: '2025-01-01', lastActiveAt: '2025-01-01', settings: {} },
+      config: { version: 1, sources: {}, order: [], createdAt: '2025-01-01' },
+    });
+    mockStorage.queryForWorkspaceSpy.mockResolvedValueOnce({ rows: [] });
 
     const handler = getHandler('issue_commits');
     const result = await handler({ issue_key: TEST_IDS.issueKey });
@@ -354,12 +395,16 @@ describe('issue_commits', () => {
 
     expect(isError(result)).toBe(false);
     expect(text).toContain('argustack sync git');
-    expect(mockStorage.close).toHaveBeenCalledOnce();
   });
 
   it('formats commits with hash, author, date, message, and files', async () => {
-    vi.mocked(loadWorkspace).mockReturnValue({ ok: true, root: '/ws', config: {} as never });
-    mockStorage.query
+    vi.mocked(loadWorkspace).mockResolvedValue({
+      ok: true,
+      workspaceId: 'ws-id',
+      workspace: { id: 'ws-id', name: 'test', createdAt: '2025-01-01', lastActiveAt: '2025-01-01', settings: {} },
+      config: { version: 1, sources: {}, order: [], createdAt: '2025-01-01' },
+    });
+    mockStorage.queryForWorkspaceSpy
       .mockResolvedValueOnce({
         rows: [{
           hash: GIT_TEST_IDS.commitHash,
@@ -389,12 +434,16 @@ describe('issue_commits', () => {
     expect(text).toContain(`feat: implement login ${TEST_IDS.issueKey}`);
     expect(text).toContain('src/login.ts');
     expect(text).toContain('+50');
-    expect(mockStorage.close).toHaveBeenCalledOnce();
   });
 
   it('adds ILIKE condition when repo_path filter is provided', async () => {
-    vi.mocked(loadWorkspace).mockReturnValue({ ok: true, root: '/ws', config: {} as never });
-    mockStorage.query
+    vi.mocked(loadWorkspace).mockResolvedValue({
+      ok: true,
+      workspaceId: 'ws-id',
+      workspace: { id: 'ws-id', name: 'test', createdAt: '2025-01-01', lastActiveAt: '2025-01-01', settings: {} },
+      config: { version: 1, sources: {}, order: [], createdAt: '2025-01-01' },
+    });
+    mockStorage.queryForWorkspaceSpy
       .mockResolvedValueOnce({
         rows: [{
           hash: GIT_TEST_IDS.commitHash,
@@ -409,14 +458,19 @@ describe('issue_commits', () => {
     const handler = getHandler('issue_commits');
     await handler({ issue_key: TEST_IDS.issueKey, repo_path: '/test/repo' });
 
-    const firstCall = mockStorage.query.mock.calls[0] as [string, unknown[]];
+    const firstCall = mockStorage.queryForWorkspaceSpy.mock.calls[0] as [string, unknown[]];
     expect(firstCall[0]).toContain('ILIKE');
     expect(firstCall[1]).toContain('%/test/repo%');
   });
 
   it('calls storage.query twice (commits, then commit_files)', async () => {
-    vi.mocked(loadWorkspace).mockReturnValue({ ok: true, root: '/ws', config: {} as never });
-    mockStorage.query
+    vi.mocked(loadWorkspace).mockResolvedValue({
+      ok: true,
+      workspaceId: 'ws-id',
+      workspace: { id: 'ws-id', name: 'test', createdAt: '2025-01-01', lastActiveAt: '2025-01-01', settings: {} },
+      config: { version: 1, sources: {}, order: [], createdAt: '2025-01-01' },
+    });
+    mockStorage.queryForWorkspaceSpy
       .mockResolvedValueOnce({
         rows: [{
           hash: GIT_TEST_IDS.commitHash,
@@ -431,7 +485,7 @@ describe('issue_commits', () => {
     const handler = getHandler('issue_commits');
     await handler({ issue_key: TEST_IDS.issueKey });
 
-    expect(mockStorage.query).toHaveBeenCalledTimes(2);
+    expect(mockStorage.queryForWorkspaceSpy).toHaveBeenCalledTimes(2);
   });
 });
 
@@ -443,8 +497,13 @@ describe('issue_prs', () => {
   });
 
   it('returns message about GitHub sync when no PRs are found', async () => {
-    vi.mocked(loadWorkspace).mockReturnValue({ ok: true, root: '/ws', config: {} as never });
-    mockStorage.query.mockResolvedValueOnce({ rows: [] });
+    vi.mocked(loadWorkspace).mockResolvedValue({
+      ok: true,
+      workspaceId: 'ws-id',
+      workspace: { id: 'ws-id', name: 'test', createdAt: '2025-01-01', lastActiveAt: '2025-01-01', settings: {} },
+      config: { version: 1, sources: {}, order: [], createdAt: '2025-01-01' },
+    });
+    mockStorage.queryForWorkspaceSpy.mockResolvedValueOnce({ rows: [] });
 
     const handler = getHandler('issue_prs');
     const result = await handler({ issue_key: TEST_IDS.issueKey });
@@ -452,12 +511,16 @@ describe('issue_prs', () => {
 
     expect(isError(result)).toBe(false);
     expect(text).toContain('GitHub sync');
-    expect(mockStorage.close).toHaveBeenCalledOnce();
   });
 
   it('formats PRs with number, title, state, author, additions and deletions', async () => {
-    vi.mocked(loadWorkspace).mockReturnValue({ ok: true, root: '/ws', config: {} as never });
-    mockStorage.query
+    vi.mocked(loadWorkspace).mockResolvedValue({
+      ok: true,
+      workspaceId: 'ws-id',
+      workspace: { id: 'ws-id', name: 'test', createdAt: '2025-01-01', lastActiveAt: '2025-01-01', settings: {} },
+      config: { version: 1, sources: {}, order: [], createdAt: '2025-01-01' },
+    });
+    mockStorage.queryForWorkspaceSpy
       .mockResolvedValueOnce({
         rows: [{
           number: 42,
@@ -486,12 +549,16 @@ describe('issue_prs', () => {
     expect(text).toContain(GITHUB_TEST_IDS.prAuthor);
     expect(text).toContain('+150');
     expect(text).toContain('-20');
-    expect(mockStorage.close).toHaveBeenCalledOnce();
   });
 
   it('includes review info when PRs have reviews', async () => {
-    vi.mocked(loadWorkspace).mockReturnValue({ ok: true, root: '/ws', config: {} as never });
-    mockStorage.query
+    vi.mocked(loadWorkspace).mockResolvedValue({
+      ok: true,
+      workspaceId: 'ws-id',
+      workspace: { id: 'ws-id', name: 'test', createdAt: '2025-01-01', lastActiveAt: '2025-01-01', settings: {} },
+      config: { version: 1, sources: {}, order: [], createdAt: '2025-01-01' },
+    });
+    mockStorage.queryForWorkspaceSpy
       .mockResolvedValueOnce({
         rows: [{
           number: 42,
@@ -526,8 +593,13 @@ describe('issue_prs', () => {
   });
 
   it('calls storage.query twice (PRs, then reviews)', async () => {
-    vi.mocked(loadWorkspace).mockReturnValue({ ok: true, root: '/ws', config: {} as never });
-    mockStorage.query
+    vi.mocked(loadWorkspace).mockResolvedValue({
+      ok: true,
+      workspaceId: 'ws-id',
+      workspace: { id: 'ws-id', name: 'test', createdAt: '2025-01-01', lastActiveAt: '2025-01-01', settings: {} },
+      config: { version: 1, sources: {}, order: [], createdAt: '2025-01-01' },
+    });
+    mockStorage.queryForWorkspaceSpy
       .mockResolvedValueOnce({
         rows: [{
           number: 42,
@@ -548,7 +620,7 @@ describe('issue_prs', () => {
     const handler = getHandler('issue_prs');
     await handler({ issue_key: TEST_IDS.issueKey });
 
-    expect(mockStorage.query).toHaveBeenCalledTimes(2);
+    expect(mockStorage.queryForWorkspaceSpy).toHaveBeenCalledTimes(2);
   });
 });
 
@@ -560,8 +632,13 @@ describe('issue_timeline', () => {
   });
 
   it('returns "not found" message when issue does not exist', async () => {
-    vi.mocked(loadWorkspace).mockReturnValue({ ok: true, root: '/ws', config: {} as never });
-    mockStorage.query
+    vi.mocked(loadWorkspace).mockResolvedValue({
+      ok: true,
+      workspaceId: 'ws-id',
+      workspace: { id: 'ws-id', name: 'test', createdAt: '2025-01-01', lastActiveAt: '2025-01-01', settings: {} },
+      config: { version: 1, sources: {}, order: [], createdAt: '2025-01-01' },
+    });
+    mockStorage.queryForWorkspaceSpy
       .mockResolvedValueOnce({ rows: [] })
       .mockResolvedValueOnce({ rows: [] })
       .mockResolvedValueOnce({ rows: [] })
@@ -573,13 +650,17 @@ describe('issue_timeline', () => {
     const text = getText(result);
 
     expect(text).toContain('not found');
-    expect(mockStorage.close).toHaveBeenCalledOnce();
   });
 
   it('builds full chronological timeline: created, changelog, commit, pr_opened, pr_reviewed, pr_merged', async () => {
-    vi.mocked(loadWorkspace).mockReturnValue({ ok: true, root: '/ws', config: {} as never });
+    vi.mocked(loadWorkspace).mockResolvedValue({
+      ok: true,
+      workspaceId: 'ws-id',
+      workspace: { id: 'ws-id', name: 'test', createdAt: '2025-01-01', lastActiveAt: '2025-01-01', settings: {} },
+      config: { version: 1, sources: {}, order: [], createdAt: '2025-01-01' },
+    });
 
-    mockStorage.query
+    mockStorage.queryForWorkspaceSpy
       .mockResolvedValueOnce({
         rows: [{
           issue_key: TEST_IDS.issueKey,
@@ -649,13 +730,17 @@ describe('issue_timeline', () => {
     expect(text).toContain('PR #42 reviewed');
     expect(text).toContain('APPROVED');
     expect(text).toContain('PR #42 merged');
-    expect(mockStorage.close).toHaveBeenCalledOnce();
   });
 
   it('sorts timeline events chronologically by date', async () => {
-    vi.mocked(loadWorkspace).mockReturnValue({ ok: true, root: '/ws', config: {} as never });
+    vi.mocked(loadWorkspace).mockResolvedValue({
+      ok: true,
+      workspaceId: 'ws-id',
+      workspace: { id: 'ws-id', name: 'test', createdAt: '2025-01-01', lastActiveAt: '2025-01-01', settings: {} },
+      config: { version: 1, sources: {}, order: [], createdAt: '2025-01-01' },
+    });
 
-    mockStorage.query
+    mockStorage.queryForWorkspaceSpy
       .mockResolvedValueOnce({
         rows: [{
           issue_key: TEST_IDS.issueKey,
@@ -700,7 +785,7 @@ describe('commit_stats', () => {
   });
 
   it('returns errorResponse when workspace is not found', async () => {
-    vi.mocked(loadWorkspace).mockReturnValue({ ok: false, reason: 'no workspace' });
+    vi.mocked(loadWorkspace).mockResolvedValue({ ok: false, reason: 'no workspace' });
 
     const handler = getHandler('commit_stats');
     const result = await handler({});
@@ -710,8 +795,13 @@ describe('commit_stats', () => {
   });
 
   it('returns total commits, top authors, most changed files, linked issue keys', async () => {
-    vi.mocked(loadWorkspace).mockReturnValue({ ok: true, root: '/ws', config: {} as never });
-    mockStorage.query
+    vi.mocked(loadWorkspace).mockResolvedValue({
+      ok: true,
+      workspaceId: 'ws-id',
+      workspace: { id: 'ws-id', name: 'test', createdAt: '2025-01-01', lastActiveAt: '2025-01-01', settings: {} },
+      config: { version: 1, sources: {}, order: [], createdAt: '2025-01-01' },
+    });
+    mockStorage.queryForWorkspaceSpy
       .mockResolvedValueOnce({ rows: [{ count: '100' }] })
       .mockResolvedValueOnce({ rows: [{ author: TEST_IDS.author, count: '60' }, { author: TEST_IDS.reporter, count: '40' }] })
       .mockResolvedValueOnce({ rows: [{ file_path: 'src/index.ts', changes: '25' }] })
@@ -728,12 +818,16 @@ describe('commit_stats', () => {
     expect(text).toContain(TEST_IDS.author);
     expect(text).toContain('## Most Changed Files');
     expect(text).toContain('src/index.ts');
-    expect(mockStorage.close).toHaveBeenCalledOnce();
   });
 
   it('adds WHERE clause for since filter', async () => {
-    vi.mocked(loadWorkspace).mockReturnValue({ ok: true, root: '/ws', config: {} as never });
-    mockStorage.query
+    vi.mocked(loadWorkspace).mockResolvedValue({
+      ok: true,
+      workspaceId: 'ws-id',
+      workspace: { id: 'ws-id', name: 'test', createdAt: '2025-01-01', lastActiveAt: '2025-01-01', settings: {} },
+      config: { version: 1, sources: {}, order: [], createdAt: '2025-01-01' },
+    });
+    mockStorage.queryForWorkspaceSpy
       .mockResolvedValueOnce({ rows: [{ count: '50' }] })
       .mockResolvedValueOnce({ rows: [] })
       .mockResolvedValueOnce({ rows: [] })
@@ -742,15 +836,20 @@ describe('commit_stats', () => {
     const handler = getHandler('commit_stats');
     await handler({ since: '2025-01-01' });
 
-    const firstCall = mockStorage.query.mock.calls[0] as [string, unknown[]];
+    const firstCall = mockStorage.queryForWorkspaceSpy.mock.calls[0] as [string, unknown[]];
     expect(firstCall[0]).toContain('WHERE');
     expect(firstCall[0]).toContain('committed_at');
     expect(firstCall[1]).toContain('2025-01-01');
   });
 
   it('adds ILIKE condition for author filter', async () => {
-    vi.mocked(loadWorkspace).mockReturnValue({ ok: true, root: '/ws', config: {} as never });
-    mockStorage.query
+    vi.mocked(loadWorkspace).mockResolvedValue({
+      ok: true,
+      workspaceId: 'ws-id',
+      workspace: { id: 'ws-id', name: 'test', createdAt: '2025-01-01', lastActiveAt: '2025-01-01', settings: {} },
+      config: { version: 1, sources: {}, order: [], createdAt: '2025-01-01' },
+    });
+    mockStorage.queryForWorkspaceSpy
       .mockResolvedValueOnce({ rows: [{ count: '30' }] })
       .mockResolvedValueOnce({ rows: [] })
       .mockResolvedValueOnce({ rows: [] })
@@ -759,7 +858,7 @@ describe('commit_stats', () => {
     const handler = getHandler('commit_stats');
     await handler({ author: 'john' });
 
-    const firstCall = mockStorage.query.mock.calls[0] as [string, unknown[]];
+    const firstCall = mockStorage.queryForWorkspaceSpy.mock.calls[0] as [string, unknown[]];
     expect(firstCall[0]).toContain('ILIKE');
     expect(firstCall[1]).toContain('%john%');
   });

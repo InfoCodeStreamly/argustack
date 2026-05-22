@@ -21,7 +21,7 @@ export class HealthCheckExistingLlmUseCase {
     }
     const url = resolveUrl(config);
     const model = config.embedding.model;
-    if (!url || !model) {
+    if (url === null || url === '' || model === '') {
       return { configured: false };
     }
     const result = await this.probe.execute({ url, model, retries: 1 });

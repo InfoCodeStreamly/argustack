@@ -25,7 +25,7 @@ export class MoveTaskUseCase {
   ): Promise<MoveTaskOutput> {
     const tasks = await this.store.getAllTasks();
     const taskData = tasks.find((t) => t.id === input.taskId);
-    if (!taskData) {
+    if (taskData === undefined) {
       throw new Error(`Task not found: ${input.taskId}`);
     }
 
@@ -33,7 +33,7 @@ export class MoveTaskUseCase {
     const pipeline = Pipeline.fromConfig(pipelineConfig, []);
 
     const targetCol = pipeline.findColumn(input.targetColumn);
-    if (!targetCol) {
+    if (targetCol === null) {
       throw new Error(`Column not found: ${input.targetColumn}`);
     }
 

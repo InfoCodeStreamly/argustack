@@ -19,7 +19,7 @@ export class BuildGraphUseCase {
 
     await this.storage.initialize();
 
-    if (!options.since) {
+    if (options.since === undefined || options.since === '') {
       log('Clearing structural graph...');
       await this.storage.clearGraph(workspaceId);
     }
@@ -45,8 +45,8 @@ export class BuildGraphUseCase {
     const issueResult = await this.storage.queryForWorkspace(
       workspaceId,
       `SELECT issue_key, summary, issue_type, status, assignee, reporter, labels, components, parent_key
-       FROM issues WHERE workspace_id = $1 ${options.since ? 'AND updated >= $2' : ''} ORDER BY issue_key`,
-      options.since ? [options.since] : []
+       FROM issues WHERE workspace_id = $1 ${options.since !== undefined && options.since !== '' ? 'AND updated >= $2' : ''} ORDER BY issue_key`,
+      options.since !== undefined && options.since !== '' ? [options.since] : []
     );
 
     for (const row of issueResult.rows) {
@@ -58,19 +58,19 @@ export class BuildGraphUseCase {
       });
 
       const assignee = row['assignee'] as string | null;
-      if (assignee) {
+      if (assignee !== null && assignee !== '') {
         const devId = getOrCreateEntity(assignee, 'developer', {});
         relationships.push({ sourceId: issueId, targetId: devId, type: 'assigned_to', weight: 1, source: 'structural', properties: {} });
       }
 
       const reporter = row['reporter'] as string | null;
-      if (reporter) {
+      if (reporter !== null && reporter !== '') {
         const devId = getOrCreateEntity(reporter, 'developer', {});
         relationships.push({ sourceId: issueId, targetId: devId, type: 'reported_by', weight: 1, source: 'structural', properties: {} });
       }
 
       const labels = row['labels'] as string[] | null;
-      if (labels) {
+      if (labels !== null) {
         for (const label of labels) {
           const labelId = getOrCreateEntity(label, 'label', {});
           relationships.push({ sourceId: issueId, targetId: labelId, type: 'labeled', weight: 1, source: 'structural', properties: {} });
@@ -78,7 +78,7 @@ export class BuildGraphUseCase {
       }
 
       const components = row['components'] as string[] | null;
-      if (components) {
+      if (components !== null) {
         for (const comp of components) {
           const compId = getOrCreateEntity(comp, 'component', {});
           relationships.push({ sourceId: issueId, targetId: compId, type: 'in_component', weight: 1, source: 'structural', properties: {} });
@@ -86,7 +86,7 @@ export class BuildGraphUseCase {
       }
 
       const parentKey = row['parent_key'] as string | null;
-      if (parentKey) {
+      if (parentKey !== null && parentKey !== '') {
         const parentId = getOrCreateEntity(parentKey, 'issue', {});
         relationships.push({ sourceId: parentId, targetId: issueId, type: 'parent_of', weight: 1, source: 'structural', properties: {} });
       }
@@ -96,13 +96,13 @@ export class BuildGraphUseCase {
     log('Extracting entities from commits...');
     const commitResult = await this.storage.queryForWorkspace(
       workspaceId,
-      `SELECT hash, author, message FROM commits WHERE workspace_id = $1 ${options.since ? 'AND committed_at >= $2' : ''} ORDER BY committed_at`,
-      options.since ? [options.since] : []
+      `SELECT hash, author, message FROM commits WHERE workspace_id = $1 ${options.since !== undefined && options.since !== '' ? 'AND committed_at >= $2' : ''} ORDER BY committed_at`,
+      options.since !== undefined && options.since !== '' ? [options.since] : []
     );
 
     for (const row of commitResult.rows) {
       const author = row['author'] as string | null;
-      if (author) {
+      if (author !== null && author !== '') {
         getOrCreateEntity(author, 'developer', {});
       }
     }
@@ -122,7 +122,7 @@ export class BuildGraphUseCase {
       const issueKey = row['issue_key'] as string;
       const author = row['author'] as string | null;
       const issueId = getOrCreateEntity(issueKey, 'issue', {});
-      if (author) {
+      if (author !== null && author !== '') {
         const devId = getOrCreateEntity(author, 'developer', {});
         relationships.push({ sourceId: devId, targetId: issueId, type: 'authored_commit_for', weight: 1, source: 'structural', properties: {} });
       }
@@ -145,10 +145,10 @@ export class BuildGraphUseCase {
       const moduleName = extractModuleName(filePath);
       const moduleId = getOrCreateEntity(moduleName, 'module', {});
 
-      if (author) {
+      if (author !== null && author !== '') {
         const devId = getOrCreateEntity(author, 'developer', {});
         const existing = relationships.find((r) => r.sourceId === devId && r.targetId === moduleId && r.type === 'changed');
-        if (existing) {
+        if (existing !== undefined) {
           existing.weight++;
         } else {
           relationships.push({ sourceId: devId, targetId: moduleId, type: 'changed', weight: 1, source: 'structural', properties: {} });
@@ -177,7 +177,7 @@ export class BuildGraphUseCase {
       const issueId = getOrCreateEntity(issueKey, 'issue', {});
       relationships.push({ sourceId: prId, targetId: issueId, type: 'implements', weight: 1, source: 'structural', properties: {} });
 
-      if (author) {
+      if (author !== null && author !== '') {
         const devId = getOrCreateEntity(author, 'developer', {});
         relationships.push({ sourceId: devId, targetId: prId, type: 'authored_pr', weight: 1, source: 'structural', properties: {} });
       }
@@ -284,7 +284,7 @@ export class BuildGraphUseCase {
       const bugComponents = bugRow['components'] as string | null;
       const bugId = getOrCreateEntity(bugKey, 'issue', {});
 
-      if (!bugComponents) { continue; }
+      if (bugComponents === null || bugComponents === '') { continue; }
 
       const suspectPrs = await this.storage.queryForWorkspace(
         workspaceId,
@@ -305,14 +305,14 @@ export class BuildGraphUseCase {
         const prNumber = String(prRow['number']);
         const prId = getOrCreateEntity(`#${prNumber}`, 'pr', {});
         const existing = relationships.find((r) => r.sourceId === prId && r.targetId === bugId && r.type === 'probably_caused_by');
-        if (!existing) {
+        if (existing === undefined) {
           relationships.push({ sourceId: prId, targetId: bugId, type: 'probably_caused_by', weight: 1, source: 'auto', properties: { evidence: 'component_overlap', bug_created: bugCreated } });
         }
       }
     }
     log(`  ${String(bugResult.rows.length)} bugs checked for probable causes`);
 
-    if (options.repoPaths) {
+    if (options.repoPaths !== undefined) {
       for (const repoPath of options.repoPaths) {
         log(`Import analysis: ${repoPath}...`);
         const importRels = extractImports(repoPath, getOrCreateEntity);
@@ -340,11 +340,11 @@ export class BuildGraphUseCase {
     const mappedRels = relationships.map((r) => {
       const sourceEntity = entities.find((e) => e.id === r.sourceId);
       const targetEntity = entities.find((e) => e.id === r.targetId);
-      if (!sourceEntity || !targetEntity) { return null; }
+      if (sourceEntity === undefined || targetEntity === undefined) { return null; }
 
       const dbSourceId = dbEntityMap.get(`${sourceEntity.type}::${sourceEntity.name}`);
       const dbTargetId = dbEntityMap.get(`${targetEntity.type}::${targetEntity.name}`);
-      if (!dbSourceId || !dbTargetId) { return null; }
+      if (dbSourceId === undefined || dbSourceId === 0 || dbTargetId === undefined || dbTargetId === 0) { return null; }
 
       return { ...r, sourceId: dbSourceId, targetId: dbTargetId };
     }).filter((r): r is GraphRelationship => r !== null);

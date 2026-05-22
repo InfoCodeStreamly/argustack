@@ -10,7 +10,7 @@
 import { describe, it, expect, vi, beforeEach } from 'vitest';
 
 vi.mock('../../../src/workspace/resolver.js', () => ({
-  findWorkspaceRoot: vi.fn(),
+  findLegacyWorkspaceRoot: vi.fn(),
 }));
 
 vi.mock('node:fs', () => ({
@@ -21,7 +21,7 @@ vi.mock('../../../src/cli/board-server.js', () => ({
   startBoardServer: vi.fn(),
 }));
 
-let findWorkspaceRoot: ReturnType<typeof vi.fn>;
+let findLegacyWorkspaceRoot: ReturnType<typeof vi.fn>;
 let existsSync: ReturnType<typeof vi.fn>;
 let startBoardServer: ReturnType<typeof vi.fn>;
 
@@ -32,7 +32,7 @@ beforeEach(async () => {
   vi.resetModules();
 
   const resolverModule = await import('../../../src/workspace/resolver.js');
-  findWorkspaceRoot = vi.mocked(resolverModule.findWorkspaceRoot);
+  findLegacyWorkspaceRoot = vi.mocked(resolverModule.findLegacyWorkspaceRoot);
 
   const fsModule = await import('node:fs');
   existsSync = vi.mocked(fsModule.existsSync);
@@ -41,17 +41,30 @@ beforeEach(async () => {
   startBoardServer = vi.mocked(serverModule.startBoardServer);
 });
 
-function buildProgram() {
-  const actions: ((opts: { port: string }) => Promise<void>)[] = [];
-  const commandObj = {
+type ActionFn = (opts: { port: string }) => Promise<void>;
+
+interface CommandObj {
+  description: ReturnType<typeof vi.fn>;
+  option: ReturnType<typeof vi.fn>;
+  action: ReturnType<typeof vi.fn>;
+}
+
+interface ProgramObj {
+  command: ReturnType<typeof vi.fn>;
+  _actions: ActionFn[];
+}
+
+function buildProgram(): { program: ProgramObj; commandObj: CommandObj } {
+  const actions: ActionFn[] = [];
+  const commandObj: CommandObj = {
     description: vi.fn().mockReturnThis(),
     option: vi.fn().mockReturnThis(),
-    action: vi.fn((fn: (opts: { port: string }) => Promise<void>) => {
+    action: vi.fn((fn: ActionFn) => {
       actions.push(fn);
       return commandObj;
     }),
   };
-  const program = {
+  const program: ProgramObj = {
     command: vi.fn().mockReturnValue(commandObj),
     _actions: actions,
   };
@@ -81,33 +94,35 @@ describe('registerBoardCommand', () => {
     );
   });
 
-  it('calls process.exit(1) when no workspace is found', async () => {
+  it('falls back to process.cwd() when no legacy workspace is found', async () => {
     const { registerBoardCommand } = await import('../../../src/cli/board.js');
-    findWorkspaceRoot.mockReturnValue(null);
+    findLegacyWorkspaceRoot.mockReturnValue(null);
     existsSync.mockReturnValue(false);
+    startBoardServer.mockResolvedValue(undefined);
 
-    const exitSpy = vi.spyOn(process, 'exit').mockImplementation(() => {
-      throw new Error('process.exit called');
-    });
+    const consoleSpy = vi.spyOn(console, 'log').mockImplementation(() => { /* suppress */ });
 
     const { program, commandObj } = buildProgram();
     registerBoardCommand(program as never);
-    const action = commandObj.action.mock.calls[0]?.[0];
+    const action = commandObj.action.mock.calls[0]?.[0] as ActionFn | undefined;
+    if (action === undefined) {throw new Error('action not registered');}
 
-    await expect(action({ port: '5002' })).rejects.toThrow('process.exit called');
-    expect(exitSpy).toHaveBeenCalledWith(1);
-    exitSpy.mockRestore();
+    await action({ port: '5002' });
+
+    expect(startBoardServer).toHaveBeenCalledWith(process.cwd(), 5002);
+    consoleSpy.mockRestore();
   });
 
   it('calls startBoardServer with workspace root and parsed port when workspace exists', async () => {
     const { registerBoardCommand } = await import('../../../src/cli/board.js');
-    findWorkspaceRoot.mockReturnValue(WORKSPACE_ROOT);
+    findLegacyWorkspaceRoot.mockReturnValue(WORKSPACE_ROOT);
     existsSync.mockReturnValue(true);
     startBoardServer.mockResolvedValue(undefined);
 
     const { program, commandObj } = buildProgram();
     registerBoardCommand(program as never);
-    const action = commandObj.action.mock.calls[0]?.[0];
+    const action = commandObj.action.mock.calls[0]?.[0] as ActionFn | undefined;
+    if (action === undefined) {throw new Error('action not registered');}
 
     await action({ port: '5002' });
 
@@ -116,13 +131,14 @@ describe('registerBoardCommand', () => {
 
   it('parses a custom port string to integer', async () => {
     const { registerBoardCommand } = await import('../../../src/cli/board.js');
-    findWorkspaceRoot.mockReturnValue(WORKSPACE_ROOT);
+    findLegacyWorkspaceRoot.mockReturnValue(WORKSPACE_ROOT);
     existsSync.mockReturnValue(true);
     startBoardServer.mockResolvedValue(undefined);
 
     const { program, commandObj } = buildProgram();
     registerBoardCommand(program as never);
-    const action = commandObj.action.mock.calls[0]?.[0];
+    const action = commandObj.action.mock.calls[0]?.[0] as ActionFn | undefined;
+    if (action === undefined) {throw new Error('action not registered');}
 
     await action({ port: '8080' });
 
@@ -131,7 +147,7 @@ describe('registerBoardCommand', () => {
 
   it('proceeds when Docs/Tasks directory does not exist (emits warning only)', async () => {
     const { registerBoardCommand } = await import('../../../src/cli/board.js');
-    findWorkspaceRoot.mockReturnValue(WORKSPACE_ROOT);
+    findLegacyWorkspaceRoot.mockReturnValue(WORKSPACE_ROOT);
     existsSync.mockReturnValue(false);
     startBoardServer.mockResolvedValue(undefined);
 
@@ -139,7 +155,8 @@ describe('registerBoardCommand', () => {
 
     const { program, commandObj } = buildProgram();
     registerBoardCommand(program as never);
-    const action = commandObj.action.mock.calls[0]?.[0];
+    const action = commandObj.action.mock.calls[0]?.[0] as ActionFn | undefined;
+    if (action === undefined) {throw new Error('action not registered');}
 
     await action({ port: '5002' });
 

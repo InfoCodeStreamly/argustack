@@ -132,7 +132,7 @@ export function mapJiraLinks(issueKey: string, raw: JiraIssue): IssueLink[] {
   const result: IssueLink[] = [];
 
   for (const link of links) {
-    if (link.outwardIssue) {
+    if (link.outwardIssue !== undefined) {
       result.push({
         sourceKey: issueKey,
         targetKey: link.outwardIssue.key ?? '',
@@ -140,7 +140,7 @@ export function mapJiraLinks(issueKey: string, raw: JiraIssue): IssueLink[] {
         direction: 'outward',
       });
     }
-    if (link.inwardIssue) {
+    if (link.inwardIssue !== undefined) {
       result.push({
         sourceKey: link.inwardIssue.key ?? '',
         targetKey: issueKey,
@@ -157,7 +157,7 @@ export function mapJiraLinks(issueKey: string, raw: JiraIssue): IssueLink[] {
  * Extract plain text from Jira ADF (Atlassian Document Format) or string.
  */
 function extractText(value: unknown): string | null {
-  if (!value) {
+  if (value === null || value === undefined || value === '') {
     return null;
   }
   if (typeof value === 'string') {
@@ -199,7 +199,7 @@ function extractAdfText(node: AdfNode): string {
  */
 function extractSprint(fields: NullableFields): string | null {
   const sprint: unknown = fields['sprint'];
-  if (!sprint) {
+  if (sprint === null || sprint === undefined || sprint === '') {
     return null;
   }
   if (typeof sprint === 'string') {

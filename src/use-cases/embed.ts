@@ -67,7 +67,7 @@ export class EmbedUseCase {
       for (let i = 0; i < validKeys.length; i++) {
         const key = validKeys[i];
         const vec = vectors[i];
-        if (key && vec) {
+        if (key !== undefined && key !== '' && vec !== undefined) {
           await this.storage.saveEmbedding(workspaceId, key, vec);
         }
       }

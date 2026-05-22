@@ -41,7 +41,7 @@ beforeEach(() => {
 
 function runCall(index: number): { cypher: string; params: Record<string, unknown> } {
   const call = mockRun.mock.calls[index];
-  if (!call) {
+  if (call === undefined) {
     throw new Error(`mockRun has no call at index ${String(index)}`);
   }
   const [cypher, params] = call;

@@ -57,7 +57,7 @@ describe('TaskTitle', () => {
 
     it('truncates after trimming whitespace', () => {
       const body = 'c'.repeat(MAX_LENGTH + 10);
-      const raw = '  ' + body + '  ';
+      const raw = `  ${  body  }  `;
       const title = new TaskTitle(raw);
 
       expect(title.value).toHaveLength(MAX_LENGTH);

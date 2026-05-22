@@ -23,11 +23,11 @@ export function registerGithubCommand(group: Command): void {
     .requiredOption('--repo <repo>', 'GitHub repository name')
     .option('--token <token>', 'GitHub PAT — stored in ~/.argustack/config.env')
     .action(async (opts: Options) => {
-      if (!opts.owner || !opts.repo) {
+      if (opts.owner === undefined || opts.owner === '' || opts.repo === undefined || opts.repo === '') {
         throw new Error('--owner and --repo are required.');
       }
 
-      if (opts.token) {
+      if (opts.token !== undefined && opts.token !== '') {
         upsertHubEnv({ GITHUB_TOKEN: opts.token });
         console.log(chalk.dim('  ● updated hub credentials (GITHUB_TOKEN)'));
       }

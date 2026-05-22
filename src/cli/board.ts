@@ -16,7 +16,7 @@ export function registerBoardCommand(program: Command): void {
     .option('-p, --port <port>', 'Port number', '5002')
     .option('--root <path>', 'Project root containing Docs/Tasks/ (default: legacy .argustack/ walk-up, then cwd)')
     .action(async (opts: Options) => {
-      const projectRoot = opts.root
+      const projectRoot = opts.root !== undefined && opts.root.length > 0
         ? resolve(opts.root)
         : (findLegacyWorkspaceRoot() ?? process.cwd());
 

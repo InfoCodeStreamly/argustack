@@ -146,7 +146,7 @@ export async function runInit(flags: InitFlags = {}): Promise<void> {
   let activePorts: HubPorts;
   if (!hubExists) {
     const portsResult = await resolvePorts(platform, flags);
-    if (!portsResult) {
+    if (portsResult == null) {
       printPortsAborted();
       process.exit(1);
     }
@@ -179,7 +179,7 @@ export async function runInit(flags: InitFlags = {}): Promise<void> {
     const existingList = (await hubStore.list()).map((w) => w.name);
     printWorkspaceList(existingList);
 
-    if (flags.interactive === false && !flags.name) {
+    if (flags.interactive === false && (flags.name === undefined || flags.name === '')) {
       printNoInteractiveMissingName();
       process.exit(1);
     }
@@ -187,15 +187,16 @@ export async function runInit(flags: InitFlags = {}): Promise<void> {
     const validator = new ValidateWorkspaceNameUseCase(hubStore);
     let workspaceId = '';
     let workspaceName = '';
+    let nameHint = flags.name;
     while (workspaceId.length === 0) {
-      const raw = flags.name ?? await promptWorkspaceName(existingList);
+      const raw = nameHint ?? await promptWorkspaceName(existingList);
       const v2 = await validator.execute(raw);
       if (!v2.ok) {
         if (flags.interactive === false) {
           printNoInteractiveMissingName();
           process.exit(1);
         }
-        delete flags.name;
+        nameHint = undefined;
         continue;
       }
       if (v2.action === 'create') {
@@ -210,7 +211,7 @@ export async function runInit(flags: InitFlags = {}): Promise<void> {
       workspaceName = v2.name;
     }
 
-    if (flags.skipLlm) {
+    if (flags.skipLlm === true) {
       writeNoLlm(activePorts);
       printDone(workspaceName, false);
       return;
@@ -248,7 +249,7 @@ export async function runInit(flags: InitFlags = {}): Promise<void> {
     }
 
     const plan = await setupLlm(flags, platform, ollama, probe);
-    if (!plan) {
+    if (plan == null) {
       writeNoLlm(activePorts);
       printDone(workspaceName, false);
       return;
@@ -280,8 +281,10 @@ export async function runInit(flags: InitFlags = {}): Promise<void> {
 function readPortsFromConfig(): HubPorts {
   try {
     const hub = loadHubConfig();
-    const qdrantPort = Number(new URL(hub.qdrant.url).port || '15436');
-    const neo4jBoltPort = Number(new URL(hub.neo4j.uri.replace('bolt://', 'http://')).port || '15435');
+    const qdrantPortStr = new URL(hub.qdrant.url).port;
+    const qdrantPort = Number(qdrantPortStr !== '' ? qdrantPortStr : '15436');
+    const neo4jPortStr = new URL(hub.neo4j.uri.replace('bolt://', 'http://')).port;
+    const neo4jBoltPort = Number(neo4jPortStr !== '' ? neo4jPortStr : '15435');
     return {
       pg: hub.db.port,
       pgweb: HUB_PORT_DEFAULTS.pgweb,
@@ -345,7 +348,7 @@ async function resolvePorts(platform: NodePlatformProbe, flags: InitFlags): Prom
 
   const finalPorts: HubPorts = { ...HUB_PORT_DEFAULTS };
   for (const entry of plan) {
-    if (!entry.conflict) {
+    if (entry.conflict == null) {
       finalPorts[entry.key] = entry.current;
       continue;
     }
@@ -387,14 +390,25 @@ async function bootstrap(
 ): Promise<{ ok: true } | { ok: false; stage: string; details: string }> {
   const platform = new NodePlatformProbe();
   const docker = new CliDockerControl(platform);
-  const useCase = new BootstrapHubUseCase(docker);
+  const { PgReadinessProbe, PostgresWorkspaceStore, createPool } =
+    await import('../../adapters/postgres/index.js');
+  const hubCredentials = { user: 'argustack', password: 'argustack_hub', database: 'argustack_hub' };
+  const readinessProbe = new PgReadinessProbe(hubCredentials);
+  const workspaceStoreFactory = (port: number): { store: IWorkspaceStore; close: () => Promise<void> } => {
+    const pool = createPool({ host: 'localhost', port, ...hubCredentials });
+    return {
+      store: new PostgresWorkspaceStore(pool),
+      close: async (): Promise<void> => { await pool.end(); },
+    };
+  };
+  const useCase = new BootstrapHubUseCase(docker, readinessProbe, workspaceStoreFactory);
   const templates = getTemplatesDir();
   const result = await useCase.execute({
     hubDir: hubDir(),
     templateComposePath: join(templates, 'hub-docker-compose.yml'),
     templateConfigEnvPath: join(templates, 'hub-config.env'),
     ports,
-    ...(flags.skipDocker ? { skipDocker: true } : {}),
+    ...(flags.skipDocker === true ? { skipDocker: true } : {}),
     onStep,
   });
   if (result.ok) {
@@ -419,14 +433,14 @@ async function setupLlm(
   probe: ProbeLlmUseCase,
 ): Promise<LlmSetupPlan | null> {
   if (flags.interactive === false) {
-    return await setupOllama(platform, ollama, probe);
+    return setupOllama(platform, ollama, probe);
   }
 
   const hasOwn = await promptOwnLlm();
   if (hasOwn) {
-    return await setupOwnLlm(platform, ollama, probe);
+    return setupOwnLlm(platform, ollama, probe);
   }
-  return await setupOllama(platform, ollama, probe);
+  return setupOllama(platform, ollama, probe);
 }
 
 async function setupOwnLlm(
@@ -447,7 +461,7 @@ async function setupOwnLlm(
     printProbeError(result.kind, result.details);
     const choice = await promptProbeRetry();
     if (choice === 'use-ollama') {
-      return await setupOllama(platform, ollama, probe);
+      return setupOllama(platform, ollama, probe);
     }
     if (choice === 'skip') {
       return null;

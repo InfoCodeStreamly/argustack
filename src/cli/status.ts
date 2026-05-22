@@ -78,13 +78,13 @@ export function registerStatusCommand(program: Command): void {
         }
 
         const activeId = getActiveWorkspaceId();
-        const targetId = options.workspace
+        const targetId = options.workspace !== undefined && options.workspace !== ''
           ? ((await store.getById(options.workspace)) ?? (await store.getByName(options.workspace)))?.id
           : activeId;
 
-        if (targetId) {
+        if (targetId !== undefined && targetId !== null && targetId !== '') {
           const workspace = await store.getById(targetId);
-          if (!workspace) {
+          if (workspace == null) {
             console.log(chalk.yellow(`  Workspace "${targetId}" not found.`));
             return;
           }

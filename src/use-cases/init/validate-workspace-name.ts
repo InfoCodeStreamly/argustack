@@ -30,7 +30,7 @@ export class ValidateWorkspaceNameUseCase {
       return { ok: false, reason: 'invalid-slug' };
     }
     const existing = (await this.hubStore.getById(slug)) ?? (await this.hubStore.getByName(slug));
-    if (existing) {
+    if (existing !== null) {
       return { ok: true, action: 'switch', id: existing.id, name: existing.name };
     }
     return { ok: true, action: 'create', id: slug, name: slug };

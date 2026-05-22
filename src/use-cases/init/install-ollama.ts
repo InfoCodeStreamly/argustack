@@ -32,7 +32,7 @@ export class InstallOllamaUseCase {
 
     if (os === 'macos') {
       const brewResult = await this.tryBrew();
-      if (brewResult) {
+      if (brewResult !== null) {
         return brewResult;
       }
     }

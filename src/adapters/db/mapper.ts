@@ -67,7 +67,7 @@ export function mapIndexRows(rows: RawIndexRow[]): DbIndex[] {
   for (const row of rows) {
     const key = `${row.table_name}.${row.index_name}`;
     const existing = grouped.get(key);
-    if (existing) {
+    if (existing !== undefined) {
       existing.columns.push(row.column_name);
     } else {
       grouped.set(key, {

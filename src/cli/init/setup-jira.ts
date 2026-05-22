@@ -50,7 +50,7 @@ async function setupJiraDirectInteractive(): Promise<JiraSetupResult | null> {
     message: 'Jira URL:',
     mask: '*',
     validate: (val): string | true => {
-      if (!val.trim()) {
+      if (val.trim() === '') {
         return 'Jira URL is required';
       }
       if (!val.startsWith('https://')) {
@@ -81,7 +81,7 @@ async function setupJiraDirectInteractive(): Promise<JiraSetupResult | null> {
       message: 'API Token:',
       mask: '*',
       validate: (val): string | true => {
-        if (!val.trim()) {
+        if (val.trim() === '') {
           return 'Token is required';
         }
         return true;
@@ -154,7 +154,7 @@ async function setupJiraDirectInteractive(): Promise<JiraSetupResult | null> {
 
   return {
     jiraUrl, jiraEmail, jiraToken, jiraProjects,
-    ...(typeSelection ? { issueTypes: typeSelection.names, issueTypeIds: typeSelection.ids } : {}),
+    ...(typeSelection != null ? { issueTypes: typeSelection.names, issueTypeIds: typeSelection.ids } : {}),
   };
 }
 
@@ -171,7 +171,7 @@ async function setupJiraProxyInteractive(): Promise<ProxySetupResult | null> {
       message: 'Proxy URL:',
       mask: '*',
       validate: (val): string | true => {
-        if (!val.trim()) {
+        if (val.trim() === '') {
           return 'Proxy URL is required';
         }
         if (!val.startsWith('https://')) {
@@ -187,7 +187,7 @@ async function setupJiraProxyInteractive(): Promise<ProxySetupResult | null> {
       message: 'Service token:',
       mask: '*',
       validate: (val): string | true => {
-        if (!val.trim()) {
+        if (val.trim() === '') {
           return 'Token is required';
         }
         return true;
@@ -261,7 +261,7 @@ async function setupJiraProxyInteractive(): Promise<ProxySetupResult | null> {
 
   return {
     proxyUrl, proxyToken, jiraProjects,
-    ...(typeSelection ? { issueTypes: typeSelection.names, issueTypeIds: typeSelection.ids } : {}),
+    ...(typeSelection != null ? { issueTypes: typeSelection.names, issueTypeIds: typeSelection.ids } : {}),
   };
 }
 
@@ -345,11 +345,15 @@ async function testProxyConnection(proxyUrl: string, token: string): Promise<str
       const proj = p as Record<string, unknown>;
       return typeof proj['key'] === 'string' ? proj['key'] : '';
     })
-    .filter(Boolean);
+    .filter((key) => key !== '');
 }
 
 export async function setupJiraFromFlags(flags: InitFlags): Promise<JiraSetupResult | null> {
-  if (!flags.jiraUrl || !flags.jiraEmail || !flags.jiraToken) {
+  if (
+    flags.jiraUrl === undefined || flags.jiraUrl === '' ||
+    flags.jiraEmail === undefined || flags.jiraEmail === '' ||
+    flags.jiraToken === undefined || flags.jiraToken === ''
+  ) {
     throw new Error('Jira requires: --jira-url, --jira-email, --jira-token');
   }
 
@@ -364,7 +368,7 @@ export async function setupJiraFromFlags(flags: InitFlags): Promise<JiraSetupRes
     );
 
     let jiraProjects: string[];
-    if (!flags.jiraProjects || flags.jiraProjects.toLowerCase() === 'all') {
+    if (flags.jiraProjects === undefined || flags.jiraProjects === '' || flags.jiraProjects.toLowerCase() === 'all') {
       jiraProjects = availableProjects;
     } else {
       jiraProjects = flags.jiraProjects.split(',').map((p) => p.trim().toUpperCase());

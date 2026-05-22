@@ -34,7 +34,7 @@ function readWatcherPid(projectId: string): number | null {
   const { pidFile } = watcherPaths(projectId);
   if (!existsSync(pidFile)) {return null;}
   const pid = parseInt(readFileSync(pidFile, 'utf8').trim(), 10);
-  if (!pid) {return null;}
+  if (Number.isNaN(pid) || pid === 0) {return null;}
   try {
     process.kill(pid, 0);
     return pid;
@@ -51,9 +51,15 @@ interface CodeAdapters {
   embedding: ICodeEmbedding;
 }
 
+function getStatusColor(status: string): (text: string) => string {
+  if (status === 'completed') { return chalk.green; }
+  if (status === 'failed') { return chalk.red; }
+  return chalk.yellow;
+}
+
 function buildAdapters(): CodeAdapters {
   const hub = loadHubConfig();
-  if (hub.embedding.provider === 'voyage' && !hub.embedding.voyageApiKey) {
+  if (hub.embedding.provider === 'voyage' && (hub.embedding.voyageApiKey === undefined || hub.embedding.voyageApiKey === '')) {
     throw new Error('CODE_EMBEDDING_PROVIDER=voyage requires VOYAGE_API_KEY in ~/.argustack/config.env');
   }
 
@@ -62,7 +68,7 @@ function buildAdapters(): CodeAdapters {
   const vec = new QdrantCodeVectorStore({ url: hub.qdrant.url });
 
   let embedding: ICodeEmbedding;
-  if (hub.embedding.provider === 'voyage' && hub.embedding.voyageApiKey) {
+  if (hub.embedding.provider === 'voyage' && hub.embedding.voyageApiKey !== undefined && hub.embedding.voyageApiKey !== '') {
     embedding = new VoyageCodeEmbeddingProvider({ apiKey: hub.embedding.voyageApiKey });
   } else if (hub.embedding.provider === 'ollama' || hub.embedding.provider === 'custom') {
     const url = hub.embedding.provider === 'custom'
@@ -71,15 +77,15 @@ function buildAdapters(): CodeAdapters {
     embedding = new OllamaCodeEmbeddingProvider({
       model: hub.embedding.model,
       dimensions: hub.embedding.dimensions,
-      ...(url ? { url } : {}),
+      ...(url !== undefined && url !== '' ? { url } : {}),
     });
   } else {
     const lmsOpts: ConstructorParameters<typeof LmStudioCodeEmbeddingProvider>[0] = {
       model: hub.embedding.model,
       dimensions: hub.embedding.dimensions,
     };
-    if (hub.embedding.lmstudioUrl) { lmsOpts.url = hub.embedding.lmstudioUrl; }
-    if (hub.embedding.rerankModel) { lmsOpts.rerankModel = hub.embedding.rerankModel; }
+    if (hub.embedding.lmstudioUrl !== undefined && hub.embedding.lmstudioUrl !== '') { lmsOpts.url = hub.embedding.lmstudioUrl; }
+    if (hub.embedding.rerankModel !== undefined && hub.embedding.rerankModel !== '') { lmsOpts.rerankModel = hub.embedding.rerankModel; }
     embedding = new LmStudioCodeEmbeddingProvider(lmsOpts);
   }
   return { storage, graph, vec, embedding };
@@ -116,7 +122,7 @@ export function registerCodeCommands(program: Command): void {
       const workspaceId = await resolveWorkspaceFlag(store, options.workspace);
       const workspace = await store.getById(workspaceId);
       await closeStore();
-      if (!workspace) { throw new Error(`Workspace "${workspaceId}" not found.`); }
+      if (workspace == null) { throw new Error(`Workspace "${workspaceId}" not found.`); }
       const root = resolve(options.root ?? process.cwd());
       const project: CodeProject = {
         id: workspaceId,
@@ -177,40 +183,38 @@ export function registerCodeCommands(program: Command): void {
       const spinner = ora('Resolving project...').start();
       let lspClient: TypeScriptLspClient | null = null;
       try {
-        const project = options.project
+        const project = options.project !== undefined && options.project !== ''
           ? await adapters.storage.getProjectById(options.project)
           : await adapters.storage.getProjectByRoot(process.cwd());
-        if (!project) {
+        if (project == null) {
           spinner.fail('Project not registered. Run `argustack code register --name <name>`.');
           process.exitCode = 1;
           return;
         }
 
-        if (options.status) {
+        if (options.status === true) {
           spinner.stop();
           const job = await adapters.storage.getLatestJob(project.id);
           console.log('');
           console.log(`  ${chalk.bold(project.name)} ${chalk.dim(`(${project.id})`)}`);
           console.log(chalk.dim(`    root: ${project.root}`));
-          if (!job) {
+          if (job == null) {
             console.log(chalk.yellow('    No index jobs recorded yet. Run `argustack code index`.'));
             console.log('');
             return;
           }
-          const statusColor = job.status === 'completed'
-            ? chalk.green
-            : job.status === 'failed' ? chalk.red : chalk.yellow;
+          const statusColor = getStatusColor(job.status);
           console.log(`    last job:   ${statusColor(job.status)} (${job.type}) #${String(job.id)}`);
           console.log(chalk.dim(`    started:    ${job.startedAt}`));
-          if (job.completedAt) {
+          if (job.completedAt !== undefined && job.completedAt !== '') {
             console.log(chalk.dim(`    completed:  ${job.completedAt}`));
           }
-          if (job.stats) {
+          if (job.stats != null) {
             console.log(chalk.dim(
               `    stats:      files=${String(job.stats.filesIndexed)} symbols=${String(job.stats.symbolsCreated)} chunks=${String(job.stats.chunksCreated)} edges=${String(job.stats.edgesCreated)} duration=${String(job.stats.durationMs)}ms`,
             ));
           }
-          if (job.error) {
+          if (job.error !== undefined && job.error !== '') {
             console.log(chalk.red(`    error:      ${job.error}`));
           }
           console.log('');
@@ -219,7 +223,7 @@ export function registerCodeCommands(program: Command): void {
 
         spinner.text = `Indexing '${project.name}'...`;
         const parser = new TreeSitterParser({ projectRoot: project.root });
-        if (options.lsp) {
+        if (options.lsp === true) {
           const client = new TypeScriptLspClient();
           try {
             await client.start(project.root);
@@ -260,12 +264,12 @@ export function registerCodeCommands(program: Command): void {
       } catch (err) {
         spinner.fail('Index failed');
         console.error(chalk.red(`  ${err instanceof Error ? err.message : String(err)}`));
-        if (err instanceof Error && err.stack) {
+        if (err instanceof Error && err.stack !== undefined && err.stack !== '') {
           console.error(chalk.dim(err.stack));
         }
         process.exitCode = 1;
       } finally {
-        if (lspClient) {
+        if (lspClient != null) {
           try { await lspClient.stop(); } catch { /* ignore lsp stop errors */ }
         }
         await closeAdapters(adapters);
@@ -285,7 +289,7 @@ export function registerCodeCommands(program: Command): void {
         }
         console.log('');
         for (const p of projects) {
-          const lastIndexed = p.lastIndexedAt
+          const lastIndexed = p.lastIndexedAt !== undefined && p.lastIndexedAt !== ''
             ? new Date(p.lastIndexedAt).toLocaleString()
             : chalk.dim('never');
           console.log(`  ${chalk.green('●')} ${chalk.bold(p.name)} ${chalk.dim(`(${p.id})`)}`);
@@ -314,11 +318,11 @@ export function registerCodeCommands(program: Command): void {
         console.log(chalk.bold(`  Projects (${String(projects.length)}):`));
         for (const p of projects) {
           const job = await adapters.storage.getLatestJob(p.id);
-          const jobInfo = job
+          const jobInfo = job != null
             ? `${job.status} (${job.type})`
             : chalk.dim('no jobs');
           const watcherPid = readWatcherPid(p.id);
-          const watcherInfo = watcherPid
+          const watcherInfo = watcherPid != null && watcherPid !== 0
             ? chalk.cyan(`  ⟳ watching (pid ${String(watcherPid)})`)
             : '';
           console.log(`    ${chalk.green('●')} ${p.name} — ${jobInfo}${watcherInfo}`);
@@ -340,7 +344,7 @@ export function registerCodeCommands(program: Command): void {
       const adapters = buildAdapters();
       try {
         const project = await adapters.storage.getProjectById(id);
-        if (!project) {
+        if (project == null) {
           console.log(chalk.red(`\n  Project '${id}' not found.\n`));
           process.exitCode = 1;
           return;
@@ -351,9 +355,9 @@ export function registerCodeCommands(program: Command): void {
         console.log(`  ${chalk.bold(project.name)} ${chalk.dim(`(${project.id})`)}`);
         console.log(`    root:           ${project.root}`);
         console.log(`    vectors:        ${String(vecStats.pointCount)} (dim ${String(vecStats.vectorDim)})`);
-        if (lastJob) {
+        if (lastJob != null) {
           console.log(`    last job:       ${lastJob.status} ${lastJob.type} @ ${lastJob.startedAt}`);
-          if (lastJob.stats) {
+          if (lastJob.stats != null) {
             console.log(chalk.dim(`      files=${String(lastJob.stats.filesIndexed)} symbols=${String(lastJob.stats.symbolsCreated)} chunks=${String(lastJob.stats.chunksCreated)} tokens=${String(lastJob.stats.embeddingTokens)}`));
           }
         }
@@ -374,18 +378,18 @@ export function registerCodeCommands(program: Command): void {
       const adapters = buildAdapters();
 
       try {
-        const project = options.project
+        const project = options.project !== undefined && options.project !== ''
           ? await adapters.storage.getProjectById(options.project)
           : await adapters.storage.getProjectByRoot(process.cwd());
-        if (!project) {
+        if (project == null) {
           console.log(chalk.red('\n  Project not registered. Run `argustack code register --name <name>`.\n'));
           process.exitCode = 1;
           return;
         }
 
-        if (options.stop) {
+        if (options.stop === true) {
           const pid = readWatcherPid(project.id);
-          if (!pid) {
+          if (pid == null || pid === 0) {
             console.log(chalk.yellow(`  No running watcher for '${project.id}'.`));
             return;
           }
@@ -401,13 +405,13 @@ export function registerCodeCommands(program: Command): void {
         }
 
         const existingPid = readWatcherPid(project.id);
-        if (existingPid) {
+        if (existingPid != null && existingPid !== 0) {
           console.log(chalk.yellow(`  Watcher already running (pid ${String(existingPid)}) for '${project.id}'.`));
           console.log(chalk.dim(`  Use --stop to stop it, or check ${watcherPaths(project.id).logFile}`));
           return;
         }
 
-        if (options.daemon) {
+        if (options.daemon === true) {
           const { pidFile, logFile } = watcherPaths(project.id);
           const logFd = openSync(logFile, 'a');
           const child = spawn(
@@ -420,7 +424,7 @@ export function registerCodeCommands(program: Command): void {
             },
           );
           child.unref();
-          if (child.pid) {
+          if (child.pid != null && child.pid !== 0) {
             writeFileSync(pidFile, String(child.pid));
             console.log(chalk.green(`  Watcher started in background for '${project.id}'`));
             console.log(chalk.dim(`    pid:  ${String(child.pid)}`));

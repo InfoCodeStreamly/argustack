@@ -28,21 +28,21 @@ export class FakeStorage implements IStorage {
   initialized = false;
   closed = false;
 
-  initialize(): Promise<void> {
+  async initialize(): Promise<void> {
     this.initialized = true;
     return Promise.resolve();
   }
 
-  saveBatch(workspaceId: string, batch: IssueBatch): Promise<void> {
+  async saveBatch(workspaceId: string, batch: IssueBatch): Promise<void> {
     this.savedBatches.push({ workspaceId, batch });
     for (const issue of batch.issues) {
       const k = key(workspaceId, issue.key);
       this.issues.set(k, issue);
       this._workspaceIssues.set(k, workspaceId);
-      if (issue.updated) {
+      if (issue.updated !== null && issue.updated !== '') {
         const lk = key(workspaceId, issue.projectKey);
         const current = this._lastUpdated.get(lk);
-        if (!current || issue.updated > current) {
+        if (current === undefined || issue.updated > current) {
           this._lastUpdated.set(lk, issue.updated);
         }
       }
@@ -50,14 +50,14 @@ export class FakeStorage implements IStorage {
     return Promise.resolve();
   }
 
-  getLastUpdated(workspaceId: string, projectKey: string): Promise<string | null> {
+  async getLastUpdated(workspaceId: string, projectKey: string): Promise<string | null> {
     return Promise.resolve(this._lastUpdated.get(key(workspaceId, projectKey)) ?? null);
   }
 
-  queryForWorkspace(_workspaceId: string, sql: string, params: unknown[]): Promise<QueryResult> {
+  async queryForWorkspace(_workspaceId: string, sql: string, params: unknown[]): Promise<QueryResult> {
     if (sql.includes('summary') && sql.includes('description') && typeof params[0] === 'string') {
       const issue = this.issues.get(key(_workspaceId, params[0]));
-      if (issue) {
+      if (issue !== undefined) {
         return Promise.resolve({
           rows: [{ summary: issue.summary, description: issue.description }],
         });
@@ -66,11 +66,11 @@ export class FakeStorage implements IStorage {
     return Promise.resolve({ rows: [] });
   }
 
-  rawQuery(_sql: string, _params: unknown[]): Promise<QueryResult> {
+  async rawQuery(_sql: string, _params: unknown[]): Promise<QueryResult> {
     return Promise.resolve({ rows: [] });
   }
 
-  close(): Promise<void> {
+  async close(): Promise<void> {
     this.closed = true;
     return Promise.resolve();
   }
@@ -81,21 +81,21 @@ export class FakeStorage implements IStorage {
   readonly savedCommitBatches: { workspaceId: string; batch: CommitBatch }[] = [];
   private readonly _lastCommitDate = new Map<string, Date>();
 
-  saveCommitBatch(workspaceId: string, batch: CommitBatch): Promise<void> {
+  async saveCommitBatch(workspaceId: string, batch: CommitBatch): Promise<void> {
     this.savedCommitBatches.push({ workspaceId, batch });
     for (const commit of batch.commits) {
       this.commits.set(key(workspaceId, commit.hash), commit);
       const date = new Date(commit.committedAt);
       const lk = key(workspaceId, commit.repoPath);
       const current = this._lastCommitDate.get(lk);
-      if (!current || date > current) {
+      if (current === undefined || date > current) {
         this._lastCommitDate.set(lk, date);
       }
     }
     return Promise.resolve();
   }
 
-  getLastCommitDate(workspaceId: string, repoPath: string): Promise<Date | null> {
+  async getLastCommitDate(workspaceId: string, repoPath: string): Promise<Date | null> {
     return Promise.resolve(this._lastCommitDate.get(key(workspaceId, repoPath)) ?? null);
   }
 
@@ -107,21 +107,21 @@ export class FakeStorage implements IStorage {
   readonly savedReleases: { workspaceId: string; releases: Release[] }[] = [];
   private readonly _lastPrUpdated = new Map<string, Date>();
 
-  saveGitHubBatch(workspaceId: string, batch: GitHubBatch): Promise<void> {
+  async saveGitHubBatch(workspaceId: string, batch: GitHubBatch): Promise<void> {
     this.savedGitHubBatches.push({ workspaceId, batch });
     for (const pr of batch.pullRequests) {
       this.pullRequests.set(key(workspaceId, pr.number), pr);
       const date = new Date(pr.updatedAt);
       const lk = key(workspaceId, pr.repoFullName);
       const current = this._lastPrUpdated.get(lk);
-      if (!current || date > current) {
+      if (current === undefined || date > current) {
         this._lastPrUpdated.set(lk, date);
       }
     }
     return Promise.resolve();
   }
 
-  saveReleases(workspaceId: string, releases: Release[]): Promise<void> {
+  async saveReleases(workspaceId: string, releases: Release[]): Promise<void> {
     this.savedReleases.push({ workspaceId, releases });
     for (const rel of releases) {
       this.releases.set(key(workspaceId, rel.id), rel);
@@ -129,7 +129,7 @@ export class FakeStorage implements IStorage {
     return Promise.resolve();
   }
 
-  getLastPrUpdated(workspaceId: string, repoFullName: string): Promise<Date | null> {
+  async getLastPrUpdated(workspaceId: string, repoFullName: string): Promise<Date | null> {
     return Promise.resolve(this._lastPrUpdated.get(key(workspaceId, repoFullName)) ?? null);
   }
 
@@ -137,13 +137,13 @@ export class FakeStorage implements IStorage {
 
   private readonly _embeddings = new Map<string, number[]>();
 
-  getUnembeddedIssueKeys(workspaceId: string, limit: number): Promise<string[]> {
+  async getUnembeddedIssueKeys(workspaceId: string, limit: number): Promise<string[]> {
     const keys: string[] = [];
     for (const [k, ws] of this._workspaceIssues) {
       if (ws !== workspaceId) { continue; }
       if (!this._embeddings.has(k)) {
         const issue = this.issues.get(k);
-        if (issue) {
+        if (issue !== undefined) {
           keys.push(issue.key);
           if (keys.length >= limit) { break; }
         }
@@ -152,12 +152,12 @@ export class FakeStorage implements IStorage {
     return Promise.resolve(keys);
   }
 
-  saveEmbedding(workspaceId: string, issueKey: string, vector: number[]): Promise<void> {
+  async saveEmbedding(workspaceId: string, issueKey: string, vector: number[]): Promise<void> {
     this._embeddings.set(key(workspaceId, issueKey), vector);
     return Promise.resolve();
   }
 
-  semanticSearch(
+  async semanticSearch(
     workspaceId: string,
     _vector: number[],
     limit: number,
@@ -173,7 +173,7 @@ export class FakeStorage implements IStorage {
     return Promise.resolve(results);
   }
 
-  hybridSearch(
+  async hybridSearch(
     workspaceId: string,
     _query: string,
     _vector: number[] | null,
@@ -213,19 +213,19 @@ export class FakeStorage implements IStorage {
   readonly savedDbBatches: { workspaceId: string; batch: DbSchemaBatch; sourceName: string }[] = [];
   readonly deletedDbSources: { workspaceId: string; sourceName: string }[] = [];
 
-  saveDbSchemaBatch(workspaceId: string, batch: DbSchemaBatch, sourceName: string): Promise<void> {
+  async saveDbSchemaBatch(workspaceId: string, batch: DbSchemaBatch, sourceName: string): Promise<void> {
     this.savedDbBatches.push({ workspaceId, batch, sourceName });
     return Promise.resolve();
   }
 
-  deleteDbSchema(workspaceId: string, sourceName: string): Promise<void> {
+  async deleteDbSchema(workspaceId: string, sourceName: string): Promise<void> {
     this.deletedDbSources.push({ workspaceId, sourceName });
     return Promise.resolve();
   }
 
   // ─── Local issues ─────────────────────────────────
 
-  getLocalIssues(workspaceId: string): Promise<Issue[]> {
+  async getLocalIssues(workspaceId: string): Promise<Issue[]> {
     const locals: Issue[] = [];
     for (const [k, ws] of this._workspaceIssues) {
       if (ws !== workspaceId) { continue; }
@@ -237,10 +237,10 @@ export class FakeStorage implements IStorage {
     return Promise.resolve(locals);
   }
 
-  updateIssueSource(workspaceId: string, issueKey: string, source: string): Promise<void> {
+  async updateIssueSource(workspaceId: string, issueKey: string, source: string): Promise<void> {
     const k = key(workspaceId, issueKey);
     const issue = this.issues.get(k);
-    if (issue) {
+    if (issue !== undefined) {
       this.issues.set(k, { ...issue, source: source as 'jira' | 'local' });
     }
     return Promise.resolve();
@@ -250,10 +250,10 @@ export class FakeStorage implements IStorage {
 
   private readonly _modifiedKeys = new Set<string>();
 
-  updateIssueFields(workspaceId: string, issueKey: string, fields: Partial<Issue>): Promise<void> {
+  async updateIssueFields(workspaceId: string, issueKey: string, fields: Partial<Issue>): Promise<void> {
     const k = key(workspaceId, issueKey);
     const issue = this.issues.get(k);
-    if (!issue) {
+    if (issue === undefined) {
       return Promise.reject(new Error(`Issue ${issueKey} not found`));
     }
     this.issues.set(k, { ...issue, ...fields });
@@ -261,19 +261,19 @@ export class FakeStorage implements IStorage {
     return Promise.resolve();
   }
 
-  getModifiedIssues(workspaceId: string): Promise<(Issue & { modifiedFields: string[] })[]> {
+  async getModifiedIssues(workspaceId: string): Promise<(Issue & { modifiedFields: string[] })[]> {
     const modified: (Issue & { modifiedFields: string[] })[] = [];
     for (const k of this._modifiedKeys) {
       if (!k.startsWith(`${workspaceId}::`)) { continue; }
       const issue = this.issues.get(k);
-      if (issue) {
+      if (issue !== undefined) {
         modified.push({ ...issue, modifiedFields: ['description'] });
       }
     }
     return Promise.resolve(modified);
   }
 
-  clearModifiedFlag(workspaceId: string, issueKey: string): Promise<void> {
+  async clearModifiedFlag(workspaceId: string, issueKey: string): Promise<void> {
     this._modifiedKeys.delete(key(workspaceId, issueKey));
     return Promise.resolve();
   }
@@ -284,12 +284,12 @@ export class FakeStorage implements IStorage {
   private readonly _graphRelationships: (GraphRelationship & { workspaceId: string })[] = [];
   private readonly _graphObservations: (GraphObservation & { workspaceId: string })[] = [];
 
-  saveGraphEntities(workspaceId: string, entities: GraphEntity[]): Promise<void> {
+  async saveGraphEntities(workspaceId: string, entities: GraphEntity[]): Promise<void> {
     for (const entity of entities) {
       const existing = this._graphEntities.find((e) =>
         e.workspaceId === workspaceId && e.name === entity.name && e.type === entity.type,
       );
-      if (existing) {
+      if (existing !== undefined) {
         existing.properties = entity.properties;
       } else {
         this._graphEntities.push({
@@ -302,7 +302,7 @@ export class FakeStorage implements IStorage {
     return Promise.resolve();
   }
 
-  saveGraphRelationships(workspaceId: string, rels: GraphRelationship[]): Promise<void> {
+  async saveGraphRelationships(workspaceId: string, rels: GraphRelationship[]): Promise<void> {
     for (const rel of rels) {
       this._graphRelationships.push({
         ...rel,
@@ -313,7 +313,7 @@ export class FakeStorage implements IStorage {
     return Promise.resolve();
   }
 
-  saveGraphObservation(
+  async saveGraphObservation(
     workspaceId: string,
     entityId: number,
     content: string,
@@ -329,13 +329,13 @@ export class FakeStorage implements IStorage {
     return Promise.resolve();
   }
 
-  getObservations(workspaceId: string, entityId: number): Promise<GraphObservation[]> {
+  async getObservations(workspaceId: string, entityId: number): Promise<GraphObservation[]> {
     return Promise.resolve(this._graphObservations
       .filter((o) => o.workspaceId === workspaceId && o.entityId === entityId)
       .map(({ workspaceId: _w, ...rest }) => rest));
   }
 
-  queryGraph(workspaceId: string, entityName: string, _depth: number): Promise<GraphQueryResult> {
+  async queryGraph(workspaceId: string, entityName: string, _depth: number): Promise<GraphQueryResult> {
     const matched = this._graphEntities.filter((e) =>
       e.workspaceId === workspaceId && e.name.includes(entityName),
     );
@@ -353,7 +353,7 @@ export class FakeStorage implements IStorage {
     });
   }
 
-  getGraphStats(workspaceId: string): Promise<GraphStats> {
+  async getGraphStats(workspaceId: string): Promise<GraphStats> {
     const entities = this._graphEntities.filter((e) => e.workspaceId === workspaceId);
     const rels = this._graphRelationships.filter((r) => r.workspaceId === workspaceId);
     const obs = this._graphObservations.filter((o) => o.workspaceId === workspaceId);
@@ -370,10 +370,10 @@ export class FakeStorage implements IStorage {
     });
   }
 
-  clearGraph(workspaceId: string): Promise<void> {
+  async clearGraph(workspaceId: string): Promise<void> {
     for (let i = this._graphRelationships.length - 1; i >= 0; i--) {
       const r = this._graphRelationships[i];
-      if (r && r.workspaceId === workspaceId && r.source !== 'claude') {
+      if (r?.workspaceId === workspaceId && r.source !== 'claude') {
         this._graphRelationships.splice(i, 1);
       }
     }

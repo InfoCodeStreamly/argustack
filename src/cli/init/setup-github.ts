@@ -12,7 +12,7 @@ export async function setupGithubInteractive(
   console.log(chalk.bold('  GitHub setup'));
   console.log(chalk.dim('  Connect to GitHub API for PRs, reviews, and releases.\n'));
 
-  if (existingToken && existingRepos && existingRepos.length > 0) {
+  if (existingToken !== undefined && existingToken !== '' && existingRepos != null && existingRepos.length > 0) {
     const repoToUse = existingRepos[0] ?? '';
     const [owner = '', repo = ''] = repoToUse.split('/');
 
@@ -32,7 +32,7 @@ export async function setupGithubInteractive(
 
   let githubToken: string;
 
-  if (existingToken) {
+  if (existingToken !== undefined && existingToken !== '') {
     console.log(chalk.green('  Using GitHub token from Git clone step.'));
     githubToken = existingToken;
   } else {
@@ -41,7 +41,7 @@ export async function setupGithubInteractive(
       message: 'GitHub token (PAT):',
       mask: '*',
       validate: (val): string | true => {
-        if (!val.trim()) {
+        if (val.trim() === '') {
           return 'Token is required';
         }
         return true;
@@ -90,7 +90,7 @@ export async function setupGithubInteractive(
     choices: repos.map((r) => ({
       value: r.full_name,
       name: `${r.full_name} ${r.isPrivate ? '(private)' : '(public)'}`,
-      ...(r.description ? { description: r.description } : {}),
+      ...(r.description != null && r.description !== '' ? { description: r.description } : {}),
     })),
   });
 
@@ -105,7 +105,11 @@ export async function setupGithubInteractive(
 }
 
 export function setupGithubFromFlags(flags: InitFlags): GitHubSetupResult | null {
-  if (!flags.githubToken || !flags.githubOwner || !flags.githubRepo) {
+  if (
+    flags.githubToken === undefined || flags.githubToken === '' ||
+    flags.githubOwner === undefined || flags.githubOwner === '' ||
+    flags.githubRepo === undefined || flags.githubRepo === ''
+  ) {
     throw new Error('GitHub requires: --github-token, --github-owner, --github-repo');
   }
   return {

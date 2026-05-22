@@ -39,7 +39,7 @@ export class PushUseCase {
   async execute(workspaceId: string, options: PushOptions = {}): Promise<PushResult> {
     const log = options.onProgress ?? noop;
 
-    if (!this.source.createIssue) {
+    if (this.source.createIssue === undefined) {
       throw new Error(`Source '${this.source.name}' does not support creating issues`);
     }
 
@@ -69,7 +69,7 @@ export class PushUseCase {
   async executeUpdates(workspaceId: string, options: PushOptions = {}): Promise<PushUpdateResult> {
     const log = options.onProgress ?? noop;
 
-    if (!this.source.updateIssue) {
+    if (this.source.updateIssue === undefined) {
       throw new Error(`Source '${this.source.name}' does not support updating issues`);
     }
 

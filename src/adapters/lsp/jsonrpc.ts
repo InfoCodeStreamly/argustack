@@ -23,7 +23,7 @@ export function tryDecodeMessage(buffer: Buffer): DecodedMessage | null {
   }
   const header = buffer.subarray(0, headerEnd).toString('utf8');
   const match = /Content-Length: (\d+)/i.exec(header);
-  if (!match?.[1]) {
+  if (match?.[1] === undefined || match[1] === '') {
     return null;
   }
   const length = Number(match[1]);

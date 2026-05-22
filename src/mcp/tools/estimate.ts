@@ -15,7 +15,9 @@ import {
   createAdapters,
   textResponse,
   errorResponse,
+  workspaceNotFoundResponse,
   getErrorMessage,
+  hasText,
   ANNOTATIONS,
 } from '../helpers.js';
 
@@ -23,7 +25,7 @@ export function calculateFamiliarityFactor(
   familiarityRows: FamiliarityRow[],
   taskComponents: string[] | null | undefined,
 ): { factor: number; explanation: string } {
-  if (!taskComponents || taskComponents.length === 0 || familiarityRows.length === 0) {
+  if (taskComponents === null || taskComponents === undefined || taskComponents.length === 0 || familiarityRows.length === 0) {
     return { factor: 1.0, explanation: 'No component data' };
   }
 
@@ -49,7 +51,8 @@ export function calculateBaseHours(metrics: SimilarTaskMetrics[]): { hours: numb
 
   const sorted = [...metrics].sort((a, b) => a.hours - b.hours);
   const trimCount = metrics.length > 5 ? Math.max(1, Math.floor(metrics.length * 0.1)) : 0;
-  const trimmed = sorted.slice(trimCount, sorted.length - trimCount || undefined);
+  const endIndex = sorted.length - trimCount;
+  const trimmed = sorted.slice(trimCount, endIndex === 0 ? undefined : endIndex);
 
   const totalWeight = trimmed.reduce((sum, m) => sum + m.weight, 0);
   if (totalWeight === 0) {
@@ -97,12 +100,12 @@ export function registerEstimateTools(server: McpServer): void {
     },
     async ({ workspace_id: workspaceIdInput, description, assignee, issue_type: issueTypeInput, components, exclude_key: excludeKey, limit }) => {
       const ws = await loadWorkspace(workspaceIdInput);
-      if (!ws.ok) { return errorResponse(ws.reason); }
+      if (!ws.ok) { return workspaceNotFoundResponse(ws.reason); }
       const { storage, workspaceId } = await createAdapters(ws.workspaceId);
       try {
         const maxResults = limit ?? 10;
         const issueType = issueTypeInput ?? null;
-        const comps = components && components.length > 0 ? components : null;
+        const comps = components !== undefined && components.length > 0 ? components : null;
 
         const similarResult = await storage.queryForWorkspace(workspaceId,
           `WITH text_matches AS (
@@ -255,7 +258,7 @@ export function registerEstimateTools(server: McpServer): void {
         const estimates = rawEstimates.rows as unknown as EstimateRawRow[];
 
         let familiarity: { factor: number; explanation: string } = { factor: 1.0, explanation: 'No component data' };
-        if (assignee && comps) {
+        if (hasText(assignee) && comps !== null) {
           const familiarityResult = await storage.queryForWorkspace(workspaceId,
             `SELECT
                unnest(components) as component,
@@ -354,10 +357,14 @@ export function registerEstimateTools(server: McpServer): void {
 
         const sections: string[] = [];
         sections.push(`# Estimate Prediction`);
-        const metaParts = [assignee ? `Developer: ${assignee}` : '', issueType ? `Type: ${issueType}` : '', comps ? `Components: ${comps.join(', ')}` : ''].filter(Boolean);
+        const metaParts = [
+          hasText(assignee) ? `Developer: ${assignee}` : '',
+          hasText(issueType) ? `Type: ${issueType}` : '',
+          comps !== null ? `Components: ${comps.join(', ')}` : '',
+        ].filter((s) => s.length > 0);
         sections.push(`Query: "${description}"${metaParts.length > 0 ? ` | ${metaParts.join(' | ')}` : ''}`);
         sections.push(`Based on ${String(similar.length)} similar completed tasks`);
-        sections.push(`Scoring: text 30% + type ${issueType ? '25%' : '0%'} + component ${comps ? '35%' : '0%'} + recency 10%\n`);
+        sections.push(`Scoring: text 30% + type ${hasText(issueType) ? '25%' : '0%'} + component ${comps !== null ? '35%' : '0%'} + recency 10%\n`);
         if (usedFallback) {
           sections.push('> Note: No similar tasks found by description. Using project-wide statistics for same issue type.\n');
         }
@@ -396,7 +403,7 @@ export function registerEstimateTools(server: McpServer): void {
         const developerStats = new Map<string, { tasks: number; cycleHours: number; codingHours: number; bugs: number; commits: number }>();
 
         for (const issue of similar) {
-          const cycleHours = issue.resolved
+          const cycleHours = hasText(issue.resolved)
             ? (new Date(issue.resolved).getTime() - new Date(issue.created).getTime()) / 3600000
             : null;
 
@@ -410,7 +417,7 @@ export function registerEstimateTools(server: McpServer): void {
           const issueBugs = bugMap.get(issue.issue_key) ?? [];
           const issueEstimate = estimateMap.get(issue.issue_key);
 
-          const codingHours = (issueCommits?.first_commit && issueCommits.last_commit)
+          const codingHours = (hasText(issueCommits?.first_commit) && hasText(issueCommits.last_commit))
             ? (new Date(issueCommits.last_commit).getTime() - new Date(issueCommits.first_commit).getTime()) / 3600000
             : null;
 
@@ -423,7 +430,7 @@ export function registerEstimateTools(server: McpServer): void {
 
           const realDev = realDevMap.get(issue.issue_key);
           const devName = realDev ?? (issueWorklogs.length > 0 ? issueWorklogs[0]?.author : null) ?? issueCommits?.authors ?? issue.assignee ?? 'unknown';
-          if (devName) {
+          if (hasText(devName)) {
             const stats = developerStats.get(devName) ?? { tasks: 0, cycleHours: 0, codingHours: 0, bugs: 0, commits: 0 };
             stats.tasks++;
             stats.cycleHours += cycleHours ?? 0;
@@ -433,21 +440,26 @@ export function registerEstimateTools(server: McpServer): void {
             developerStats.set(devName, stats);
           }
 
-          const estH = issueEstimate?.original_estimate ? Number(issueEstimate.original_estimate) / 3600 : null;
-          const actualH = issueEstimate?.time_spent ? Number(issueEstimate.time_spent) / 3600 : null;
+          const estRaw = issueEstimate?.original_estimate;
+          const estH = estRaw !== null && estRaw !== undefined && estRaw !== '' ? Number(estRaw) / 3600 : null;
+          const timeRaw = issueEstimate?.time_spent;
+          const actualH = timeRaw !== null && timeRaw !== undefined && timeRaw !== '' ? Number(timeRaw) / 3600 : null;
           const bugTimeH = issueBugs
             .filter((b) => b.bug_time_spent !== null)
             .reduce((sum, b) => sum + (b.bug_time_spent ?? 0), 0) / 3600;
           const realCostH = (actualH ?? 0) + bugTimeH;
-          const taskCoeff = estH && estH > 0 && actualH ? actualH / estH : null;
-          const taskCoeffBugs = estH && estH > 0 ? realCostH / estH : null;
+          const taskCoeff = estH !== null && estH > 0 && actualH !== null ? actualH / estH : null;
+          const taskCoeffBugs = estH !== null && estH > 0 ? realCostH / estH : null;
 
-          const cycleBizDays = issue.resolved ? businessHoursBetween(new Date(issue.created), new Date(issue.resolved)) / 8 : null;
+          const cycleBizDays = hasText(issue.resolved) ? businessHoursBetween(new Date(issue.created), new Date(issue.resolved)) / 8 : null;
           const cycleStr = cycleBizDays !== null ? `${cycleBizDays.toFixed(0)}d cycle` : 'open';
           const codingStr = codingHours !== null && codingHours > 0 ? ` | ${codingHours.toFixed(1)}h coding` : '';
 
           const scoreStr = `score: ${Number(issue.composite_score).toFixed(2)}`;
-          const matchParts = [issue.type_match > 0 ? 'type' : '', issue.component_overlap > 0 ? `comp:${(issue.component_overlap * 100).toFixed(0)}%` : ''].filter(Boolean);
+          const matchParts = [
+            issue.type_match > 0 ? 'type' : '',
+            issue.component_overlap > 0 ? `comp:${(issue.component_overlap * 100).toFixed(0)}%` : '',
+          ].filter((s) => s.length > 0);
           const matchStr = matchParts.length > 0 ? ` [${matchParts.join(', ')}]` : '';
 
           sections.push(`### ${issue.issue_key}: ${issue.summary}`);
@@ -456,12 +468,12 @@ export function registerEstimateTools(server: McpServer): void {
             const estStr = estH !== null ? `${Math.round(estH)}h est` : '';
             const actStr = actualH !== null ? `${Math.round(actualH)}h actual` : '';
             const coeffStr = taskCoeff !== null ? ` (×${taskCoeff.toFixed(2)})` : '';
-            sections.push(`Estimate: ${[estStr, actStr].filter(Boolean).join(' → ')}${coeffStr}`);
+            sections.push(`Estimate: ${[estStr, actStr].filter((s) => s.length > 0).join(' → ')}${coeffStr}`);
           }
           if (bugTimeH > 0) {
             sections.push(`Bug aftermath: ${bugTimeH.toFixed(1)}h → real cost: ${realCostH.toFixed(1)}h (×${taskCoeffBugs?.toFixed(2) ?? '?'})`);
           }
-          if (issueCommits) {
+          if (issueCommits !== undefined) {
             sections.push(`Code: ${issueCommits.commits} commits, +${issueCommits.total_additions}/-${issueCommits.total_deletions} lines (${issueCommits.authors})`);
           }
           if (issueWorklogs.length > 0) {
@@ -470,7 +482,7 @@ export function registerEstimateTools(server: McpServer): void {
           }
           if (issueBugs.length > 0) {
             const bugLines = issueBugs.map((b) => {
-              const bTimeStr = b.bug_time_spent ? ` [${(b.bug_time_spent / 3600).toFixed(1)}h]` : '';
+              const bTimeStr = b.bug_time_spent !== null && b.bug_time_spent > 0 ? ` [${(b.bug_time_spent / 3600).toFixed(1)}h]` : '';
               return `  ${b.bug_key} [${b.issue_type}]${bTimeStr} ${b.summary}`;
             });
             sections.push(`Related issues (${String(issueBugs.length)}):\n${bugLines.join('\n')}`);
@@ -484,17 +496,23 @@ export function registerEstimateTools(server: McpServer): void {
           const issueCommits = commitMap.get(issue.issue_key);
           const issueEstimate = estimateMap.get(issue.issue_key);
 
-          const codingHours = (issueCommits?.first_commit && issueCommits.last_commit)
+          const codingHours = (hasText(issueCommits?.first_commit) && hasText(issueCommits.last_commit))
             ? (new Date(issueCommits.last_commit).getTime() - new Date(issueCommits.first_commit).getTime()) / 3600000
             : null;
           const worklogHours = issueWorklogs.reduce((sum, w) => sum + Number(w.total_seconds), 0) / 3600;
-          const actualH = issueEstimate?.time_spent ? Number(issueEstimate.time_spent) / 3600 : null;
-          const estimateH = issueEstimate?.original_estimate ? Number(issueEstimate.original_estimate) / 3600 : null;
-          const cycleBusinessH = issue.resolved
+          const timeRaw = issueEstimate?.time_spent;
+          const actualH = timeRaw !== null && timeRaw !== undefined && timeRaw !== '' ? Number(timeRaw) / 3600 : null;
+          const estRaw = issueEstimate?.original_estimate;
+          const estimateH = estRaw !== null && estRaw !== undefined && estRaw !== '' ? Number(estRaw) / 3600 : null;
+          const cycleBusinessH = hasText(issue.resolved)
             ? businessHoursBetween(new Date(issue.created), new Date(issue.resolved))
             : null;
-          const hours = actualH ?? (worklogHours > 0 ? worklogHours : null) ?? (codingHours && codingHours > 0 ? codingHours : null) ?? estimateH ?? (cycleBusinessH && cycleBusinessH > 0 ? cycleBusinessH : null);
-          const isCycleFallback = hours !== null && hours === cycleBusinessH && actualH === null && !(worklogHours > 0) && !(codingHours && codingHours > 0) && estimateH === null;
+          const hours = actualH
+            ?? (worklogHours > 0 ? worklogHours : null)
+            ?? (codingHours !== null && codingHours > 0 ? codingHours : null)
+            ?? estimateH
+            ?? (cycleBusinessH !== null && cycleBusinessH > 0 ? cycleBusinessH : null);
+          const isCycleFallback = hours !== null && hours === cycleBusinessH && actualH === null && !(worklogHours > 0) && !(codingHours !== null && codingHours > 0) && estimateH === null;
           if (hours !== null && hours > 0) {
             taskMetrics.push({ issueKey: issue.issue_key, hours, weight: Number(issue.temporal_weight), isCycleFallback });
           }
@@ -508,7 +526,7 @@ export function registerEstimateTools(server: McpServer): void {
         const avgCoding = validCodingCount > 0 ? totalCodingHours / validCodingCount : 0;
         const avgBugs = similar.length > 0 ? totalBugs / similar.length : 0;
 
-        const allCycleFallback = taskMetrics.length > 0 && taskMetrics.every((m) => m.isCycleFallback);
+        const allCycleFallback = taskMetrics.length > 0 && taskMetrics.every((m) => m.isCycleFallback === true);
 
         if (!allCycleFallback) {
           sections.push(`Base hours: ${base.hours.toFixed(1)}h (${base.method})`);
@@ -521,7 +539,7 @@ export function registerEstimateTools(server: McpServer): void {
         if (!allCycleFallback && developerStats.size > 0) {
           sections.push('\n## Developer Profiles (similar tasks)\n');
           for (const [dev, stats] of developerStats) {
-            if (assignee && !dev.toLowerCase().includes(assignee.toLowerCase())) {
+            if (hasText(assignee) && !dev.toLowerCase().includes(assignee.toLowerCase())) {
               continue;
             }
             const avgDevCoding = stats.tasks > 0 ? stats.codingHours / stats.tasks : 0;
@@ -539,7 +557,7 @@ export function registerEstimateTools(server: McpServer): void {
 
         if (!allCycleFallback && coefficients.length > 0) {
           sections.push('\n## Developer Coefficients\n');
-          const relevantCoeffs = assignee
+          const relevantCoeffs = hasText(assignee)
             ? coefficients.filter((c) => c.assignee.toLowerCase().includes(assignee.toLowerCase()))
             : coefficients;
           for (const c of relevantCoeffs) {
@@ -590,7 +608,7 @@ export function registerEstimateTools(server: McpServer): void {
           const devCtx = contextCoeffs.find((c) => c.assignee.toLowerCase().includes(assignee.toLowerCase()));
           const devGlob = globalCoeffs.find((c) => c.assignee.toLowerCase().includes(assignee.toLowerCase()));
           const dev = devCtx ?? devGlob;
-          if (dev) {
+          if (dev !== undefined) {
             sections.push(...buildDevPrediction(dev));
           } else {
             sections.push(`No coefficient data for "${assignee}". Need ≥3 completed tasks.`);

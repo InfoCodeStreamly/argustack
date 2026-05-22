@@ -5,7 +5,9 @@ import {
   createAdapters,
   textResponse,
   errorResponse,
+  workspaceNotFoundResponse,
   getErrorMessage,
+  hasText,
   ANNOTATIONS,
 } from '../helpers.js';
 
@@ -26,7 +28,7 @@ export function registerGraphTools(server: McpServer): void {
     },
     async ({ workspace_id: workspaceIdInput, file_or_module: target, depth }) => {
       const ws = await loadWorkspace(workspaceIdInput);
-      if (!ws.ok) { return errorResponse(ws.reason); }
+      if (!ws.ok) { return workspaceNotFoundResponse(ws.reason); }
       const { storage, workspaceId } = await createAdapters(ws.workspaceId);
 
       try {
@@ -94,7 +96,7 @@ export function registerGraphTools(server: McpServer): void {
     },
     async ({ workspace_id: workspaceIdInput, area, limit }) => {
       const ws = await loadWorkspace(workspaceIdInput);
-      if (!ws.ok) { return errorResponse(ws.reason); }
+      if (!ws.ok) { return workspaceNotFoundResponse(ws.reason); }
       const { storage, workspaceId } = await createAdapters(ws.workspaceId);
 
       try {
@@ -115,7 +117,7 @@ export function registerGraphTools(server: McpServer): void {
         const lines = [`# Developer Expertise: ${area}`, ''];
         for (let i = 0; i < ranked.length; i++) {
           const dev = ranked[i];
-          if (!dev) { continue; }
+          if (dev === undefined) { continue; }
           lines.push(`${String(i + 1)}. **${dev.name}** — ${String(dev.commits)} commits, ${String(dev.reviews)} reviews, ${String(dev.assigned)} assignments`);
         }
         return textResponse(lines.join('\n'));
@@ -139,7 +141,7 @@ export function registerGraphTools(server: McpServer): void {
     },
     async ({ workspace_id: workspaceIdInput, issue_key: issueKey, depth }) => {
       const ws = await loadWorkspace(workspaceIdInput);
-      if (!ws.ok) { return errorResponse(ws.reason); }
+      if (!ws.ok) { return workspaceNotFoundResponse(ws.reason); }
       const { storage, workspaceId } = await createAdapters(ws.workspaceId);
 
       try {
@@ -178,7 +180,7 @@ export function registerGraphTools(server: McpServer): void {
     },
     async ({ workspace_id: workspaceIdInput, file_or_module: target, depth }) => {
       const ws = await loadWorkspace(workspaceIdInput);
-      if (!ws.ok) { return errorResponse(ws.reason); }
+      if (!ws.ok) { return workspaceNotFoundResponse(ws.reason); }
       const { storage, workspaceId } = await createAdapters(ws.workspaceId);
 
       try {
@@ -193,7 +195,7 @@ export function registerGraphTools(server: McpServer): void {
           lines.push('## Co-changed Modules (coupling)');
           for (const rel of coChanges.slice(0, 15)) {
             const other = result.entities.find((e) => e.id === rel.sourceId || e.id === rel.targetId);
-            if (other) { lines.push(`- ${other.name} (${String(rel.weight)}x together)`); }
+            if (other !== undefined) { lines.push(`- ${other.name} (${String(rel.weight)}x together)`); }
           }
           lines.push('');
         }
@@ -201,7 +203,7 @@ export function registerGraphTools(server: McpServer): void {
           lines.push('## Imports');
           for (const rel of imports.slice(0, 20)) {
             const importedModule = result.entities.find((e) => e.id === rel.targetId);
-            if (importedModule) { lines.push(`- ${importedModule.name}`); }
+            if (importedModule !== undefined) { lines.push(`- ${importedModule.name}`); }
           }
           lines.push('');
         }
@@ -209,7 +211,7 @@ export function registerGraphTools(server: McpServer): void {
           lines.push('## Package Dependencies');
           for (const rel of pkgDeps.slice(0, 20)) {
             const pkg = result.entities.find((e) => e.id === rel.targetId);
-            if (pkg) { lines.push(`- ${pkg.name}`); }
+            if (pkg !== undefined) { lines.push(`- ${pkg.name}`); }
           }
           lines.push('');
         }
@@ -237,7 +239,7 @@ export function registerGraphTools(server: McpServer): void {
     },
     async ({ workspace_id: workspaceIdInput, topic, depth }) => {
       const ws = await loadWorkspace(workspaceIdInput);
-      if (!ws.ok) { return errorResponse(ws.reason); }
+      if (!ws.ok) { return workspaceNotFoundResponse(ws.reason); }
       const { storage, workspaceId } = await createAdapters(ws.workspaceId);
 
       try {
@@ -294,13 +296,13 @@ export function registerGraphTools(server: McpServer): void {
     },
     async ({ workspace_id: workspaceIdInput, project, batch_size: batchSize }) => {
       const ws = await loadWorkspace(workspaceIdInput);
-      if (!ws.ok) { return errorResponse(ws.reason); }
+      if (!ws.ok) { return workspaceNotFoundResponse(ws.reason); }
       const { storage, workspaceId } = await createAdapters(ws.workspaceId);
 
       try {
         await storage.initialize();
-        const projectFilter = project ? `AND project_key = $2` : '';
-        const params: unknown[] = project ? [project] : [];
+        const projectFilter = hasText(project) ? `AND project_key = $2` : '';
+        const params: unknown[] = hasText(project) ? [project] : [];
         const result = await storage.queryForWorkspace(
           workspaceId,
           `SELECT issue_key, summary, description, issue_type, status FROM issues
@@ -314,7 +316,7 @@ export function registerGraphTools(server: McpServer): void {
         }
         const issueList = result.rows.map((r) => {
           const desc = (r['description'] as string | null) ?? '';
-          const preview = desc.length > 200 ? desc.slice(0, 200) + '...' : desc;
+          const preview = desc.length > 200 ? `${desc.slice(0, 200)  }...` : desc;
           return `**${r['issue_key'] as string}** [${r['issue_type'] as string}] ${r['summary'] as string}\n${preview}`;
         }).join('\n\n');
         return textResponse([
@@ -348,7 +350,7 @@ export function registerGraphTools(server: McpServer): void {
     },
     async ({ workspace_id: workspaceIdInput, source_name: srcName, source_type: srcType, target_name: tgtName, target_type: tgtType, relationship_type: relType, description: desc }) => {
       const ws = await loadWorkspace(workspaceIdInput);
-      if (!ws.ok) { return errorResponse(ws.reason); }
+      if (!ws.ok) { return workspaceNotFoundResponse(ws.reason); }
       const { storage, workspaceId } = await createAdapters(ws.workspaceId);
 
       try {
@@ -365,7 +367,7 @@ export function registerGraphTools(server: McpServer): void {
         );
         const srcEntity = entityResult.rows.find((r) => r['name'] === srcName && r['type'] === srcType);
         const tgtEntity = entityResult.rows.find((r) => r['name'] === tgtName && r['type'] === tgtType);
-        if (!srcEntity || !tgtEntity) {
+        if (srcEntity === undefined || tgtEntity === undefined) {
           return errorResponse('Failed to create entities');
         }
         await storage.saveGraphRelationships(workspaceId, [{
@@ -374,9 +376,9 @@ export function registerGraphTools(server: McpServer): void {
           type: relType,
           weight: 1,
           source: 'claude',
-          properties: desc ? { description: desc } : {},
+          properties: hasText(desc) ? { description: desc } : {},
         }]);
-        return textResponse(`Added: ${srcName} —[${relType}]→ ${tgtName}${desc ? ` (${desc})` : ''}`);
+        return textResponse(`Added: ${srcName} —[${relType}]→ ${tgtName}${hasText(desc) ? ` (${desc})` : ''}`);
       } catch (err) {
         return errorResponse(`Add relationship failed: ${getErrorMessage(err)}`);
       }
@@ -396,7 +398,7 @@ export function registerGraphTools(server: McpServer): void {
     },
     async ({ workspace_id: workspaceIdInput, issue_key: issueKey }) => {
       const ws = await loadWorkspace(workspaceIdInput);
-      if (!ws.ok) { return errorResponse(ws.reason); }
+      if (!ws.ok) { return workspaceNotFoundResponse(ws.reason); }
       const { storage, workspaceId } = await createAdapters(ws.workspaceId);
 
       try {
@@ -481,7 +483,7 @@ export function registerGraphTools(server: McpServer): void {
     },
     async ({ workspace_id: workspaceIdInput, entity_name: entityName, content }) => {
       const ws = await loadWorkspace(workspaceIdInput);
-      if (!ws.ok) { return errorResponse(ws.reason); }
+      if (!ws.ok) { return workspaceNotFoundResponse(ws.reason); }
       const { storage, workspaceId } = await createAdapters(ws.workspaceId);
 
       try {

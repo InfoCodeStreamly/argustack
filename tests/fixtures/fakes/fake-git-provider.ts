@@ -9,22 +9,22 @@ export class FakeGitProvider implements IGitProvider {
 
   // eslint-disable-next-line @typescript-eslint/require-await -- fake: async generator impl
   async *pullCommits(since?: Date): AsyncGenerator<CommitBatch> {
-    this.pullCalls.push({ since });
+    this.pullCalls.push(since !== undefined ? { since } : {});
     for (const batch of this._batches) {
       yield batch;
     }
   }
 
-  getCommitCount(_since?: Date): Promise<number> {
+  async getCommitCount(_since?: Date): Promise<number> {
     const total = this._batches.reduce((sum, b) => sum + b.commits.length, 0);
     return Promise.resolve(total);
   }
 
-  getBranches(): Promise<GitRef[]> {
+  async getBranches(): Promise<GitRef[]> {
     return Promise.resolve([]);
   }
 
-  getTags(): Promise<GitRef[]> {
+  async getTags(): Promise<GitRef[]> {
     return Promise.resolve([]);
   }
 

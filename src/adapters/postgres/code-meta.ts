@@ -60,7 +60,7 @@ export class PostgresCodeMetaStore implements ICodeMetaStore {
         project.name,
         project.root,
         project.language,
-        project.layerConfig ? JSON.stringify(project.layerConfig) : null,
+        project.layerConfig !== undefined ? JSON.stringify(project.layerConfig) : null,
         project.excludes ?? null,
         project.createdAt ?? null,
         project.lastIndexedAt ?? null,
@@ -87,7 +87,7 @@ export class PostgresCodeMetaStore implements ICodeMetaStore {
          FROM code_projects WHERE root_path = $1 LIMIT 1`,
       [root],
     );
-    return rows[0] ? rowToCodeProject(rows[0]) : null;
+    return rows[0] !== undefined ? rowToCodeProject(rows[0]) : null;
   }
 
   async getProjectById(projectId: string): Promise<CodeProject | null> {
@@ -96,7 +96,7 @@ export class PostgresCodeMetaStore implements ICodeMetaStore {
          FROM code_projects WHERE id = $1 LIMIT 1`,
       [projectId],
     );
-    return rows[0] ? rowToCodeProject(rows[0]) : null;
+    return rows[0] !== undefined ? rowToCodeProject(rows[0]) : null;
   }
 
   async upsertFileHashes(projectId: string, hashes: CodeFileHash[]): Promise<void> {
@@ -178,7 +178,7 @@ export class PostgresCodeMetaStore implements ICodeMetaStore {
         LIMIT 1`,
       [projectId],
     );
-    return rows[0] ? rowToIndexJob(rows[0]) : null;
+    return rows[0] !== undefined ? rowToIndexJob(rows[0]) : null;
   }
 
   async tryAcquireLock(projectId: string): Promise<boolean> {
@@ -204,16 +204,16 @@ function rowToCodeProject(row: CodeProjectRow): CodeProject {
     root: row.root_path,
     language: row.language as CodeProject['language'],
   };
-  if (row.layer_config) {
+  if (row.layer_config !== null) {
     project.layerConfig = row.layer_config as Record<string, CodeLayer>;
   }
-  if (row.excludes) {
+  if (row.excludes !== null) {
     project.excludes = row.excludes;
   }
-  if (row.created_at) {
+  if (row.created_at !== null) {
     project.createdAt = row.created_at.toISOString();
   }
-  if (row.last_indexed_at) {
+  if (row.last_indexed_at !== null) {
     project.lastIndexedAt = row.last_indexed_at.toISOString();
   }
   return project;
@@ -227,13 +227,13 @@ function rowToIndexJob(row: IndexJobRow): IndexJob {
     status: row.status as IndexJob['status'],
     startedAt: row.started_at.toISOString(),
   };
-  if (row.completed_at) {
+  if (row.completed_at !== null) {
     job.completedAt = row.completed_at.toISOString();
   }
-  if (row.stats) {
+  if (row.stats !== null) {
     job.stats = row.stats;
   }
-  if (row.error) {
+  if (row.error !== null && row.error !== '') {
     job.error = row.error;
   }
   return job;

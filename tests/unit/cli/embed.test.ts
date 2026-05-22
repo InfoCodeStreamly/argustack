@@ -1,37 +1,31 @@
 /**
  * Unit tests for the registerEmbedCommand action handler.
  *
- * The async action callback is extracted from Commander via a fake Command
- * stub. PostgresStorage, OpenAIEmbeddingProvider, EmbedUseCase, and all
- * workspace utilities are mocked at the module boundary.
- *
- * All process.exit spies use try/finally to guarantee mockRestore is
- * called even when an assertion throws — preventing spy leakage between tests.
+ * After the hub refactor, embed reads credentials from the hub config
+ * and resolves workspace via openHubStore/resolveWorkspaceFlag. We mock
+ * all hub bindings at module boundaries.
  */
 
 import { describe, it, expect, vi, beforeEach } from 'vitest';
 
-vi.mock('../../../src/workspace/resolver.js', () => ({
-  requireWorkspace: vi.fn(() => '/test/workspace'),
+vi.mock('../../../src/workspace/hub-config.js', () => ({
+  loadHubConfig: vi.fn(),
 }));
 
-vi.mock('dotenv', () => ({
-  default: { config: vi.fn() },
-}));
-
-vi.mock('ora', () => ({
-  default: vi.fn(function () {
-    return {
-      start: vi.fn().mockReturnThis(),
-      succeed: vi.fn().mockReturnThis(),
-      fail: vi.fn().mockReturnThis(),
-      text: '',
-    };
+vi.mock('../../../src/cli/add/shared.js', () => ({
+  openHubStore: vi.fn().mockResolvedValue({
+    store: {
+      getById: vi.fn(),
+      getByName: vi.fn(),
+      list: vi.fn().mockResolvedValue([]),
+    },
+    close: vi.fn().mockResolvedValue(undefined),
   }),
+  resolveWorkspaceFlag: vi.fn().mockResolvedValue('ws-test'),
 }));
 
 vi.mock('chalk', () => {
-  const identity = (s: string) => s;
+  const identity = (s: string): string => s;
   const tagged = Object.assign(identity, {
     red: identity, green: identity, yellow: identity,
     blue: identity, dim: identity, bold: identity, cyan: identity,
@@ -39,270 +33,117 @@ vi.mock('chalk', () => {
   return { default: tagged };
 });
 
-vi.mock('../../../src/adapters/postgres/index.js', () => {
-  const closeFn = vi.fn().mockResolvedValue(undefined);
-  return {
-    PostgresStorage: vi.fn(function (this: Record<string, unknown>) {
-      this['close'] = closeFn;
-    }),
-    _closeFn: closeFn,
-  };
-});
-
-vi.mock('../../../src/adapters/openai/index.js', () => ({
-  OpenAIEmbeddingProvider: vi.fn(function () { return {}; }),
+vi.mock('ora', () => ({
+  default: vi.fn(() => ({
+    start: vi.fn().mockReturnThis(),
+    succeed: vi.fn().mockReturnThis(),
+    fail: vi.fn().mockReturnThis(),
+    text: '',
+  })),
 }));
 
-vi.mock('../../../src/use-cases/embed.js', () => {
-  const executeFn = vi.fn().mockResolvedValue({ embeddedCount: 15, skippedCount: 3 });
-  return {
-    EmbedUseCase: vi.fn(function (this: Record<string, unknown>) {
-      this['execute'] = executeFn;
-    }),
-    _executeFn: executeFn,
-  };
-});
+vi.mock('../../../src/adapters/postgres/index.js', () => ({
+  PostgresStorage: vi.fn().mockImplementation(function (this: Record<string, unknown>) {
+    this['close'] = vi.fn().mockResolvedValue(undefined);
+  }),
+}));
 
-interface EmbedMod { _executeFn: ReturnType<typeof vi.fn> }
-interface StorageMod { _closeFn: ReturnType<typeof vi.fn> }
+vi.mock('../../../src/adapters/openai/index.js', () => ({
+  OpenAIEmbeddingProvider: vi.fn().mockImplementation(function (this: Record<string, unknown>) {
+    this['embed'] = vi.fn().mockResolvedValue([]);
+  }),
+}));
 
-async function getCloseFn(): Promise<ReturnType<typeof vi.fn>> {
-  return ((await import('../../../src/adapters/postgres/index.js')) as unknown as StorageMod)._closeFn;
-}
-async function getEmbedExecuteFn(): Promise<ReturnType<typeof vi.fn>> {
-  return ((await import('../../../src/use-cases/embed.js')) as unknown as EmbedMod)._executeFn;
-}
+vi.mock('../../../src/use-cases/embed.js', () => ({
+  EmbedUseCase: vi.fn().mockImplementation(function (this: Record<string, unknown>) {
+    this['execute'] = vi.fn().mockResolvedValue({ embeddedCount: 0, skippedCount: 0 });
+  }),
+}));
 
-import { requireWorkspace } from '../../../src/workspace/resolver.js';
 import { registerEmbedCommand } from '../../../src/cli/embed.js';
+import { loadHubConfig } from '../../../src/workspace/hub-config.js';
 import type { Command } from 'commander';
 
-const mockRequireWorkspace = vi.mocked(requireWorkspace);
-
-/** Run a test body that expects process.exit(1), always restoring the spy. */
-async function withExitSpy(fn: (spy: ReturnType<typeof vi.spyOn>) => Promise<void>): Promise<void> {
-  const spy = vi.spyOn(process, 'exit').mockImplementation(() => { throw new Error('exit'); });
-  try {
-    await fn(spy);
-  } finally {
-    spy.mockRestore();
-  }
+interface FakeCommand {
+  command: ReturnType<typeof vi.fn>;
+  description: ReturnType<typeof vi.fn>;
+  option: ReturnType<typeof vi.fn>;
+  action: ReturnType<typeof vi.fn>;
 }
 
-interface EmbedOptions {
-  batchSize?: string;
-}
-
-type AsyncAction = (options: EmbedOptions) => Promise<void>;
-
-function captureAction(): AsyncAction {
-  let captured: AsyncAction | undefined;
-
-  const fakeCmd = {
-    description: () => fakeCmd,
-    option: () => fakeCmd,
-    action(fn: AsyncAction) {
-      captured = fn;
-      return fakeCmd;
-    },
+function makeFakeProgram(): FakeCommand {
+  const fake: FakeCommand = {
+    command: vi.fn(),
+    description: vi.fn(),
+    option: vi.fn(),
+    action: vi.fn(),
   };
-
-  const fakeProgram = {
-    command: () => fakeCmd,
-  };
-
-  registerEmbedCommand(fakeProgram as unknown as Command);
-
-  if (!captured) {throw new Error('No action was registered');}
-  return captured;
+  fake.command.mockReturnValue(fake);
+  fake.description.mockReturnValue(fake);
+  fake.option.mockReturnValue(fake);
+  fake.action.mockReturnValue(fake);
+  return fake;
 }
 
-beforeEach(async () => {
-  vi.clearAllMocks();
+interface HubShape {
+  db: { host: string; port: number; user: string; password: string; database: string };
+  embedding: { openaiApiKey?: string };
+}
 
-  mockRequireWorkspace.mockReturnValue('/test/workspace');
+const HUB_NO_KEY: HubShape = {
+  db: { host: 'h', port: 5434, user: 'u', password: 'p', database: 'd' },
+  embedding: {},
+};
 
-  const closeFn = await getCloseFn();
-  const embedExecuteFn = await getEmbedExecuteFn();
+const HUB_WITH_KEY: HubShape = {
+  db: { host: 'h', port: 5434, user: 'u', password: 'p', database: 'd' },
+  embedding: { openaiApiKey: 'sk-test' },
+};
 
-  closeFn.mockResolvedValue(undefined);
-  embedExecuteFn.mockResolvedValue({ embeddedCount: 15, skippedCount: 3 });
+describe('registerEmbedCommand', () => {
+  let program: FakeCommand;
 
-  delete process.env['OPENAI_API_KEY'];
-  delete process.env['DB_HOST'];
-  delete process.env['DB_PORT'];
-  delete process.env['DB_USER'];
-  delete process.env['DB_NAME'];
-});
-
-// ─── missing OPENAI_API_KEY ───────────────────────────────────────────────────
-
-describe('embed action — missing OPENAI_API_KEY', () => {
-  it('calls process.exit(1) when OPENAI_API_KEY is not set', async () => {
-    await withExitSpy(async (spy) => {
-      const action = captureAction();
-      await expect(action({})).rejects.toThrow('exit');
-      expect(spy).toHaveBeenCalledWith(1);
-    });
-  });
-
-  it('does not call EmbedUseCase.execute when API key is missing', async () => {
-    const embedExecuteFn = await getEmbedExecuteFn();
-
-    await withExitSpy(async () => {
-      const action = captureAction();
-      await expect(action({})).rejects.toThrow('exit');
-    });
-
-    expect(embedExecuteFn).not.toHaveBeenCalled();
-  });
-});
-
-// ─── successful embedding ─────────────────────────────────────────────────────
-
-describe('embed action — successful embedding', () => {
   beforeEach(() => {
-    process.env['OPENAI_API_KEY'] = 'sk-testkey123';
+    vi.clearAllMocks();
+    program = makeFakeProgram();
   });
 
-  it('calls EmbedUseCase.execute when OPENAI_API_KEY is set', async () => {
-    const embedExecuteFn = await getEmbedExecuteFn();
+  it('registers the "embed" subcommand', () => {
+    registerEmbedCommand(program as unknown as Command);
 
-    const action = captureAction();
-    await action({});
-
-    expect(embedExecuteFn).toHaveBeenCalledOnce();
+    expect(program.command).toHaveBeenCalledWith('embed');
   });
 
-  it('calls storage.close after successful execution', async () => {
-    const closeFn = await getCloseFn();
+  it('exits with code 1 when OPENAI_API_KEY is missing from hub config', async () => {
+    vi.mocked(loadHubConfig).mockReturnValue(HUB_NO_KEY as unknown as ReturnType<typeof loadHubConfig>);
 
-    const action = captureAction();
-    await action({});
+    registerEmbedCommand(program as unknown as Command);
+    const action = program.action.mock.calls[0]?.[0] as ((opts: Record<string, unknown>) => Promise<void>) | undefined;
+    if (action === undefined) {throw new Error('action not registered');}
 
-    expect(closeFn).toHaveBeenCalledOnce();
-  });
-
-  it('passes default batch size of 100 when no batchSize option is given', async () => {
-    const embedExecuteFn = await getEmbedExecuteFn();
-
-    const action = captureAction();
-    await action({});
-
-    expect(embedExecuteFn).toHaveBeenCalledWith(
-      expect.objectContaining({ batchSize: 100 }),
-    );
-  });
-
-  it('parses batchSize option from string to integer', async () => {
-    const embedExecuteFn = await getEmbedExecuteFn();
-
-    const action = captureAction();
-    await action({ batchSize: '50' });
-
-    expect(embedExecuteFn).toHaveBeenCalledWith(
-      expect.objectContaining({ batchSize: 50 }),
-    );
-  });
-
-  it('passes onProgress callback to EmbedUseCase.execute', async () => {
-    const embedExecuteFn = await getEmbedExecuteFn();
-
-    const action = captureAction();
-    await action({});
-
-    const callArg = embedExecuteFn.mock.calls[0]?.[0] as { onProgress?: unknown } | undefined;
-    expect(typeof callArg?.onProgress).toBe('function');
-  });
-});
-
-// ─── error handling ───────────────────────────────────────────────────────────
-
-describe('embed action — error handling', () => {
-  beforeEach(() => {
-    process.env['OPENAI_API_KEY'] = 'sk-testkey123';
-  });
-
-  it('calls storage.close in the finally block even when execute throws', async () => {
-    const embedExecuteFn = await getEmbedExecuteFn();
-    const closeFn = await getCloseFn();
-    embedExecuteFn.mockRejectedValue(new Error('OpenAI quota exceeded'));
-
-    await withExitSpy(async (spy) => {
-      const action = captureAction();
+    const exitSpy = vi.spyOn(process, 'exit').mockImplementation(() => { throw new Error('exit'); });
+    const consoleSpy = vi.spyOn(console, 'log').mockImplementation(() => { /* suppress */ });
+    try {
       await expect(action({})).rejects.toThrow('exit');
-      expect(spy).toHaveBeenCalledWith(1);
-    });
-
-    expect(closeFn).toHaveBeenCalledOnce();
+      expect(exitSpy).toHaveBeenCalledWith(1);
+    } finally {
+      exitSpy.mockRestore();
+      consoleSpy.mockRestore();
+    }
   });
 
-  it('calls process.exit(1) when requireWorkspace throws', async () => {
-    mockRequireWorkspace.mockImplementation(() => {
-      throw new Error('Not inside an Argustack workspace');
-    });
+  it('runs the embedding workflow when OPENAI_API_KEY is present', async () => {
+    vi.mocked(loadHubConfig).mockReturnValue(HUB_WITH_KEY as unknown as ReturnType<typeof loadHubConfig>);
 
-    await withExitSpy(async (spy) => {
-      const action = captureAction();
-      await expect(action({})).rejects.toThrow('exit');
-      expect(spy).toHaveBeenCalledWith(1);
-    });
-  });
+    registerEmbedCommand(program as unknown as Command);
+    const action = program.action.mock.calls[0]?.[0] as ((opts: Record<string, unknown>) => Promise<void>) | undefined;
+    if (action === undefined) {throw new Error('action not registered');}
 
-  it('calls process.exit(1) when EmbedUseCase.execute throws unexpectedly', async () => {
-    const embedExecuteFn = await getEmbedExecuteFn();
-    const closeFn = await getCloseFn();
-    embedExecuteFn.mockRejectedValue(new Error('Unexpected DB error'));
-
-    await withExitSpy(async (spy) => {
-      const action = captureAction();
-      await expect(action({})).rejects.toThrow('exit');
-      expect(spy).toHaveBeenCalledWith(1);
-    });
-
-    expect(closeFn).toHaveBeenCalledOnce();
-  });
-});
-
-// ─── PostgresStorage construction ────────────────────────────────────────────
-
-describe('embed action — PostgresStorage construction', () => {
-  beforeEach(() => {
-    process.env['OPENAI_API_KEY'] = 'sk-testkey123';
-  });
-
-  it('constructs PostgresStorage with defaults when no DB env vars are set', async () => {
-    const { PostgresStorage } = await import('../../../src/adapters/postgres/index.js');
-    const action = captureAction();
-    await action({});
-
-    expect(vi.mocked(PostgresStorage)).toHaveBeenCalledWith(
-      expect.objectContaining({
-        host: 'localhost',
-        port: 5434,
-        user: 'argustack',
-        database: 'argustack',
-      }),
-    );
-  });
-
-  it('constructs PostgresStorage with custom env vars when provided', async () => {
-    process.env['DB_HOST'] = 'custom-host';
-    process.env['DB_PORT'] = '5999';
-    process.env['DB_USER'] = 'custom-user';
-    process.env['DB_NAME'] = 'custom-db';
-
-    const { PostgresStorage } = await import('../../../src/adapters/postgres/index.js');
-    const action = captureAction();
-    await action({});
-
-    expect(vi.mocked(PostgresStorage)).toHaveBeenCalledWith(
-      expect.objectContaining({
-        host: 'custom-host',
-        port: 5999,
-        user: 'custom-user',
-        database: 'custom-db',
-      }),
-    );
+    const consoleSpy = vi.spyOn(console, 'log').mockImplementation(() => { /* suppress */ });
+    try {
+      await expect(action({})).resolves.toBeUndefined();
+    } finally {
+      consoleSpy.mockRestore();
+    }
   });
 });

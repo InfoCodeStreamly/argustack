@@ -59,7 +59,7 @@ export function setActiveWorkspace(workspaceId: string, name: string): void {
     lastSwitched: new Date().toISOString(),
   };
   const path = activeWorkspacePath();
-  writeFileSync(path, JSON.stringify(payload, null, 2) + '\n');
+  writeFileSync(path, `${JSON.stringify(payload, null, 2)  }\n`);
   try {
     chmodSync(path, 0o600);
   } catch {

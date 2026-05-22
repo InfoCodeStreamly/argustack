@@ -9,7 +9,7 @@ async function promptCsvPath(): Promise<string> {
   const raw = await input({
     message: 'Path to Jira CSV file:',
     validate: (val): string | true => {
-      if (!val.trim()) {
+      if (val.trim().length === 0) {
         return 'CSV file path is required';
       }
       return true;
@@ -52,7 +52,7 @@ export async function setupCsvInteractive(): Promise<CsvSetupResult> {
 }
 
 export function setupCsvFromFlags(flags: InitFlags): CsvSetupResult | null {
-  if (!flags.csvFile) {
+  if (flags.csvFile === undefined || flags.csvFile.length === 0) {
     throw new Error('CSV requires: --csv-file');
   }
   return { csvFilePath: flags.csvFile };

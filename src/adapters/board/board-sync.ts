@@ -20,7 +20,7 @@ export function scanBoardTasks(tasksDir: string, projectKey: string): IssueBatch
       for (const mdFile of mdFiles) {
         const filePath = join(epicDir, mdFile);
         const issue = mdFileToIssue(filePath, projectKey, epicName, status);
-        if (issue) {
+        if (issue !== null) {
           issues.push(issue);
         }
       }
@@ -45,7 +45,7 @@ function mdFileToIssue(
     id: '',
     projectKey,
     summary: parsed.title,
-    description: parsed.body.trim() || null,
+    description: parsed.body.trim() !== '' ? parsed.body.trim() : null,
     issueType: 'Story',
     status: statusToJiraStatus(status),
     statusCategory: null,

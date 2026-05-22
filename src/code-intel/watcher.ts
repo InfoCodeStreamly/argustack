@@ -40,7 +40,7 @@ export class CodeWatcher extends EventEmitter {
   }
 
   start(): void {
-    if (this.watcher) {return;}
+    if (this.watcher !== null) {return;}
     const watcher = chokidar.watch(this.opts.root, {
       ignored: (path) => IGNORED_PATTERNS.some((p) => p.test(path)),
       ignoreInitial: true,
@@ -63,7 +63,7 @@ export class CodeWatcher extends EventEmitter {
       clearTimeout(timer);
     }
     this.pending.clear();
-    if (this.watcher) {
+    if (this.watcher !== null) {
       await this.watcher.close();
       this.watcher = null;
     }
@@ -95,7 +95,7 @@ export class CodeWatcher extends EventEmitter {
 
   private schedule(path: string, fn: () => Promise<void>): void {
     const existing = this.pending.get(path);
-    if (existing) {clearTimeout(existing);}
+    if (existing !== undefined) {clearTimeout(existing);}
     const timer = setTimeout(() => {
       this.pending.delete(path);
       void fn();

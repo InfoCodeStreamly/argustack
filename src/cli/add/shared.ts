@@ -24,22 +24,22 @@ export async function resolveWorkspaceFlag(
   explicit: string | undefined,
 ): Promise<string> {
   const trimmed = explicit?.trim();
-  if (trimmed) {
+  if (trimmed !== undefined && trimmed !== '') {
     const found = (await store.getById(trimmed)) ?? (await store.getByName(trimmed));
-    if (!found) {
+    if (found == null) {
       throw new Error(`Workspace "${trimmed}" not found. Run "argustack workspace list".`);
     }
     return found.id;
   }
   const activeId = getActiveWorkspaceId();
-  if (activeId) {
+  if (activeId !== null && activeId !== '') {
     const found = await store.getById(activeId);
-    if (found) {
+    if (found != null) {
       return found.id;
     }
   }
   const all = await store.list();
-  if (all.length === 1 && all[0]) {
+  if (all.length === 1 && all[0] != null) {
     return all[0].id;
   }
   throw new Error(
@@ -102,11 +102,11 @@ export function upsertHubEnv(patch: Record<string, string>): void {
   const seen = new Set<string>();
   const updated = lines.map((line) => {
     const m = /^([A-Z_][A-Z0-9_]*)\s*=/.exec(line.trim());
-    if (!m) {
+    if (m == null) {
       return line;
     }
     const key = m[1];
-    if (key && key in patch) {
+    if (key !== undefined && key !== '' && key in patch) {
       seen.add(key);
       return `${key}=${patch[key]}`;
     }

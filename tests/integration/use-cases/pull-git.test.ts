@@ -7,7 +7,10 @@ import {
   createCommit,
   createCommitFile,
   GIT_TEST_IDS,
+  TEST_WORKSPACE_IDS,
 } from '../../fixtures/shared/test-constants.js';
+
+const WS = TEST_WORKSPACE_IDS.ALPHA;
 
 describe('PullGitUseCase', () => {
   let git: FakeGitProvider;
@@ -24,14 +27,14 @@ describe('PullGitUseCase', () => {
 
   it('initializes storage before pull', async () => {
     git.seedBatches([createCommitBatch({ commits: [], files: [], issueRefs: [] })]);
-    await useCase.execute(repoPath);
+    await useCase.execute(WS, repoPath);
     expect(storage.initialized).toBe(true);
   });
 
   it('pulls commits and saves to storage', async () => {
     git.seedBatches([createCommitBatch()]);
 
-    const result = await useCase.execute(repoPath);
+    const result = await useCase.execute(WS, repoPath);
 
     expect(result.repoPath).toBe(repoPath);
     expect(result.commitsCount).toBe(1);
@@ -53,7 +56,7 @@ describe('PullGitUseCase', () => {
 
     git.seedBatches([batch1, batch2]);
 
-    const result = await useCase.execute(repoPath);
+    const result = await useCase.execute(WS, repoPath);
 
     expect(result.commitsCount).toBe(2);
     expect(result.filesCount).toBe(3);
@@ -64,7 +67,7 @@ describe('PullGitUseCase', () => {
   it('handles empty batches', async () => {
     git.seedBatches([createCommitBatch({ commits: [], files: [], issueRefs: [] })]);
 
-    const result = await useCase.execute(repoPath);
+    const result = await useCase.execute(WS, repoPath);
 
     expect(result.commitsCount).toBe(0);
     expect(result.filesCount).toBe(0);
@@ -75,20 +78,20 @@ describe('PullGitUseCase', () => {
     git.seedBatches([createCommitBatch({ commits: [], files: [], issueRefs: [] })]);
     const since = new Date('2025-01-01');
 
-    await useCase.execute(repoPath, { since });
+    await useCase.execute(WS, repoPath, { since });
 
     expect(git.pullCalls[0]?.since).toEqual(since);
   });
 
   it('uses incremental since from storage (minus 60s)', async () => {
     const commitDate = new Date('2025-06-15T00:00:00.000Z');
-    await storage.saveCommitBatch(createCommitBatch({
+    await storage.saveCommitBatch(WS, createCommitBatch({
       commits: [createCommit({ committedAt: commitDate.toISOString() })],
     }));
 
     git.seedBatches([createCommitBatch({ commits: [], files: [], issueRefs: [] })]);
 
-    await useCase.execute(repoPath);
+    await useCase.execute(WS, repoPath);
 
     const expected = new Date(commitDate.getTime() - 60_000);
     expect(git.pullCalls[0]?.since).toEqual(expected);
@@ -98,8 +101,8 @@ describe('PullGitUseCase', () => {
     git.seedBatches([createCommitBatch()]);
 
     const messages: string[] = [];
-    await useCase.execute(repoPath, {
-      onProgress: (msg) => messages.push(msg),
+    await useCase.execute(WS, repoPath, {
+      onProgress: (msg: string) => messages.push(msg),
     });
 
     expect(messages.some((m) => m.includes('1/1 commits (100%)'))).toBe(true);
@@ -112,8 +115,8 @@ describe('PullGitUseCase', () => {
     git.seedBatches([createCommitBatch()]);
 
     const messages: string[] = [];
-    await useCase.execute(repoPath, {
-      onProgress: (msg) => messages.push(msg),
+    await useCase.execute(WS, repoPath, {
+      onProgress: (msg: string) => messages.push(msg),
     });
 
     expect(messages.some((m) => m.includes('1 commits...'))).toBe(true);
@@ -122,13 +125,13 @@ describe('PullGitUseCase', () => {
 
   it('incremental since from storage subtracts exactly 60 seconds', async () => {
     const commitDate = new Date('2025-06-15T12:01:00.000Z');
-    await storage.saveCommitBatch(createCommitBatch({
+    await storage.saveCommitBatch(WS, createCommitBatch({
       commits: [createCommit({ committedAt: commitDate.toISOString() })],
     }));
 
     git.seedBatches([createCommitBatch({ commits: [], files: [], issueRefs: [] })]);
 
-    await useCase.execute(repoPath);
+    await useCase.execute(WS, repoPath);
 
     const expected = new Date(commitDate.getTime() - 60_000);
     expect(git.pullCalls[0]?.since?.getTime()).toBe(expected.getTime());
@@ -136,14 +139,14 @@ describe('PullGitUseCase', () => {
 
   it('explicit since overrides storage lastCommitDate', async () => {
     const storageDate = new Date('2025-03-01T00:00:00.000Z');
-    await storage.saveCommitBatch(createCommitBatch({
+    await storage.saveCommitBatch(WS, createCommitBatch({
       commits: [createCommit({ committedAt: storageDate.toISOString() })],
     }));
 
     const explicitSince = new Date('2025-01-01T00:00:00.000Z');
     git.seedBatches([createCommitBatch({ commits: [], files: [], issueRefs: [] })]);
 
-    await useCase.execute(repoPath, { since: explicitSince });
+    await useCase.execute(WS, repoPath, { since: explicitSince });
 
     expect(git.pullCalls[0]?.since).toEqual(explicitSince);
   });
@@ -151,21 +154,21 @@ describe('PullGitUseCase', () => {
   it('does full pull when no storage date and no since', async () => {
     git.seedBatches([createCommitBatch({ commits: [], files: [], issueRefs: [] })]);
 
-    await useCase.execute(repoPath);
+    await useCase.execute(WS, repoPath);
 
     expect(git.pullCalls[0]?.since).toBeUndefined();
   });
 
   it('logs incremental pull message when since is set from storage', async () => {
     const commitDate = new Date('2025-06-15T00:00:00.000Z');
-    await storage.saveCommitBatch(createCommitBatch({
+    await storage.saveCommitBatch(WS, createCommitBatch({
       commits: [createCommit({ committedAt: commitDate.toISOString() })],
     }));
 
     git.seedBatches([createCommitBatch({ commits: [], files: [], issueRefs: [] })]);
 
     const messages: string[] = [];
-    await useCase.execute(repoPath, { onProgress: (msg) => messages.push(msg) });
+    await useCase.execute(WS, repoPath, { onProgress: (msg: string) => messages.push(msg) });
 
     expect(messages.some((m) => m.includes('Incremental pull'))).toBe(true);
   });
@@ -175,7 +178,7 @@ describe('PullGitUseCase', () => {
     git.seedBatches([createCommitBatch({ commits: [], files: [], issueRefs: [] })]);
 
     const messages: string[] = [];
-    await useCase.execute(repoPath, { since, onProgress: (msg) => messages.push(msg) });
+    await useCase.execute(WS, repoPath, { since, onProgress: (msg: string) => messages.push(msg) });
 
     expect(messages.some((m) => m.includes('Incremental pull'))).toBe(true);
   });
@@ -184,7 +187,7 @@ describe('PullGitUseCase', () => {
     git.seedBatches([createCommitBatch({ commits: [], files: [], issueRefs: [] })]);
 
     const messages: string[] = [];
-    await useCase.execute(repoPath, { onProgress: (msg) => messages.push(msg) });
+    await useCase.execute(WS, repoPath, { onProgress: (msg: string) => messages.push(msg) });
 
     expect(messages.some((m) => m.includes('Incremental pull'))).toBe(false);
   });
@@ -193,7 +196,7 @@ describe('PullGitUseCase', () => {
     git.seedBatches([createCommitBatch()]);
 
     const messages: string[] = [];
-    await useCase.execute('/some/path/myrepo', { onProgress: (msg) => messages.push(msg) });
+    await useCase.execute(WS, '/some/path/myrepo', { onProgress: (msg: string) => messages.push(msg) });
 
     expect(messages.some((m) => m.includes('myrepo'))).toBe(true);
   });
@@ -212,7 +215,7 @@ describe('PullGitUseCase', () => {
     git.seedBatches([batch]);
 
     const messages: string[] = [];
-    await useCase.execute(repoPath, { onProgress: (msg) => messages.push(msg) });
+    await useCase.execute(WS, repoPath, { onProgress: (msg: string) => messages.push(msg) });
 
     expect(messages.some((m) => m.includes('2 commits') && m.includes('3 files'))).toBe(true);
   });
@@ -228,12 +231,12 @@ describe('PullGitUseCase', () => {
     git.seedBatches([batch]);
 
     const messages: string[] = [];
-    await useCase.execute(repoPath, { onProgress: (msg) => messages.push(msg) });
+    await useCase.execute(WS, repoPath, { onProgress: (msg: string) => messages.push(msg) });
 
     const percentMatches = messages.filter((m) => m.includes('%'));
     for (const msg of percentMatches) {
       const pctMatch = /\((\d+)%\)/.exec(msg);
-      if (pctMatch) {
+      if (pctMatch !== null) {
         expect(Number(pctMatch[1])).toBeLessThanOrEqual(100);
       }
     }
@@ -245,7 +248,7 @@ describe('PullGitUseCase', () => {
 
     git.seedBatches([batch1, batch2]);
 
-    await useCase.execute(repoPath);
+    await useCase.execute(WS, repoPath);
 
     expect(storage.savedCommitBatches).toHaveLength(2);
   });
@@ -253,7 +256,7 @@ describe('PullGitUseCase', () => {
   it('returns repoPath in result unchanged', async () => {
     git.seedBatches([createCommitBatch({ commits: [], files: [], issueRefs: [] })]);
 
-    const result = await useCase.execute('/a/b/c/myproject');
+    const result = await useCase.execute(WS, '/a/b/c/myproject');
 
     expect(result.repoPath).toBe('/a/b/c/myproject');
   });

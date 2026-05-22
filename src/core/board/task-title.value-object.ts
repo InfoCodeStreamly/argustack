@@ -5,7 +5,7 @@ export class TaskTitle {
 
   constructor(raw: string) {
     const trimmed = raw.trim();
-    if (!trimmed) {
+    if (trimmed.length === 0) {
       throw new Error('Task title cannot be empty');
     }
     this.value = trimmed.length > MAX_LENGTH

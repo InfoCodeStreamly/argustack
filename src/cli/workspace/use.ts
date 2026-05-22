@@ -11,9 +11,10 @@ export function registerUseCommand(group: Command): void {
       const { store, close } = await openHubStore();
       try {
         const workspace = (await store.getById(name)) ?? (await store.getByName(name));
-        if (!workspace) {
+        if (workspace === null) {
           const all = await store.list();
-          const names = all.map((w) => w.name).join(', ') || 'none';
+          const joined = all.map((w) => w.name).join(', ');
+          const names = joined.length > 0 ? joined : 'none';
           throw new Error(`Workspace "${name}" not found. Available: ${names}`);
         }
         setActiveWorkspace(workspace.id, workspace.name);

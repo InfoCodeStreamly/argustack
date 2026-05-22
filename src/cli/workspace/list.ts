@@ -26,7 +26,7 @@ export function registerListCommand(group: Command): void {
           const name = isActive ? chalk.green.bold(w.name) : w.name;
           const suffix = isActive ? chalk.dim(' (active)') : '';
           console.log(`  ${marker} ${name}${suffix}  ${chalk.dim(`[${w.id}]`)}`);
-          if (w.lastActiveAt) {
+          if (w.lastActiveAt !== undefined && w.lastActiveAt.length > 0) {
             console.log(chalk.dim(`    last active: ${w.lastActiveAt}`));
           }
         }

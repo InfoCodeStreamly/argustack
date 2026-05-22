@@ -32,7 +32,7 @@ export class NodePlatformProbe implements IPlatformProbe {
     }
     const result = await this.runCommand(
       'lsof',
-      ['-nP', '-iTCP:' + String(port), '-sTCP:LISTEN'],
+      ['-nP', `-iTCP:${  String(port)}`, '-sTCP:LISTEN'],
       DEFAULT_LSOF_TIMEOUT_MS,
     );
     if (result.code !== 0 || result.stdout.trim().length === 0) {
@@ -40,7 +40,7 @@ export class NodePlatformProbe implements IPlatformProbe {
     }
     const lines = result.stdout.trim().split('\n');
     const dataLine = lines.length > 1 ? lines[1] : undefined;
-    if (!dataLine) {
+    if (dataLine === undefined || dataLine === '') {
       return { free: true, port };
     }
     const parts = dataLine.split(/\s+/);
@@ -54,19 +54,19 @@ export class NodePlatformProbe implements IPlatformProbe {
     };
   }
 
-  runCommand(command: string, args: readonly string[], timeoutMs?: number): Promise<CommandResult> {
+  async runCommand(command: string, args: readonly string[], timeoutMs?: number): Promise<CommandResult> {
     return new Promise((resolve) => {
       const child = spawn(command, [...args]);
       let stdout = '';
       let stderr = '';
       let settled = false;
 
-      const timeout = timeoutMs
+      const timeout = timeoutMs !== undefined && timeoutMs > 0
         ? setTimeout(() => {
             if (!settled) {
               settled = true;
               try { child.kill('SIGKILL'); } catch { /* ignore */ }
-              resolve({ stdout, stderr: stderr + '\n[timeout]', code: 124 });
+              resolve({ stdout, stderr: `${stderr  }\n[timeout]`, code: 124 });
             }
           }, timeoutMs)
         : null;
@@ -77,15 +77,15 @@ export class NodePlatformProbe implements IPlatformProbe {
       child.on('error', (err: Error) => {
         if (!settled) {
           settled = true;
-          if (timeout) { clearTimeout(timeout); }
-          resolve({ stdout, stderr: stderr + '\n' + err.message, code: 127 });
+          if (timeout !== null) { clearTimeout(timeout); }
+          resolve({ stdout, stderr: `${stderr  }\n${  err.message}`, code: 127 });
         }
       });
 
       child.on('close', (code) => {
         if (!settled) {
           settled = true;
-          if (timeout) { clearTimeout(timeout); }
+          if (timeout !== null) { clearTimeout(timeout); }
           resolve({ stdout, stderr, code: code ?? 0 });
         }
       });

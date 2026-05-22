@@ -36,11 +36,11 @@ export class PullGitHubUseCase {
     await this.storage.initialize();
 
     const lastPrDate = options.since ?? (await this.storage.getLastPrUpdated(workspaceId, repoFullName));
-    const since = lastPrDate && !options.since
+    const since = lastPrDate !== null && options.since === undefined
       ? new Date(lastPrDate.getTime() - 60_000)
       : lastPrDate ?? undefined;
 
-    if (since) {
+    if (since !== undefined) {
       log(`  Incremental pull: PRs updated since ${since.toISOString()}`);
     }
 

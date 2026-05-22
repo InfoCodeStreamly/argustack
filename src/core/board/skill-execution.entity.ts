@@ -42,7 +42,7 @@ export class SkillExecutionEntity {
     return new SkillExecutionEntity({
       ...this.toData(),
       status: 'error',
-      output: this.output + '\n' + error,
+      output: `${this.output  }\n${  error}`,
       finishedAt: new Date().toISOString(),
     });
   }

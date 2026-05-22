@@ -44,8 +44,8 @@ vi.mock('chalk', () => ({
 const mockSearchProjects = vi.fn();
 const mockGetIssueAllTypes = vi.fn().mockResolvedValue([{ id: '1', name: 'Bug' }, { id: '2', name: 'Task' }, { id: '3', name: 'Story' }]);
 const mockVersion3Client = vi.fn(function (this: Record<string, unknown>) {
-  this.projects = { searchProjects: mockSearchProjects };
-  this.issueTypes = { getIssueAllTypes: mockGetIssueAllTypes };
+  this['projects'] = { searchProjects: mockSearchProjects };
+  this['issueTypes'] = { getIssueAllTypes: mockGetIssueAllTypes };
 });
 
 vi.mock('jira.js', () => ({
@@ -133,7 +133,7 @@ describe('setupJiraFromFlags', () => {
       jiraToken: 'tok',
     });
 
-    const [config] = mockVersion3Client.mock.calls[0] as [{ host: string }];
+    const [config] = mockVersion3Client.mock.calls[0] as unknown as [{ host: string }];
     expect(config.host).toBe('https://test.atlassian.net');
   });
 

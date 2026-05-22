@@ -16,24 +16,24 @@ export function registerAddCommand(group: Command): void {
     .option('--display-name <display>', 'Human-friendly display name')
     .action(async (name: string, opts: Options) => {
       const slug = sanitizeSlug(name);
-      if (!slug) {
+      if (slug === '') {
         throw new Error('Workspace name must contain at least one alphanumeric character.');
       }
 
       const { store, close } = await openHubStore();
       try {
         const existing = await store.getById(slug);
-        if (existing) {
+        if (existing != null) {
           console.log(chalk.yellow(`  workspace "${slug}" already exists`));
         }
         const workspace = await store.create({
           id: slug,
           name: slug,
-          ...(opts.displayName ? { displayName: opts.displayName } : {}),
+          ...(opts.displayName !== undefined && opts.displayName !== '' ? { displayName: opts.displayName } : {}),
         });
         console.log(chalk.green(`  ● workspace "${workspace.name}" ready  ${chalk.dim(`[${workspace.id}]`)}`));
 
-        if (opts.use) {
+        if (opts.use === true) {
           setActiveWorkspace(workspace.id, workspace.name);
           await store.touchActive(workspace.id);
           console.log(chalk.green(`  ● set as active`));

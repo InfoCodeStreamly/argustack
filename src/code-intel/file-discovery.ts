@@ -46,7 +46,7 @@ export async function* discoverFiles(
 ): AsyncGenerator<DiscoveredFile> {
   const ig: Ignore = ignoreFactory();
   ig.add(HARDCODED_EXCLUDES);
-  if (opts.extraExcludes) {
+  if (opts.extraExcludes !== undefined) {
     ig.add(opts.extraExcludes);
   }
   try {
@@ -79,7 +79,7 @@ async function* walk(
     if (dot === -1) {continue;}
     const ext = entry.name.slice(dot).toLowerCase();
     const language = LANGUAGE_BY_EXT[ext];
-    if (!language) {continue;}
+    if (language === undefined) {continue;}
     try {
       const stats = await stat(abs);
       if (!stats.isFile()) {continue;}

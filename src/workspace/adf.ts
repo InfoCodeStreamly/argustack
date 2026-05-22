@@ -21,7 +21,8 @@ export function markdownToAdf(markdown: string): AdfDoc {
     const line = lines[i] ?? '';
 
     if (line.startsWith('```')) {
-      const lang = line.slice(3).trim() || undefined;
+      const langRaw = line.slice(3).trim();
+      const lang = langRaw === '' ? undefined : langRaw;
       const codeLines: string[] = [];
       i++;
       while (i < lines.length && !(lines[i] ?? '').startsWith('```')) {
@@ -31,7 +32,7 @@ export function markdownToAdf(markdown: string): AdfDoc {
       i++;
       content.push({
         type: 'codeBlock',
-        ...(lang ? { attrs: { language: lang } } : {}),
+        ...(lang !== undefined ? { attrs: { language: lang } } : {}),
         content: [{ type: 'text', text: codeLines.join('\n') }],
       });
       continue;
@@ -53,7 +54,7 @@ export function markdownToAdf(markdown: string): AdfDoc {
     }
 
     const headingMatch = /^(#{1,6})\s+(.+)$/.exec(line);
-    if (headingMatch) {
+    if (headingMatch != null) {
       content.push({
         type: 'heading',
         attrs: { level: headingMatch[1]?.length ?? 1 },
@@ -156,13 +157,13 @@ function renderNodes(nodes: AdfNode[], indent = ''): string {
       }
       case 'heading': {
         const level = typeof node.attrs?.['level'] === 'number' ? node.attrs['level'] : 1;
-        parts.push('#'.repeat(level) + ' ' + renderInline(node.content ?? []));
+        parts.push(`${'#'.repeat(level)  } ${  renderInline(node.content ?? [])}`);
         break;
       }
       case 'bulletList': {
         const items: string[] = [];
         for (const item of node.content ?? []) {
-          items.push(indent + '- ' + renderListItem(item, indent + '  '));
+          items.push(`${indent  }- ${  renderListItem(item, `${indent  }  `)}`);
         }
         parts.push(items.join('\n'));
         break;
@@ -171,7 +172,7 @@ function renderNodes(nodes: AdfNode[], indent = ''): string {
         let num = typeof node.attrs?.['order'] === 'number' ? node.attrs['order'] : 1;
         const items: string[] = [];
         for (const item of node.content ?? []) {
-          items.push(indent + String(num) + '. ' + renderListItem(item, indent + '   '));
+          items.push(`${indent + String(num)  }. ${  renderListItem(item, `${indent  }   `)}`);
           num++;
         }
         parts.push(items.join('\n'));
@@ -182,19 +183,19 @@ function renderNodes(nodes: AdfNode[], indent = ''): string {
         for (const item of node.content ?? []) {
           const done = item.attrs?.['state'] === 'DONE';
           const marker = done ? '[x]' : '[ ]';
-          items.push(indent + '- ' + marker + ' ' + renderListItem(item, indent + '  '));
+          items.push(`${indent  }- ${  marker  } ${  renderListItem(item, `${indent  }  `)}`);
         }
         parts.push(items.join('\n'));
         break;
       }
       case 'codeBlock': {
         const lang = typeof node.attrs?.['language'] === 'string' ? node.attrs['language'] : '';
-        parts.push('```' + lang + '\n' + renderInline(node.content ?? []) + '\n```');
+        parts.push(`\`\`\`${  lang  }\n${  renderInline(node.content ?? [])  }\n\`\`\``);
         break;
       }
       case 'blockquote': {
         const inner = renderNodes(node.content ?? []);
-        parts.push(inner.split('\n').map((l) => l ? '> ' + l : '>').join('\n'));
+        parts.push(inner.split('\n').map((l) => l !== '' ? `> ${  l}` : '>').join('\n'));
         break;
       }
       case 'table': {
@@ -210,7 +211,7 @@ function renderNodes(nodes: AdfNode[], indent = ''): string {
         break;
       }
       default: {
-        if (node.content) {
+        if (node.content != null) {
           parts.push(renderNodes(node.content, indent));
         }
         break;
@@ -237,7 +238,7 @@ function renderListItem(node: AdfNode, indent: string): string {
 
   const rest = children.filter((c) => c !== first && c.type !== 'text');
   if (rest.length > 0) {
-    text += '\n' + renderNodes(rest, indent);
+    text += `\n${  renderNodes(rest, indent)}`;
   }
   return text;
 }
@@ -256,7 +257,7 @@ function renderInline(nodes: AdfNode[]): string {
     }
     if (n.type === 'hardBreak') { return '\n'; }
     if (n.type === 'inlineCard') { return typeof n.attrs?.['url'] === 'string' ? n.attrs['url'] : ''; }
-    if (n.content) { return renderInline(n.content); }
+    if (n.content != null) { return renderInline(n.content); }
     return '';
   }).join('');
 }
@@ -268,9 +269,9 @@ function renderTable(node: AdfNode): string {
   const lines: string[] = [];
   for (let i = 0; i < rows.length; i++) {
     const cells = (rows[i]?.content ?? []).map((cell) => renderInline(cell.content?.[0]?.content ?? []));
-    lines.push('| ' + cells.join(' | ') + ' |');
+    lines.push(`| ${  cells.join(' | ')  } |`);
     if (i === 0) {
-      lines.push('| ' + cells.map(() => '---').join(' | ') + ' |');
+      lines.push(`| ${  cells.map(() => '---').join(' | ')  } |`);
     }
   }
   return lines.join('\n');
@@ -298,15 +299,15 @@ function parseInline(text: string): AdfNode[] {
       nodes.push({ type: 'text', text: text.slice(lastIndex, match.index) });
     }
 
-    if (match[2]) {
+    if (match[2] !== undefined && match[2] !== '') {
       nodes.push({ type: 'text', text: match[2], marks: [{ type: 'strong' }] });
-    } else if (match[4]) {
+    } else if (match[4] !== undefined && match[4] !== '') {
       nodes.push({ type: 'text', text: match[4], marks: [{ type: 'em' }] });
-    } else if (match[6]) {
+    } else if (match[6] !== undefined && match[6] !== '') {
       nodes.push({ type: 'text', text: match[6], marks: [{ type: 'em' }] });
-    } else if (match[8]) {
+    } else if (match[8] !== undefined && match[8] !== '') {
       nodes.push({ type: 'text', text: match[8], marks: [{ type: 'code' }] });
-    } else if (match[10] && match[11]) {
+    } else if (match[10] !== undefined && match[10] !== '' && match[11] !== undefined && match[11] !== '') {
       nodes.push({ type: 'text', text: match[10], marks: [{ type: 'link', attrs: { href: match[11] } }] });
     }
 

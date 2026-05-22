@@ -15,7 +15,7 @@ export function registerGitCommand(group: Command): void {
     .option('--workspace <name>', 'Target workspace (defaults to active)')
     .requiredOption('--root <path>', 'Absolute path to the local git repo')
     .action(async (opts: Options) => {
-      if (!opts.root) {
+      if (opts.root === undefined || opts.root === '') {
         throw new Error('--root is required.');
       }
       const absolutePath = resolve(opts.root);

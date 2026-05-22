@@ -47,7 +47,7 @@ export class FakeWorkspaceStore implements IWorkspaceStore {
 
   async updateSettings(id: string, patch: Partial<WorkspaceSettings>): Promise<void> {
     const w = this.store.get(id);
-    if (!w) { return Promise.resolve(); }
+    if (w === undefined) { return Promise.resolve(); }
     this.store.set(id, { ...w, settings: { ...(w.settings ?? {}), ...patch } });
     return Promise.resolve();
   }
@@ -60,7 +60,7 @@ export class FakeWorkspaceStore implements IWorkspaceStore {
 
   async touchActive(id: string): Promise<void> {
     const w = this.store.get(id);
-    if (!w) { return Promise.resolve(); }
+    if (w === undefined) { return Promise.resolve(); }
     this.store.set(id, { ...w, lastActiveAt: new Date().toISOString() });
     return Promise.resolve();
   }

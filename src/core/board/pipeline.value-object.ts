@@ -55,7 +55,7 @@ export class Pipeline {
     const reordered: BoardColumn[] = [];
     for (const name of newOrder) {
       const col = this.columns.find((c) => c.name === name);
-      if (col) {
+      if (col !== undefined) {
         reordered.push(col);
       }
     }

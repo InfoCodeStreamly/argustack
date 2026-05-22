@@ -49,7 +49,7 @@ export class Neo4jCodeGraphStore implements ICodeGraph {
 
   constructor(config: Neo4jConfig) {
     this.driver = createDriver(config);
-    if (config.database) {
+    if (config.database !== undefined && config.database !== '') {
       this.database = config.database;
     }
   }
@@ -263,7 +263,7 @@ export class Neo4jCodeGraphStore implements ICodeGraph {
     try {
       const result = await session.run(CALL_PATH, { projectId, from: fromQn, to: toQn });
       const record = result.records[0];
-      if (!record) {
+      if (record === undefined) {
         return null;
       }
       const nodes = record.get('path') as Node[];

@@ -6,8 +6,10 @@ import {
   createAdapters,
   textResponse,
   errorResponse,
+  workspaceNotFoundResponse,
   getErrorMessage,
   str,
+  hasText,
   ANNOTATIONS,
 } from '../helpers.js';
 import { loadHubConfig } from '../../workspace/hub-config.js';
@@ -30,13 +32,13 @@ export function registerSearchTools(server: McpServer): void {
     },
     async ({ workspace_id: workspaceIdInput, query, limit, threshold }) => {
       const ws = await loadWorkspace(workspaceIdInput);
-      if (!ws.ok) { return errorResponse(ws.reason); }
+      if (!ws.ok) { return workspaceNotFoundResponse(ws.reason); }
       const { storage, workspaceId } = await createAdapters(ws.workspaceId);
 
       try {
         let queryVector: number[] | null = null;
         const apiKey = loadHubConfig().embedding.openaiApiKey;
-        if (apiKey) {
+        if (hasText(apiKey)) {
           const { OpenAIEmbeddingProvider } = await import('../../adapters/openai/index.js');
           const embeddingProvider = new OpenAIEmbeddingProvider({ apiKey });
           const vectors = await embeddingProvider.embed([query]);
@@ -46,7 +48,7 @@ export function registerSearchTools(server: McpServer): void {
         const results = await storage.hybridSearch(workspaceId, query, queryVector, limit ?? 10, threshold ?? 0.5);
 
         if (results.length === 0) {
-          const mode = queryVector ? 'hybrid (text + semantic)' : 'text-only';
+          const mode = queryVector !== null ? 'hybrid (text + semantic)' : 'text-only';
           return textResponse(`No issues found for "${query}" (${mode} search) in workspace ${workspaceId}.`);
         }
 
@@ -65,11 +67,11 @@ export function registerSearchTools(server: McpServer): void {
           issueMap.set(r.issue_key, row);
         }
 
-        const mode = queryVector ? 'hybrid' : 'text-only';
+        const mode = queryVector !== null ? 'hybrid' : 'text-only';
         const lines = results.map((r) => {
           const issue = issueMap.get(r.issueKey) as IssueRow | undefined;
           const scoreStr = (r.score * 100).toFixed(1);
-          if (issue) {
+          if (issue !== undefined) {
             return `${r.issueKey} [${str(issue.status)}] ${str(issue.summary)} (${scoreStr}% | ${r.source})`;
           }
           return `${r.issueKey} (${scoreStr}% | ${r.source})`;

@@ -137,7 +137,7 @@ describe('writeConfig', () => {
 
     expect(writeFileSync).toHaveBeenCalledWith(
       expect.stringContaining('.argustack/config.json'),
-      JSON.stringify(config, null, 2) + '\n',
+      `${JSON.stringify(config, null, 2)  }\n`,
     );
   });
 
@@ -207,12 +207,15 @@ describe('addSource', () => {
     expect(addedMs).toBeLessThanOrEqual(after);
   });
 
-  it('returns the mutated config object', () => {
+  it('returns a new config object (immutable) without mutating the input', () => {
     const config = createWorkspaceConfig();
+    const originalSources = config.sources;
 
     const result = addSource(config, 'github');
 
-    expect(result).toBe(config);
+    expect(result).not.toBe(config);
+    expect(config.sources).toBe(originalSources);
+    expect(result.sources.github?.enabled).toBe(true);
   });
 });
 
@@ -272,20 +275,18 @@ describe('enableSource', () => {
 
 describe('disableSource', () => {
   it('sets enabled:false on an active source', () => {
-    const config = createWorkspaceConfig();
-    addSource(config, 'jira');
+    const withJira = addSource(createWorkspaceConfig(), 'jira');
 
-    const result = disableSource(config, 'jira');
+    const result = disableSource(withJira, 'jira');
 
     expect(result.sources.jira?.enabled).toBe(false);
   });
 
   it('sets disabledAt to a recent ISO date', () => {
-    const config = createWorkspaceConfig();
-    addSource(config, 'jira');
+    const withJira = addSource(createWorkspaceConfig(), 'jira');
     const before = Date.now();
 
-    const result = disableSource(config, 'jira');
+    const result = disableSource(withJira, 'jira');
     const after = Date.now();
 
     const disabledMs = new Date(result.sources.jira?.disabledAt ?? '').getTime();

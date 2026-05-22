@@ -34,7 +34,7 @@ export class CheckHubExistsUseCase {
     if (!existsSync(configPath)) {
       return { exists: false, reason: 'no-config-env' };
     }
-    if (!this.hubStore) {
+    if (this.hubStore === null) {
       return { exists: false, reason: 'db-unreachable' };
     }
     try {

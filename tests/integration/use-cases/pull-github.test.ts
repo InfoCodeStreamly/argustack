@@ -11,7 +11,10 @@ import {
   createRelease,
   createEmptyGitHubBatch,
   GITHUB_TEST_IDS,
+  TEST_WORKSPACE_IDS,
 } from '../../fixtures/shared/test-constants.js';
+
+const WS = TEST_WORKSPACE_IDS.ALPHA;
 
 describe('PullGitHubUseCase', () => {
   let github: FakeGitHubProvider;
@@ -28,7 +31,7 @@ describe('PullGitHubUseCase', () => {
 
   it('initializes storage before pull', async () => {
     github.seedBatches([createEmptyGitHubBatch()]);
-    await useCase.execute(repoFullName);
+    await useCase.execute(WS, repoFullName);
     expect(storage.initialized).toBe(true);
   });
 
@@ -36,7 +39,7 @@ describe('PullGitHubUseCase', () => {
     github.seedBatches([createGitHubBatch()]);
     github.seedReleases([createRelease()]);
 
-    const result = await useCase.execute(repoFullName);
+    const result = await useCase.execute(WS, repoFullName);
 
     expect(result.prsCount).toBe(1);
     expect(result.reviewsCount).toBe(1);
@@ -60,7 +63,7 @@ describe('PullGitHubUseCase', () => {
 
     github.seedBatches([batch1, batch2]);
 
-    const result = await useCase.execute(repoFullName);
+    const result = await useCase.execute(WS, repoFullName);
 
     expect(result.prsCount).toBe(2);
     expect(result.reviewsCount).toBe(2);
@@ -71,18 +74,17 @@ describe('PullGitHubUseCase', () => {
     github.seedBatches([createEmptyGitHubBatch()]);
     const since = new Date('2025-01-01');
 
-    await useCase.execute(repoFullName, { since });
+    await useCase.execute(WS, repoFullName, { since });
 
     expect(github.pullCalls[0]?.since).toEqual(since);
   });
 
   it('uses incremental pull from storage when no since provided', async () => {
-    storage.pullRequests.set(GITHUB_TEST_IDS.prNumber, createPullRequest());
-    await storage.saveGitHubBatch(createGitHubBatch());
+    await storage.saveGitHubBatch(WS, createGitHubBatch());
 
     github.seedBatches([createEmptyGitHubBatch()]);
 
-    await useCase.execute(repoFullName);
+    await useCase.execute(WS, repoFullName);
 
     const pullCall = github.pullCalls[0];
     expect(pullCall?.since).toBeDefined();
@@ -93,8 +95,8 @@ describe('PullGitHubUseCase', () => {
     github.seedReleases([]);
 
     const messages: string[] = [];
-    await useCase.execute(repoFullName, {
-      onProgress: (msg) => messages.push(msg),
+    await useCase.execute(WS, repoFullName, {
+      onProgress: (msg: string) => messages.push(msg),
     });
 
     expect(messages.length).toBeGreaterThan(0);
@@ -106,8 +108,8 @@ describe('PullGitHubUseCase', () => {
     github.seedReleases([]);
 
     const messages: string[] = [];
-    await useCase.execute(repoFullName, {
-      onProgress: (msg) => messages.push(msg),
+    await useCase.execute(WS, repoFullName, {
+      onProgress: (msg: string) => messages.push(msg),
     });
 
     expect(messages.some((m) => m.includes('1/1 PRs (100%)'))).toBe(true);
@@ -123,8 +125,8 @@ describe('PullGitHubUseCase', () => {
     bareGithub.seedReleases([]);
 
     const messages: string[] = [];
-    await bareUseCase.execute(repoFullName, {
-      onProgress: (msg) => messages.push(msg),
+    await bareUseCase.execute(WS, repoFullName, {
+      onProgress: (msg: string) => messages.push(msg),
     });
 
     expect(messages.some((m) => m.includes('1 PRs...'))).toBe(true);
@@ -133,13 +135,13 @@ describe('PullGitHubUseCase', () => {
 
   it('incremental since from storage subtracts exactly 60 seconds', async () => {
     const prDate = new Date('2025-06-15T12:01:00.000Z');
-    await storage.saveGitHubBatch(createGitHubBatch({
+    await storage.saveGitHubBatch(WS, createGitHubBatch({
       pullRequests: [createPullRequest({ updatedAt: prDate.toISOString() })],
     }));
 
     github.seedBatches([createEmptyGitHubBatch()]);
 
-    await useCase.execute(repoFullName);
+    await useCase.execute(WS, repoFullName);
 
     const expected = new Date(prDate.getTime() - 60_000);
     expect(github.pullCalls[0]?.since?.getTime()).toBe(expected.getTime());
@@ -147,14 +149,14 @@ describe('PullGitHubUseCase', () => {
 
   it('explicit since overrides storage lastPrUpdated', async () => {
     const storageDate = new Date('2025-03-01T00:00:00.000Z');
-    await storage.saveGitHubBatch(createGitHubBatch({
+    await storage.saveGitHubBatch(WS, createGitHubBatch({
       pullRequests: [createPullRequest({ updatedAt: storageDate.toISOString() })],
     }));
 
     const explicitSince = new Date('2025-01-01T00:00:00.000Z');
     github.seedBatches([createEmptyGitHubBatch()]);
 
-    await useCase.execute(repoFullName, { since: explicitSince });
+    await useCase.execute(WS, repoFullName, { since: explicitSince });
 
     expect(github.pullCalls[0]?.since).toEqual(explicitSince);
   });
@@ -162,21 +164,21 @@ describe('PullGitHubUseCase', () => {
   it('does full pull when no storage date and no since', async () => {
     github.seedBatches([createEmptyGitHubBatch()]);
 
-    await useCase.execute(repoFullName);
+    await useCase.execute(WS, repoFullName);
 
     expect(github.pullCalls[0]?.since).toBeUndefined();
   });
 
   it('logs incremental pull message when since is set from storage', async () => {
     const prDate = new Date('2025-06-15T00:00:00.000Z');
-    await storage.saveGitHubBatch(createGitHubBatch({
+    await storage.saveGitHubBatch(WS, createGitHubBatch({
       pullRequests: [createPullRequest({ updatedAt: prDate.toISOString() })],
     }));
 
     github.seedBatches([createEmptyGitHubBatch()]);
 
     const messages: string[] = [];
-    await useCase.execute(repoFullName, { onProgress: (msg) => messages.push(msg) });
+    await useCase.execute(WS, repoFullName, { onProgress: (msg: string) => messages.push(msg) });
 
     expect(messages.some((m) => m.includes('Incremental pull'))).toBe(true);
   });
@@ -186,7 +188,7 @@ describe('PullGitHubUseCase', () => {
     github.seedBatches([createEmptyGitHubBatch()]);
 
     const messages: string[] = [];
-    await useCase.execute(repoFullName, { since, onProgress: (msg) => messages.push(msg) });
+    await useCase.execute(WS, repoFullName, { since, onProgress: (msg: string) => messages.push(msg) });
 
     expect(messages.some((m) => m.includes('Incremental pull'))).toBe(true);
   });
@@ -195,7 +197,7 @@ describe('PullGitHubUseCase', () => {
     github.seedBatches([createEmptyGitHubBatch()]);
 
     const messages: string[] = [];
-    await useCase.execute(repoFullName, { onProgress: (msg) => messages.push(msg) });
+    await useCase.execute(WS, repoFullName, { onProgress: (msg: string) => messages.push(msg) });
 
     expect(messages.some((m) => m.includes('Incremental pull'))).toBe(false);
   });
@@ -216,7 +218,7 @@ describe('PullGitHubUseCase', () => {
     github.seedBatches([batch1, batch2]);
     github.seedReleases([]);
 
-    const result = await useCase.execute(repoFullName);
+    const result = await useCase.execute(WS, repoFullName);
 
     expect(result.prsCount).toBe(2);
     expect(result.commentsCount).toBe(3);
@@ -231,7 +233,7 @@ describe('PullGitHubUseCase', () => {
     github.seedBatches([batch1, batch2]);
     github.seedReleases([]);
 
-    await useCase.execute(repoFullName);
+    await useCase.execute(WS, repoFullName);
 
     expect(storage.savedGitHubBatches).toHaveLength(2);
   });
@@ -242,11 +244,11 @@ describe('PullGitHubUseCase', () => {
     github.seedBatches([createEmptyGitHubBatch()]);
     github.seedReleases(releases);
 
-    const result = await useCase.execute(repoFullName);
+    const result = await useCase.execute(WS, repoFullName);
 
     expect(result.releasesCount).toBe(2);
     expect(storage.savedReleases).toHaveLength(1);
-    expect(storage.savedReleases[0]).toHaveLength(2);
+    expect(storage.savedReleases[0]?.releases).toHaveLength(2);
   });
 
   it('logs pulling releases message', async () => {
@@ -254,7 +256,7 @@ describe('PullGitHubUseCase', () => {
     github.seedReleases([createRelease()]);
 
     const messages: string[] = [];
-    await useCase.execute(repoFullName, { onProgress: (msg) => messages.push(msg) });
+    await useCase.execute(WS, repoFullName, { onProgress: (msg: string) => messages.push(msg) });
 
     expect(messages.some((m) => m.includes('releases'))).toBe(true);
   });
@@ -264,7 +266,7 @@ describe('PullGitHubUseCase', () => {
     github.seedReleases([createRelease(), createRelease({ id: GITHUB_TEST_IDS.releaseId + 1, tagName: 'v2.0.0' })]);
 
     const messages: string[] = [];
-    await useCase.execute(repoFullName, { onProgress: (msg) => messages.push(msg) });
+    await useCase.execute(WS, repoFullName, { onProgress: (msg: string) => messages.push(msg) });
 
     expect(messages.some((m) => m.includes('1 PRs') && m.includes('1 reviews') && m.includes('2 releases'))).toBe(true);
   });
@@ -273,7 +275,7 @@ describe('PullGitHubUseCase', () => {
     github.seedBatches([createEmptyGitHubBatch()]);
     github.seedReleases([]);
 
-    const result = await useCase.execute(repoFullName);
+    const result = await useCase.execute(WS, repoFullName);
 
     expect(result.repoFullName).toBe(repoFullName);
   });
@@ -294,12 +296,12 @@ describe('PullGitHubUseCase', () => {
     github.seedReleases([]);
 
     const messages: string[] = [];
-    await useCase.execute(repoFullName, { onProgress: (msg) => messages.push(msg) });
+    await useCase.execute(WS, repoFullName, { onProgress: (msg: string) => messages.push(msg) });
 
     const percentMatches = messages.filter((m) => m.includes('%'));
     for (const msg of percentMatches) {
       const pctMatch = /\((\d+)%\)/.exec(msg);
-      if (pctMatch) {
+      if (pctMatch !== null) {
         expect(Number(pctMatch[1])).toBeLessThanOrEqual(100);
       }
     }

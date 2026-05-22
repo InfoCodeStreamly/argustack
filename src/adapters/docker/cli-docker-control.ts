@@ -11,7 +11,7 @@ export class CliDockerControl implements IDockerControl {
 
   constructor(private readonly platform: IPlatformProbe) {}
 
-  isInstalled(): Promise<boolean> {
+  async isInstalled(): Promise<boolean> {
     return this.platform.hasCommand('docker');
   }
 
@@ -65,7 +65,7 @@ export class CliDockerControl implements IDockerControl {
     return {
       ok: false,
       kind: classifyComposeError(result.stderr),
-      details: result.stderr.trim() || result.stdout.trim(),
+      details: result.stderr.trim() !== '' ? result.stderr.trim() : result.stdout.trim(),
     };
   }
 }

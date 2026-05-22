@@ -94,13 +94,13 @@ function extractStoryPoints(row: string[], schema: CsvSchema): number | null {
 
 function extractRepeated(row: string[], schema: CsvSchema, name: string): string[] {
   const group = schema.repeatedGroups.get(name);
-  if (!group) {
+  if (group === undefined) {
     return [];
   }
   const result: string[] = [];
   for (let i = group.startIndex; i < group.startIndex + group.count; i++) {
     const value = row[i]?.trim();
-    if (value) {
+    if (value !== undefined && value !== '') {
       result.push(value);
     }
   }
@@ -135,13 +135,13 @@ function buildRawJson(row: string[], schema: CsvSchema): Record<string, unknown>
  */
 function extractComments(issueKey: string, row: string[], schema: CsvSchema): IssueComment[] {
   const group = schema.repeatedGroups.get('Comment');
-  if (!group) {
+  if (group === undefined) {
     return [];
   }
   const result: IssueComment[] = [];
   for (let i = group.startIndex; i < group.startIndex + group.count; i++) {
     const raw = row[i]?.trim();
-    if (!raw) {
+    if (raw === undefined || raw === '') {
       continue;
     }
     const firstSemi = raw.indexOf(';');
@@ -160,8 +160,8 @@ function extractComments(issueKey: string, row: string[], schema: CsvSchema): Is
     result.push({
       issueKey,
       commentId: `csv-${issueKey}-comment-${i}`,
-      author: author || null,
-      body: body || null,
+      author: author !== '' ? author : null,
+      body: body !== '' ? body : null,
       created: parseJiraDate(timestamp),
       updated: null,
     });
@@ -175,13 +175,13 @@ function extractComments(issueKey: string, row: string[], schema: CsvSchema): Is
  */
 function extractWorklogs(issueKey: string, row: string[], schema: CsvSchema): IssueWorklog[] {
   const group = schema.repeatedGroups.get('Log Work');
-  if (!group) {
+  if (group === undefined) {
     return [];
   }
   const result: IssueWorklog[] = [];
   for (let i = group.startIndex; i < group.startIndex + group.count; i++) {
     const raw = row[i]?.trim();
-    if (!raw) {
+    if (raw === undefined || raw === '') {
       continue;
     }
     const parts = raw.split(';');
@@ -197,10 +197,10 @@ function extractWorklogs(issueKey: string, row: string[], schema: CsvSchema): Is
 
     result.push({
       issueKey,
-      author: author || null,
+      author: author !== '' ? author : null,
       timeSpent: isNaN(seconds) ? null : formatTimeSpent(seconds),
       timeSpentSeconds: isNaN(seconds) ? null : seconds,
-      comment: description || null,
+      comment: description !== '' ? description : null,
       started: parseJiraDate(timestamp),
     });
   }
@@ -224,7 +224,7 @@ function extractLinks(issueKey: string, row: string[], schema: CsvSchema): Issue
   const seen = new Set<string>();
   for (const link of schema.issueLinks) {
     const targetKey = row[link.columnIndex]?.trim();
-    if (!targetKey) {
+    if (targetKey === undefined || targetKey === '') {
       continue;
     }
     const sourceKey = link.direction === 'outward' ? issueKey : targetKey;

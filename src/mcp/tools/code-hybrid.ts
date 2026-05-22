@@ -5,6 +5,7 @@ import {
   createCodeAdapters,
   textResponse,
   errorResponse,
+  workspaceNotFoundResponse,
   ANNOTATIONS,
 } from '../helpers.js';
 import type { CodeAdapters } from '../helpers.js';
@@ -18,7 +19,12 @@ async function resolveProjectId(
   workspaceId: string,
 ): Promise<string | null> {
   const byId = await adapters.storage.getProjectById(workspaceId);
-  return byId ? byId.id : null;
+  return byId !== null ? byId.id : null;
+}
+
+function capitalize(s: string): string {
+  if (s.length === 0) { return s; }
+  return s.charAt(0).toUpperCase() + s.slice(1);
 }
 
 function formatPlannedSection(layer: string, items: PlannedFile[]): string {
@@ -26,7 +32,7 @@ function formatPlannedSection(layer: string, items: PlannedFile[]): string {
     return `### ${layer}\n_no candidates_`;
   }
   const lines = items.map(
-    (f) => `- \`${f.filePath}\` — ${f.reason}${f.similarTo ? ` (similar to: ${f.similarTo})` : ''}`,
+    (f) => `- \`${f.filePath}\` — ${f.reason}${f.similarTo !== undefined && f.similarTo.length > 0 ? ` (similar to: ${f.similarTo})` : ''}`,
   );
   return `### ${layer}\n${lines.join('\n')}`;
 }
@@ -46,34 +52,63 @@ export function registerCodeHybridTools(server: McpServer): void {
     },
     async ({ workspace_id: workspaceIdInput, query, top_k: topK }) => {
       const ws = await loadWorkspace(workspaceIdInput);
-      if (!ws.ok) { return errorResponse(ws.reason); }
+      if (!ws.ok) { return workspaceNotFoundResponse(ws.reason); }
       const adapters = await createCodeAdapters(ws.workspaceId);
-      if (!adapters) { return errorResponse('Code intelligence not configured.'); }
+      if (adapters === null) { return errorResponse('Code intelligence not configured.'); }
       const projectId = await resolveProjectId(adapters, ws.workspaceId);
-      if (!projectId) { return errorResponse('Project not registered for this workspace.'); }
+      if (projectId === null) { return errorResponse('Project not registered for this workspace.'); }
 
-      const useCase = new CodeSearchUseCase(adapters.graph, adapters.vec, adapters.embedding);
+      const useCase = new CodeSearchUseCase(
+        adapters.graph, adapters.vec, adapters.embedding, adapters.chatLlm,
+      );
       const input: Parameters<CodeSearchUseCase['explainFeature']>[0] = { projectId, query };
       if (topK !== undefined) { input.topK = topK; }
       const result = await useCase.explainFeature(input);
 
       const sections: string[] = [`# Feature explanation: "${query}"`, ''];
+      if (result.hypotheticalDoc !== null) {
+        sections.push('<details><summary>HyDE query expansion (LLM-generated probe)</summary>', '', '```', result.hypotheticalDoc, '```', '</details>', '');
+      }
+
       const layers: ('domain' | 'application' | 'infrastructure' | 'presentation')[] = [
         'domain', 'application', 'infrastructure', 'presentation',
       ];
+      let hasAny = false;
       for (const layer of layers) {
-        const hits = result.byLayer[layer];
-        if (hits.length === 0) { continue; }
-        sections.push(`## ${layer}`);
-        for (const h of hits) {
-          sections.push(`- ${h.payload.name} (${h.payload.kind}) — ${h.payload.filePath}:${String(h.payload.startLine)}`);
+        const buckets = result.byLayer[layer];
+        if (buckets.length === 0) { continue; }
+        hasAny = true;
+        sections.push(`## ${capitalize(layer)} (${String(buckets.length)} files)`);
+        for (const b of buckets) {
+          const symbolList = b.symbols.slice(0, 3).map((s) => `${s.payload.name}:${String(s.payload.startLine)}`).join(', ');
+          sections.push(`- \`${b.filePath}\` — ${symbolList}`);
+          const snippet = b.symbols[0]?.payload.content;
+          if (snippet !== undefined && snippet.length > 0) {
+            const trimmed = snippet.split('\n').slice(0, 6).join('\n');
+            sections.push('  ```ts');
+            for (const line of trimmed.split('\n')) {
+              sections.push(`  ${line}`);
+            }
+            sections.push('  ```');
+          }
         }
         sections.push('');
       }
+      const unclassified = result.byLayer.unclassified;
+      if (unclassified.length > 0) {
+        sections.push(`## Other (${String(unclassified.length)} files)`);
+        for (const b of unclassified) {
+          sections.push(`- \`${b.filePath}\``);
+        }
+        sections.push('');
+      }
+      if (!hasAny && unclassified.length === 0) {
+        sections.push('_No relevant code found. Try rephrasing or use `find_symbol`/`search_semantic`._');
+      }
       if (result.expandedFiles.length > 0) {
-        sections.push('## Graph-expanded files');
+        sections.push('## Graph-expanded files (2 hops away)');
         for (const f of result.expandedFiles.slice(0, 20)) {
-          sections.push(`- ${f}`);
+          sections.push(`- \`${f}\``);
         }
       }
       return textResponse(sections.join('\n'));
@@ -94,11 +129,11 @@ export function registerCodeHybridTools(server: McpServer): void {
     },
     async ({ workspace_id: workspaceIdInput, description, top_k_per_layer: topKPerLayer }) => {
       const ws = await loadWorkspace(workspaceIdInput);
-      if (!ws.ok) { return errorResponse(ws.reason); }
+      if (!ws.ok) { return workspaceNotFoundResponse(ws.reason); }
       const adapters = await createCodeAdapters(ws.workspaceId);
-      if (!adapters) { return errorResponse('Code intelligence not configured.'); }
+      if (adapters === null) { return errorResponse('Code intelligence not configured.'); }
       const projectId = await resolveProjectId(adapters, ws.workspaceId);
-      if (!projectId) { return errorResponse('Project not registered for this workspace.'); }
+      if (projectId === null) { return errorResponse('Project not registered for this workspace.'); }
 
       const useCase = new CodeSearchUseCase(adapters.graph, adapters.vec, adapters.embedding);
       const input: Parameters<CodeSearchUseCase['planFeatureFiles']>[0] = { projectId, description };

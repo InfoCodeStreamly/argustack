@@ -2,7 +2,9 @@ import { describe, it, expect, beforeEach } from 'vitest';
 import { PushUseCase } from '../../../src/use-cases/push.js';
 import { FakeStorage } from '../../fixtures/fakes/fake-storage.js';
 import { FakeSourceProvider } from '../../fixtures/fakes/fake-source-provider.js';
-import { createIssue, TEST_IDS } from '../../fixtures/shared/test-constants.js';
+import { createIssue, TEST_IDS, TEST_WORKSPACE_IDS } from '../../fixtures/shared/test-constants.js';
+
+const WS = TEST_WORKSPACE_IDS.ALPHA;
 
 describe('PushUseCase', () => {
   let storage: FakeStorage;
@@ -17,9 +19,9 @@ describe('PushUseCase', () => {
 
   it('creates Jira issues for local tasks', async () => {
     const localIssue = createIssue({ key: `LOCAL-${TEST_IDS.issueId}`, source: 'local' });
-    storage.seed([localIssue]);
+    storage.seed(WS, [localIssue]);
 
-    const result = await useCase.execute();
+    const result = await useCase.execute(WS);
 
     expect(result.created).toHaveLength(1);
     expect(result.created[0]?.newKey).toMatch(/^TEST-\d+$/);
@@ -29,9 +31,9 @@ describe('PushUseCase', () => {
 
   it('calls updateIssueSource after push', async () => {
     const localIssue = createIssue({ key: `LOCAL-${TEST_IDS.issueId}`, source: 'local' });
-    storage.seed([localIssue]);
+    storage.seed(WS, [localIssue]);
 
-    const result = await useCase.execute();
+    const result = await useCase.execute(WS);
 
     expect(result.created).toHaveLength(1);
     expect(result.created[0]?.oldKey).toBe(`LOCAL-${TEST_IDS.issueId}`);
@@ -39,9 +41,9 @@ describe('PushUseCase', () => {
 
   it('skips issues with source=jira', async () => {
     const jiraIssue = createIssue({ key: 'PROJ-100', source: 'jira' });
-    storage.seed([jiraIssue]);
+    storage.seed(WS, [jiraIssue]);
 
-    const result = await useCase.execute();
+    const result = await useCase.execute(WS);
 
     expect(result.created).toHaveLength(0);
     expect(source.createCalls).toHaveLength(0);
@@ -49,24 +51,24 @@ describe('PushUseCase', () => {
 
   it('returns errors count on failure', async () => {
     const localIssue = createIssue({ key: `LOCAL-${TEST_IDS.issueId}`, source: 'local' });
-    storage.seed([localIssue]);
+    storage.seed(WS, [localIssue]);
 
-    source.createIssue = () => Promise.reject(new Error('Network error'));
+    source.createIssue = async () => Promise.reject(new Error('Network error'));
 
-    const result = await useCase.execute();
+    const result = await useCase.execute(WS);
 
     expect(result.created).toHaveLength(0);
     expect(result.errors).toBe(1);
   });
 
   it('handles multiple local issues', async () => {
-    storage.seed([
+    storage.seed(WS, [
       createIssue({ key: `LOCAL-${TEST_IDS.issueId}`, summary: 'Task A', source: 'local' }),
       createIssue({ key: `LOCAL-${TEST_IDS.issueId}-2`, summary: 'Task B', source: 'local' }),
       createIssue({ key: 'PROJ-50', summary: 'Existing', source: 'jira' }),
     ]);
 
-    const result = await useCase.execute();
+    const result = await useCase.execute(WS);
 
     expect(result.created).toHaveLength(2);
     expect(source.createCalls).toHaveLength(2);

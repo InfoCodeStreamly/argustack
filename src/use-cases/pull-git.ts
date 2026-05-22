@@ -33,11 +33,11 @@ export class PullGitUseCase {
     await this.storage.initialize();
 
     const lastCommitDate = options.since ?? (await this.storage.getLastCommitDate(workspaceId, repoPath));
-    const since = lastCommitDate && !options.since
+    const since = lastCommitDate !== null && options.since === undefined
       ? new Date(lastCommitDate.getTime() - 60_000)
       : lastCommitDate ?? undefined;
 
-    if (since) {
+    if (since !== undefined) {
       log(`  Incremental pull: commits since ${since.toISOString()}`);
     }
 

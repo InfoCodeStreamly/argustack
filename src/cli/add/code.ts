@@ -37,7 +37,7 @@ export function registerCodeCommand(group: Command): void {
     .requiredOption('--root <path>', 'Absolute path to the project root')
     .option('--language <lang>', 'Primary language (defaults to typescript)', 'typescript')
     .action(async (opts: Options) => {
-      if (!opts.root) {
+      if (opts.root === undefined || opts.root === '') {
         throw new Error('--root is required.');
       }
       const absoluteRoot = resolve(opts.root);
@@ -75,7 +75,7 @@ export function registerCodeCommand(group: Command): void {
           await useCase.execute(project);
           console.log(chalk.green(`  ● registered code project for workspace "${workspaceId}" at ${absoluteRoot}`));
           console.log(chalk.dim(`    Neo4j project + Qdrant collection (${String(hub.embedding.dimensions)}d) created.`));
-          console.log(chalk.dim('    Run `argustack code index --project ' + workspaceId + '` to build the index.'));
+          console.log(chalk.dim(`    Run \`argustack code index --project ${  workspaceId  }\` to build the index.`));
         } finally {
           await Promise.allSettled([graph.close(), vec.close(), storage.close()]);
         }
@@ -86,7 +86,7 @@ export function registerCodeCommand(group: Command): void {
 }
 
 async function buildEmbedding(hub: HubConfig): Promise<ICodeEmbedding> {
-  if (hub.embedding.provider === 'voyage' && hub.embedding.voyageApiKey) {
+  if (hub.embedding.provider === 'voyage' && hub.embedding.voyageApiKey !== undefined && hub.embedding.voyageApiKey !== '') {
     const { VoyageCodeEmbeddingProvider } = await import('../../adapters/voyage/index.js');
     return new VoyageCodeEmbeddingProvider({ apiKey: hub.embedding.voyageApiKey });
   }
@@ -96,7 +96,7 @@ async function buildEmbedding(hub: HubConfig): Promise<ICodeEmbedding> {
     return new OllamaCodeEmbeddingProvider({
       model: hub.embedding.model,
       dimensions: hub.embedding.dimensions,
-      ...(url ? { url } : {}),
+      ...(url !== undefined && url !== '' ? { url } : {}),
     });
   }
   const { LmStudioCodeEmbeddingProvider } = await import('../../adapters/lmstudio/index.js');
@@ -104,7 +104,7 @@ async function buildEmbedding(hub: HubConfig): Promise<ICodeEmbedding> {
     model: hub.embedding.model,
     dimensions: hub.embedding.dimensions,
   };
-  if (hub.embedding.lmstudioUrl) { opts.url = hub.embedding.lmstudioUrl; }
-  if (hub.embedding.rerankModel) { opts.rerankModel = hub.embedding.rerankModel; }
+  if (hub.embedding.lmstudioUrl !== undefined && hub.embedding.lmstudioUrl !== '') { opts.url = hub.embedding.lmstudioUrl; }
+  if (hub.embedding.rerankModel !== undefined && hub.embedding.rerankModel !== '') { opts.rerankModel = hub.embedding.rerankModel; }
   return new LmStudioCodeEmbeddingProvider(opts);
 }

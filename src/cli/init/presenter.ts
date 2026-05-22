@@ -60,7 +60,7 @@ export function printPortConflict(conflicts: readonly PortInUse[]): void {
 export function printBootstrapFailure(stage: string, details: string): void {
   console.log('');
   console.log(chalk.red(`  Bootstrap failed at stage "${stage}".`));
-  console.log(chalk.dim('  ' + details.split('\n').slice(0, 5).join('\n  ')));
+  console.log(chalk.dim(`  ${  details.split('\n').slice(0, 5).join('\n  ')}`));
   console.log('');
 }
 
@@ -77,7 +77,7 @@ export function printSlugError(): void {
 export function printOllamaInstallFailed(details: string): void {
   console.log('');
   console.log(chalk.red('  Failed to install Ollama:'));
-  console.log(chalk.dim('  ' + details.split('\n').slice(0, 3).join('\n  ')));
+  console.log(chalk.dim(`  ${  details.split('\n').slice(0, 3).join('\n  ')}`));
   console.log(chalk.dim('  Manual: https://ollama.com/download'));
   console.log('');
 }
@@ -99,7 +99,7 @@ export function printOllamaTimeout(): void {
 export function printPullFailed(kind: string, details: string): void {
   console.log('');
   console.log(chalk.red(`  Failed to pull embedding model (${kind}).`));
-  console.log(chalk.dim('  ' + details.split('\n').slice(0, 3).join('\n  ')));
+  console.log(chalk.dim(`  ${  details.split('\n').slice(0, 3).join('\n  ')}`));
   console.log(chalk.dim('  Retry: ollama pull nomic-embed-text'));
   console.log('');
 }
@@ -112,13 +112,13 @@ export function printProbeError(kind: ProbeError, details: string): void {
     'timeout': 'LLM probe timed out.',
   };
   console.log(chalk.red(`  Probe failed: ${messages[kind]}`));
-  console.log(chalk.dim('  ' + details.split('\n').slice(0, 3).join('\n  ')));
+  console.log(chalk.dim(`  ${  details.split('\n').slice(0, 3).join('\n  ')}`));
 }
 
 export function printWriteConfigFailed(details: string): void {
   console.log('');
   console.log(chalk.red('  Cannot write ~/.argustack/config.env.'));
-  console.log(chalk.dim('  ' + details));
+  console.log(chalk.dim(`  ${  details}`));
   console.log('');
 }
 

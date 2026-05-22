@@ -27,16 +27,16 @@ async function resolveProjectId(
   workspaceId: string,
 ): Promise<string | null> {
   const byId = await adapters.storage.getProjectById(workspaceId);
-  return byId ? byId.id : null;
+  return byId !== null ? byId.id : null;
 }
 
 function formatSymbol(s: CodeSymbol): string {
-  const layer = s.layer ? ` [${s.layer}]` : '';
+  const layer = s.layer !== null && s.layer !== undefined ? ` [${s.layer}]` : '';
   return `- **${s.qualifiedName}** (${s.kind})${layer} — ${s.filePath}:${String(s.startLine)}`;
 }
 
 function formatFile(f: CodeFile): string {
-  const layer = f.layer ? ` [${f.layer}]` : '';
+  const layer = f.layer !== null ? ` [${f.layer}]` : '';
   return `- ${f.path}${layer}`;
 }
 
@@ -47,7 +47,7 @@ async function runWithAdapters<T>(
   const ws = await loadWorkspace(workspaceIdInput);
   if (!ws.ok) { return { error: ws.reason }; }
   const adapters = await createCodeAdapters(ws.workspaceId);
-  if (!adapters) {
+  if (adapters === null) {
     return { error: 'Code intelligence not configured. Check NEO4J_URI/QDRANT_URL/embedding in ~/.argustack/config.env' };
   }
   return fn(adapters, ws.workspaceId);
@@ -82,13 +82,13 @@ export function registerCodeGraphTools(server: McpServer): void {
     async ({ query, kind, layer, limit, workspace_id: workspaceId }) => {
       const result = await runWithAdapters(workspaceId, async (adapters, wsId) => {
         const projectId = await resolveProjectId(adapters, wsId);
-        if (!projectId) {return { error: 'Project not registered. Run `argustack code register --name <name>`.' };}
+        if (projectId === null) {return { error: 'Project not registered. Run `argustack code register --name <name>`.' };}
         const findOpts: Parameters<CodeAdapters['graph']['findSymbol']>[0] = {
           projectId,
           query,
         };
-        if (kind) {findOpts.kind = kind;}
-        if (layer) {findOpts.layer = layer;}
+        if (kind !== undefined) {findOpts.kind = kind;}
+        if (layer !== undefined) {findOpts.layer = layer;}
         if (limit !== undefined) {findOpts.limit = limit;}
         const symbols = await adapters.graph.findSymbol(findOpts);
         if (symbols.length === 0) {
@@ -100,7 +100,7 @@ export function registerCodeGraphTools(server: McpServer): void {
             qualifiedName: s.qualifiedName,
             name: s.name,
             kind: s.kind,
-            ...(s.layer ? { layer: s.layer } : {}),
+            ...(s.layer !== null && s.layer !== undefined ? { layer: s.layer } : {}),
             filePath: s.filePath,
             startLine: s.startLine,
           })),
@@ -130,7 +130,7 @@ export function registerCodeGraphTools(server: McpServer): void {
     async ({ file, depth, workspace_id: workspaceId }) => {
       const result = await runWithAdapters(workspaceId, async (adapters, wsId) => {
         const projectId = await resolveProjectId(adapters, wsId);
-        if (!projectId) {return { error: 'Project not registered.' };}
+        if (projectId === null) {return { error: 'Project not registered.' };}
         const files = await adapters.graph.getDependencies(projectId, file, depth ?? 2);
         if (files.length === 0) {return { text: `${file} has no resolved imports.` };}
         return { text: `# Dependencies of ${file}\n\n${files.map(formatFile).join('\n')}` };
@@ -155,7 +155,7 @@ export function registerCodeGraphTools(server: McpServer): void {
     async ({ file, depth, workspace_id: workspaceId }) => {
       const result = await runWithAdapters(workspaceId, async (adapters, wsId) => {
         const projectId = await resolveProjectId(adapters, wsId);
-        if (!projectId) {return { error: 'Project not registered.' };}
+        if (projectId === null) {return { error: 'Project not registered.' };}
         const files = await adapters.graph.getDependents(projectId, file, depth ?? 2);
         if (files.length === 0) {return { text: `${file} has no resolved dependents.` };}
         return { text: `# Dependents of ${file}\n\n${files.map(formatFile).join('\n')}` };
@@ -180,7 +180,7 @@ export function registerCodeGraphTools(server: McpServer): void {
     async ({ qualified_name: qualifiedName, depth, workspace_id: workspaceId }) => {
       const result = await runWithAdapters(workspaceId, async (adapters, wsId) => {
         const projectId = await resolveProjectId(adapters, wsId);
-        if (!projectId) {return { error: 'Project not registered.' };}
+        if (projectId === null) {return { error: 'Project not registered.' };}
         const symbols = await adapters.graph.getCallers(projectId, qualifiedName, depth ?? 3);
         if (symbols.length === 0) {return { text: `No callers found for ${qualifiedName}.` };}
         return { text: `# Callers of ${qualifiedName}\n\n${symbols.map(formatSymbol).join('\n')}` };
@@ -205,7 +205,7 @@ export function registerCodeGraphTools(server: McpServer): void {
     async ({ qualified_name: qualifiedName, depth, workspace_id: workspaceId }) => {
       const result = await runWithAdapters(workspaceId, async (adapters, wsId) => {
         const projectId = await resolveProjectId(adapters, wsId);
-        if (!projectId) {return { error: 'Project not registered.' };}
+        if (projectId === null) {return { error: 'Project not registered.' };}
         const symbols = await adapters.graph.getCallees(projectId, qualifiedName, depth ?? 3);
         if (symbols.length === 0) {return { text: `${qualifiedName} calls nothing tracked.` };}
         return { text: `# Callees of ${qualifiedName}\n\n${symbols.map(formatSymbol).join('\n')}` };
@@ -230,9 +230,9 @@ export function registerCodeGraphTools(server: McpServer): void {
     async ({ from, to, workspace_id: workspaceId }) => {
       const result = await runWithAdapters(workspaceId, async (adapters, wsId) => {
         const projectId = await resolveProjectId(adapters, wsId);
-        if (!projectId) {return { error: 'Project not registered.' };}
+        if (projectId === null) {return { error: 'Project not registered.' };}
         const path = await adapters.graph.getCallPath(projectId, from, to);
-        if (!path) {return { text: `No call path from ${from} → ${to}.` };}
+        if (path === null) {return { text: `No call path from ${from} → ${to}.` };}
         return {
           text: `# Call path: ${from} → ${to}\n\n${path.map((s, i) => `${String(i + 1)}. ${formatSymbol(s)}`).join('\n')}`,
         };
@@ -254,7 +254,7 @@ export function registerCodeGraphTools(server: McpServer): void {
     async ({ workspace_id: workspaceId }) => {
       const result = await runWithAdapters(workspaceId, async (adapters, wsId) => {
         const projectId = await resolveProjectId(adapters, wsId);
-        if (!projectId) {return { error: 'Project not registered.' };}
+        if (projectId === null) {return { error: 'Project not registered.' };}
         const violations = await adapters.graph.findArchViolations(projectId);
         if (violations.length === 0) {return { text: 'No architecture violations detected.' };}
         const lines = violations.map((v) => `- ${v.fromQn} → ${v.toQn} (count: ${String(v.count)})`);
@@ -276,7 +276,7 @@ export function registerCodeGraphTools(server: McpServer): void {
     async ({ workspace_id: workspaceId }) => {
       const result = await runWithAdapters(workspaceId, async (adapters, wsId) => {
         const projectId = await resolveProjectId(adapters, wsId);
-        if (!projectId) {return { error: 'Project not registered.' };}
+        if (projectId === null) {return { error: 'Project not registered.' };}
         const symbols = await adapters.graph.findUnusedExports(projectId);
         if (symbols.length === 0) {return { text: 'No unused exports.' };}
         return { text: `# Unused exports\n\n${symbols.map(formatSymbol).join('\n')}` };
@@ -300,7 +300,7 @@ export function registerCodeGraphTools(server: McpServer): void {
     async ({ interface_qualified_name: interfaceQualifiedName, workspace_id: workspaceId }) => {
       const result = await runWithAdapters(workspaceId, async (adapters, wsId) => {
         const projectId = await resolveProjectId(adapters, wsId);
-        if (!projectId) {return { error: 'Project not registered.' };}
+        if (projectId === null) {return { error: 'Project not registered.' };}
         const symbols = await adapters.graph.getImplementers(projectId, interfaceQualifiedName);
         if (symbols.length === 0) {return { text: `No implementers of ${interfaceQualifiedName}.` };}
         return { text: `# Implementers of ${interfaceQualifiedName}\n\n${symbols.map(formatSymbol).join('\n')}` };
@@ -324,7 +324,7 @@ export function registerCodeGraphTools(server: McpServer): void {
     async ({ layer, workspace_id: workspaceId }) => {
       const result = await runWithAdapters(workspaceId, async (adapters, wsId) => {
         const projectId = await resolveProjectId(adapters, wsId);
-        if (!projectId) {return { error: 'Project not registered.' };}
+        if (projectId === null) {return { error: 'Project not registered.' };}
         const symbols = await adapters.graph.getLayerSymbols(projectId, layer as CodeLayer);
         if (symbols.length === 0) {return { text: `No symbols in layer ${layer}.` };}
         return { text: `# Symbols in layer '${layer}' (${String(symbols.length)})\n\n${symbols.slice(0, 100).map(formatSymbol).join('\n')}` };

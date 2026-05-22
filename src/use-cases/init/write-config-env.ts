@@ -45,11 +45,14 @@ export class WriteConfigEnvUseCase {
     } catch (err) {
       const msg = err instanceof Error ? err.message : String(err);
       const lower = msg.toLowerCase();
-      const reason = lower.includes('permission') || lower.includes('eacces')
-        ? 'permission' as const
-        : lower.includes('no space') || lower.includes('enospc')
-          ? 'no-space' as const
-          : 'unknown' as const;
+      let reason: 'permission' | 'no-space' | 'unknown';
+      if (lower.includes('permission') || lower.includes('eacces')) {
+        reason = 'permission';
+      } else if (lower.includes('no space') || lower.includes('enospc')) {
+        reason = 'no-space';
+      } else {
+        reason = 'unknown';
+      }
       return { ok: false, reason, details: msg };
     }
   }
@@ -58,16 +61,16 @@ export class WriteConfigEnvUseCase {
 function renderConfigEnv(input: WriteConfigEnvInput, existingPath: string): string {
   const existing = existsSync(existingPath) ? readFileSync(existingPath, 'utf-8') : '';
   let working = existing;
-  if (input.ports) {
+  if (input.ports !== undefined) {
     working = replaceManagedBlock(working, PORTS_START, PORTS_END, renderPortsBlock(input.ports));
   }
   working = replaceManagedBlock(
     working,
     LLM_START,
     LLM_END,
-    input.llm ? renderLlmBlock(input.llm) : renderLlmPlaceholder(),
+    input.llm !== undefined ? renderLlmBlock(input.llm) : renderLlmPlaceholder(),
   );
-  return working.trimEnd() + '\n';
+  return `${working.trimEnd()  }\n`;
 }
 
 const PORTS_START = '# === BEGIN: hub ports (managed by argustack init) ===';
@@ -79,7 +82,7 @@ function replaceManagedBlock(content: string, startMark: string, endMark: string
   const startIdx = content.indexOf(startMark);
   if (startIdx === -1) {
     const trimmed = content.trimEnd();
-    return (trimmed.length > 0 ? trimmed + '\n\n' : '') + replacement + '\n';
+    return `${(trimmed.length > 0 ? `${trimmed  }\n\n` : '') + replacement  }\n`;
   }
   const endIdx = content.indexOf(endMark, startIdx);
   if (endIdx === -1) {

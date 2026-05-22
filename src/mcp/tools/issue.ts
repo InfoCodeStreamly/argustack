@@ -18,8 +18,11 @@ import {
   createAdapters,
   textResponse,
   errorResponse,
+  workspaceNotFoundResponse,
   getErrorMessage,
   str,
+  strOr,
+  hasText,
   ANNOTATIONS,
 } from '../helpers.js';
 import { groupReviewsByPr, groupFilesByCommit } from './formatters.js';
@@ -41,7 +44,7 @@ export function registerIssueTools(server: McpServer): void {
     },
     async ({ workspace_id: workspaceIdInput, issue_key: issueKey }) => {
       const ws = await loadWorkspace(workspaceIdInput);
-      if (!ws.ok) { return errorResponse(ws.reason); }
+      if (!ws.ok) { return workspaceNotFoundResponse(ws.reason); }
       const { storage, workspaceId } = await createAdapters(ws.workspaceId);
       const key = issueKey.toUpperCase();
 
@@ -74,9 +77,9 @@ export function registerIssueTools(server: McpServer): void {
         const sections: string[] = [];
         sections.push(`# ${str(issue.issue_key)}: ${str(issue.summary)}`);
         sections.push('');
-        sections.push(`Type: ${str(issue.issue_type) || 'N/A'} | Status: ${str(issue.status) || 'N/A'} | Priority: ${str(issue.priority) || 'N/A'}`);
-        sections.push(`Assignee: ${str(issue.assignee) || 'Unassigned'} | Reporter: ${str(issue.reporter) || 'N/A'}`);
-        sections.push(`Created: ${str(issue.created) || 'N/A'} | Updated: ${str(issue.updated) || 'N/A'}`);
+        sections.push(`Type: ${strOr(issue.issue_type, 'N/A')} | Status: ${strOr(issue.status, 'N/A')} | Priority: ${strOr(issue.priority, 'N/A')}`);
+        sections.push(`Assignee: ${strOr(issue.assignee, 'Unassigned')} | Reporter: ${strOr(issue.reporter, 'N/A')}`);
+        sections.push(`Created: ${strOr(issue.created, 'N/A')} | Updated: ${strOr(issue.updated, 'N/A')}`);
 
         if (Array.isArray(issue.labels) && issue.labels.length > 0) {
           sections.push(`Labels: ${issue.labels.join(', ')}`);
@@ -84,15 +87,15 @@ export function registerIssueTools(server: McpServer): void {
         if (Array.isArray(issue.components) && issue.components.length > 0) {
           sections.push(`Components: ${issue.components.join(', ')}`);
         }
-        if (issue.parent_key) {
+        if (hasText(issue.parent_key)) {
           sections.push(`Parent: ${issue.parent_key}`);
         }
 
         sections.push('');
         sections.push('## Description');
-        sections.push(str(issue.description) || '(no description)');
+        sections.push(strOr(issue.description, '(no description)'));
 
-        if (issue.custom_fields && Object.keys(issue.custom_fields).length > 0) {
+        if (issue.custom_fields !== undefined && Object.keys(issue.custom_fields).length > 0) {
           sections.push('');
           sections.push('## Custom Fields');
           for (const [field, value] of Object.entries(issue.custom_fields)) {
@@ -108,7 +111,7 @@ export function registerIssueTools(server: McpServer): void {
           for (const raw of commentsResult.rows) {
             const c = raw as unknown as CommentRow;
             sections.push(`--- ${str(c.author)} (${str(c.created)}) ---`);
-            sections.push(str(c.body) || '(empty)');
+            sections.push(strOr(c.body, '(empty)'));
             sections.push('');
           }
         }
@@ -142,12 +145,12 @@ export function registerIssueTools(server: McpServer): void {
     },
     async ({ workspace_id: workspaceIdInput, project }) => {
       const ws = await loadWorkspace(workspaceIdInput);
-      if (!ws.ok) { return errorResponse(ws.reason); }
+      if (!ws.ok) { return workspaceNotFoundResponse(ws.reason); }
       const { storage, workspaceId } = await createAdapters(ws.workspaceId);
 
       try {
-        const projectClause = project ? `AND project_key = $2` : '';
-        const params: unknown[] = project ? [project.toUpperCase()] : [];
+        const projectClause = hasText(project) ? `AND project_key = $2` : '';
+        const params: unknown[] = hasText(project) ? [project.toUpperCase()] : [];
 
         const [total, byStatus, byType, byProject, byAssignee] = await Promise.all([
           storage.queryForWorkspace(workspaceId, `SELECT COUNT(*) as count FROM issues WHERE workspace_id = $1 ${projectClause}`, params),
@@ -159,20 +162,20 @@ export function registerIssueTools(server: McpServer): void {
 
         const sections: string[] = [];
         const totalRow = total.rows[0] as unknown as CountRow | undefined;
-        sections.push(`# Issue Statistics${project ? ` (${project})` : ''} — workspace ${workspaceId}`);
+        sections.push(`# Issue Statistics${hasText(project) ? ` (${project})` : ''} — workspace ${workspaceId}`);
         sections.push(`Total issues: ${str(totalRow?.count)}`);
 
         sections.push('\n## By Status');
         for (const raw of byStatus.rows) {
           const r = raw as unknown as StatusCountRow;
-          sections.push(`  ${str(r.status) || 'null'}: ${str(r.count)}`);
+          sections.push(`  ${strOr(r.status, 'null')}: ${str(r.count)}`);
         }
         sections.push('\n## By Type');
         for (const raw of byType.rows) {
           const r = raw as unknown as TypeCountRow;
-          sections.push(`  ${str(r.issue_type) || 'null'}: ${str(r.count)}`);
+          sections.push(`  ${strOr(r.issue_type, 'null')}: ${str(r.count)}`);
         }
-        if (!project) {
+        if (!hasText(project)) {
           sections.push('\n## By Project');
           for (const raw of byProject.rows) {
             const r = raw as unknown as ProjectCountRow;
@@ -182,7 +185,7 @@ export function registerIssueTools(server: McpServer): void {
         sections.push('\n## Top Assignees');
         for (const raw of byAssignee.rows) {
           const r = raw as unknown as AssigneeCountRow;
-          sections.push(`  ${str(r.assignee) || 'Unassigned'}: ${str(r.count)}`);
+          sections.push(`  ${strOr(r.assignee, 'Unassigned')}: ${str(r.count)}`);
         }
         return textResponse(sections.join('\n'));
       } catch (err) {
@@ -205,13 +208,13 @@ export function registerIssueTools(server: McpServer): void {
     },
     async ({ workspace_id: workspaceIdInput, issue_key: issueKey, repo_path: repoPath }) => {
       const ws = await loadWorkspace(workspaceIdInput);
-      if (!ws.ok) { return errorResponse(ws.reason); }
+      if (!ws.ok) { return workspaceNotFoundResponse(ws.reason); }
       const { storage, workspaceId } = await createAdapters(ws.workspaceId);
       const key = issueKey.toUpperCase();
 
       try {
-        const repoFilter = repoPath ? `AND c.repo_path ILIKE $3` : '';
-        const params: unknown[] = repoPath ? [key, `%${repoPath}%`] : [key];
+        const repoFilter = hasText(repoPath) ? `AND c.repo_path ILIKE $3` : '';
+        const params: unknown[] = hasText(repoPath) ? [key, `%${repoPath}%`] : [key];
 
         const commitsResult = await storage.queryForWorkspace(
           workspaceId,
@@ -274,7 +277,7 @@ export function registerIssueTools(server: McpServer): void {
     },
     async ({ workspace_id: workspaceIdInput, issue_key: issueKey }) => {
       const ws = await loadWorkspace(workspaceIdInput);
-      if (!ws.ok) { return errorResponse(ws.reason); }
+      if (!ws.ok) { return workspaceNotFoundResponse(ws.reason); }
       const { storage, workspaceId } = await createAdapters(ws.workspaceId);
       const key = issueKey.toUpperCase();
 
@@ -292,7 +295,10 @@ export function registerIssueTools(server: McpServer): void {
         );
 
         if (prsResult.rows.length === 0) {
-          return textResponse(`No PRs mentioning ${issueKey}.`);
+          return textResponse(
+            `No PRs mentioning ${issueKey}.\n` +
+            'If you expected results, run `argustack sync github` to refresh GitHub sync data.',
+          );
         }
 
         const prNumbers = prsResult.rows.map((r) => (r as { number: number }).number);
@@ -314,7 +320,7 @@ export function registerIssueTools(server: McpServer): void {
           const pr = raw as unknown as PrRow & { head_ref?: string };
           sections.push(`## #${str(pr.number)} — ${str(pr.title)}`);
           sections.push(`State: ${str(pr.state)} | Author: ${str(pr.author)} | ${str(pr.base_ref)} ← ${str(pr.head_ref)}`);
-          sections.push(`+${str(pr.additions)} -${str(pr.deletions)} | Created: ${str(pr.created_at ?? '').substring(0, 10)}${pr.merged_at ? ` | Merged: ${str(pr.merged_at).substring(0, 10)}` : ''}`);
+          sections.push(`+${str(pr.additions)} -${str(pr.deletions)} | Created: ${str(pr.created_at ?? '').substring(0, 10)}${hasText(pr.merged_at) ? ` | Merged: ${str(pr.merged_at).substring(0, 10)}` : ''}`);
           const reviews = reviewsByPr.get(pr.number ?? 0) ?? [];
           if (reviews.length > 0) {
             sections.push('Reviews:');
@@ -344,7 +350,7 @@ export function registerIssueTools(server: McpServer): void {
     },
     async ({ workspace_id: workspaceIdInput, issue_key: issueKey }) => {
       const ws = await loadWorkspace(workspaceIdInput);
-      if (!ws.ok) { return errorResponse(ws.reason); }
+      if (!ws.ok) { return workspaceNotFoundResponse(ws.reason); }
       const { storage, workspaceId } = await createAdapters(ws.workspaceId);
       const key = issueKey.toUpperCase();
 
@@ -410,12 +416,12 @@ export function registerIssueTools(server: McpServer): void {
         const filesByCommit = groupFilesByCommit(commitFilesResult.rows);
         const events: TimelineEvent[] = [];
 
-        if (issue.created) {
+        if (hasText(issue.created)) {
           events.push({ date: str(issue.created), type: 'created', text: 'Issue created' });
         }
         for (const raw of changelogsResult.rows) {
           const ch = raw as ChangelogRow;
-          if (ch.changed_at) {
+          if (hasText(ch.changed_at)) {
             events.push({
               date: str(ch.changed_at), type: 'changelog',
               text: `${str(ch.author)} changed ${str(ch.field)}: "${str(ch.from_value)}" → "${str(ch.to_value)}"`,
@@ -424,7 +430,7 @@ export function registerIssueTools(server: McpServer): void {
         }
         for (const raw of commitsResult.rows) {
           const c = raw as { hash: string; message?: string; author?: string; committed_at?: string };
-          if (c.committed_at) {
+          if (hasText(c.committed_at)) {
             const firstLine = (c.message ?? '').split('\n')[0];
             events.push({
               date: str(c.committed_at), type: 'commit',
@@ -433,7 +439,7 @@ export function registerIssueTools(server: McpServer): void {
           }
         }
         for (const pr of prRows) {
-          if (pr.created_at) {
+          if (hasText(pr.created_at)) {
             events.push({
               date: str(pr.created_at), type: 'pr_opened',
               text: `PR #${String(pr.number)} opened — "${str(pr.title)}" (${str(pr.author)})`,
@@ -441,14 +447,14 @@ export function registerIssueTools(server: McpServer): void {
           }
           const reviews = reviewsByPr.get(pr.number) ?? [];
           for (const r of reviews) {
-            if (r.submitted_at) {
+            if (hasText(r.submitted_at)) {
               events.push({
                 date: str(r.submitted_at), type: 'pr_reviewed',
                 text: `PR #${String(pr.number)} reviewed — ${str(r.state)} (${str(r.reviewer)})`,
               });
             }
           }
-          if (pr.merged_at) {
+          if (hasText(pr.merged_at)) {
             events.push({
               date: str(pr.merged_at), type: 'pr_merged',
               text: `PR #${String(pr.number)} merged into ${str(pr.base_ref)}`,
@@ -461,7 +467,7 @@ export function registerIssueTools(server: McpServer): void {
         sections.push(`=== ISSUE: ${key} ===`);
         sections.push(`Summary: ${str(issue.summary)}`);
         sections.push(`Status: ${str(issue.status)} | Type: ${str(issue.issue_type)} | Assignee: ${str(issue.assignee)}`);
-        sections.push(`Created: ${str(issue.created ?? '').substring(0, 10)} | Resolved: ${str(issue.resolved ?? '').substring(0, 10) || 'n/a'}`);
+        sections.push(`Created: ${str(issue.created ?? '').substring(0, 10)} | Resolved: ${strOr(str(issue.resolved ?? '').substring(0, 10), 'n/a')}`);
         sections.push('');
         sections.push(`--- TIMELINE (${String(events.length)} events) ---`);
         for (const ev of events) {
@@ -515,7 +521,7 @@ export function registerIssueTools(server: McpServer): void {
     },
     async ({ workspace_id: workspaceIdInput, since, author, repo_path: repoPath }) => {
       const ws = await loadWorkspace(workspaceIdInput);
-      if (!ws.ok) { return errorResponse(ws.reason); }
+      if (!ws.ok) { return workspaceNotFoundResponse(ws.reason); }
       const { storage, workspaceId } = await createAdapters(ws.workspaceId);
 
       try {
@@ -524,17 +530,17 @@ export function registerIssueTools(server: McpServer): void {
         const params: unknown[] = [];
         let paramIdx = 2;
 
-        if (since) {
+        if (hasText(since)) {
           conditions.push(`committed_at >= $${String(paramIdx)}`);
           joinConditions.push(`c.committed_at >= $${String(paramIdx)}`);
           params.push(since); paramIdx++;
         }
-        if (author) {
+        if (hasText(author)) {
           conditions.push(`author ILIKE $${String(paramIdx)}`);
           joinConditions.push(`c.author ILIKE $${String(paramIdx)}`);
           params.push(`%${author}%`); paramIdx++;
         }
-        if (repoPath) {
+        if (hasText(repoPath)) {
           conditions.push(`repo_path ILIKE $${String(paramIdx)}`);
           joinConditions.push(`c.repo_path ILIKE $${String(paramIdx)}`);
           params.push(`%${repoPath}%`); paramIdx++;
@@ -558,13 +564,13 @@ export function registerIssueTools(server: McpServer): void {
         const sections: string[] = [];
         const totalRow = total.rows[0] as unknown as CountRow | undefined;
         const refsRow = issueRefCount.rows[0] as unknown as CountRow | undefined;
-        sections.push(`# Git Statistics${since ? ` (since ${since})` : ''}${author ? ` (author: ${author})` : ''} — workspace ${workspaceId}`);
+        sections.push(`# Git Statistics${hasText(since) ? ` (since ${since})` : ''}${hasText(author) ? ` (author: ${author})` : ''} — workspace ${workspaceId}`);
         sections.push(`Total commits: ${str(totalRow?.count)}`);
         sections.push(`Linked issue keys: ${str(refsRow?.count)}`);
         sections.push('\n## Top Authors');
         for (const raw of byAuthor.rows) {
           const r = raw as { author?: string; count?: string };
-          sections.push(`  ${str(r.author) || 'unknown'}: ${str(r.count)}`);
+          sections.push(`  ${strOr(r.author, 'unknown')}: ${str(r.count)}`);
         }
         sections.push('\n## Most Changed Files');
         for (const raw of hotFiles.rows) {

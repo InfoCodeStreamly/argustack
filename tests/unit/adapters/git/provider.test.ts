@@ -473,7 +473,7 @@ describe('GitProvider.getBranches', () => {
       next: vi.fn().mockImplementation(() => {
         const entry = branchEntries[callIndex];
         callIndex++;
-        if (entry) {
+        if (entry !== undefined) {
           return { done: false, value: entry };
         }
         return { done: true, value: undefined };

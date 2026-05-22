@@ -113,7 +113,7 @@ export async function startBoardServer(wsRoot: string, port: number): Promise<vo
   process.on('SIGTERM', () => { void cleanup(); });
 }
 
-function readBody(req: IncomingMessage): Promise<string> {
+async function readBody(req: IncomingMessage): Promise<string> {
   return new Promise((done, fail) => {
     const chunks: string[] = [];
     req.setEncoding('utf-8');

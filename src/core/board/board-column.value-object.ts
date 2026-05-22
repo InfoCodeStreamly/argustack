@@ -7,7 +7,7 @@ export class BoardColumn {
 
   constructor(name: string, type: ColumnType) {
     const trimmed = name.trim();
-    if (!trimmed) {
+    if (trimmed.length === 0) {
       throw new Error('Column name cannot be empty');
     }
     this.name = trimmed;

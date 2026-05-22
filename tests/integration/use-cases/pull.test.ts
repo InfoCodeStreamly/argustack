@@ -12,7 +12,10 @@ import {
   createLink,
   createEmptyBatch,
   TEST_IDS,
+  TEST_WORKSPACE_IDS,
 } from '../../fixtures/shared/test-constants.js';
+
+const WS = TEST_WORKSPACE_IDS.ALPHA;
 
 describe('PullUseCase', () => {
   let source: FakeSourceProvider;
@@ -29,7 +32,7 @@ describe('PullUseCase', () => {
     source.seedProjects([createProject()]);
     source.seedBatches(TEST_IDS.projectKey, []);
 
-    await useCase.execute();
+    await useCase.execute(WS);
 
     expect(storage.initialized).toBe(true);
   });
@@ -42,7 +45,7 @@ describe('PullUseCase', () => {
     source.seedBatches('PROJ-A', [createBatch()]);
     source.seedBatches('PROJ-B', [createBatch()]);
 
-    const results = await useCase.execute();
+    const results = await useCase.execute(WS);
 
     expect(results).toHaveLength(2);
     expect(results[0]?.projectKey).toBe('PROJ-A');
@@ -56,7 +59,7 @@ describe('PullUseCase', () => {
     ]);
     source.seedBatches('PROJ-A', [createBatch()]);
 
-    const results = await useCase.execute({ projectKey: 'PROJ-A' });
+    const results = await useCase.execute(WS, { projectKey: 'PROJ-A' });
 
     expect(results).toHaveLength(1);
     expect(results[0]?.projectKey).toBe('PROJ-A');
@@ -69,7 +72,7 @@ describe('PullUseCase', () => {
     source.seedProjects([createProject()]);
     source.seedBatches(TEST_IDS.projectKey, [batch1, batch2]);
 
-    await useCase.execute();
+    await useCase.execute(WS);
 
     expect(storage.batchCount).toBe(2);
     expect(storage.count).toBe(2);
@@ -88,7 +91,7 @@ describe('PullUseCase', () => {
     source.seedProjects([createProject()]);
     source.seedBatches(TEST_IDS.projectKey, [batch1, batch2]);
 
-    const results = await useCase.execute();
+    const results = await useCase.execute(WS);
 
     expect(results[0]?.issuesCount).toBe(3);
     expect(results[0]?.commentsCount).toBe(1);
@@ -98,17 +101,17 @@ describe('PullUseCase', () => {
     source.seedProjects([createProject()]);
     source.seedBatches(TEST_IDS.projectKey, [createBatch()]);
 
-    await useCase.execute({ since: '2025-01-01' });
+    await useCase.execute(WS, { since: '2025-01-01' });
 
     expect(source.pullCalls[0]?.since).toBe('2025-01-01');
   });
 
   it('uses lastUpdated from storage for incremental pull', async () => {
-    storage.seedLastUpdated(TEST_IDS.projectKey, '2025-06-15T00:00:00.000Z');
+    storage.seedLastUpdated(WS, TEST_IDS.projectKey, '2025-06-15T00:00:00.000Z');
     source.seedProjects([createProject()]);
     source.seedBatches(TEST_IDS.projectKey, [createBatch()]);
 
-    await useCase.execute();
+    await useCase.execute(WS);
 
     const since = source.pullCalls[0]?.since;
     const expected = new Date(new Date('2025-06-15T00:00:00.000Z').getTime() - 60_000);
@@ -124,7 +127,7 @@ describe('PullUseCase', () => {
     source.seedProjects([createProject()]);
     source.seedBatches(TEST_IDS.projectKey, [createBatch()]);
 
-    await useCase.execute();
+    await useCase.execute(WS);
 
     expect(source.pullCalls[0]?.since).toBeUndefined();
   });
@@ -134,7 +137,7 @@ describe('PullUseCase', () => {
     source.seedProjects([createProject()]);
     source.seedBatches(TEST_IDS.projectKey, [createBatch()]);
 
-    await useCase.execute({ onProgress: (msg) => messages.push(msg) });
+    await useCase.execute(WS, { onProgress: (msg: string) => messages.push(msg) });
 
     expect(messages.length).toBeGreaterThan(0);
     expect(messages.some((m) => m.includes(TEST_IDS.projectKey))).toBe(true);
@@ -145,7 +148,7 @@ describe('PullUseCase', () => {
     source.seedProjects([createProject()]);
     source.seedBatches(TEST_IDS.projectKey, [createBatch()]);
 
-    await useCase.execute({ onProgress: (msg) => messages.push(msg) });
+    await useCase.execute(WS, { onProgress: (msg: string) => messages.push(msg) });
 
     expect(messages.some((m) => m.includes('1/1 issues (100%)'))).toBe(true);
     expect(messages.some((m) => m.includes('(1 issues)'))).toBe(true);
@@ -160,7 +163,7 @@ describe('PullUseCase', () => {
     bareSource.seedBatches(TEST_IDS.projectKey, [createBatch()]);
 
     const messages: string[] = [];
-    await bareUseCase.execute({ onProgress: (msg) => messages.push(msg) });
+    await bareUseCase.execute(WS, { onProgress: (msg: string) => messages.push(msg) });
 
     expect(messages.some((m) => m.includes('1 issues...'))).toBe(true);
     expect(messages.some((m) => m.includes('%'))).toBe(false);
@@ -170,7 +173,7 @@ describe('PullUseCase', () => {
     source.seedProjects([createProject()]);
     source.seedBatches(TEST_IDS.projectKey, [createEmptyBatch()]);
 
-    const results = await useCase.execute();
+    const results = await useCase.execute(WS);
 
     expect(results[0]?.issuesCount).toBe(0);
     expect(results[0]?.commentsCount).toBe(0);
@@ -193,7 +196,7 @@ describe('PullUseCase', () => {
     source.seedProjects([createProject()]);
     source.seedBatches(TEST_IDS.projectKey, [batch1, batch2]);
 
-    const results = await useCase.execute();
+    const results = await useCase.execute(WS);
 
     expect(results[0]?.changelogsCount).toBe(3);
     expect(results[0]?.worklogsCount).toBe(3);
@@ -209,30 +212,30 @@ describe('PullUseCase', () => {
     source.seedProjects([createProject()]);
     source.seedBatches(TEST_IDS.projectKey, [batch]);
 
-    await useCase.execute();
+    await useCase.execute(WS);
 
     expect(storage.savedBatches).toHaveLength(1);
-    expect(storage.savedBatches[0]?.issues).toHaveLength(2);
-    expect(storage.savedBatches[0]?.comments).toHaveLength(2);
+    expect(storage.savedBatches[0]?.batch.issues).toHaveLength(2);
+    expect(storage.savedBatches[0]?.batch.comments).toHaveLength(2);
   });
 
   it('explicit since overrides storage lastUpdated', async () => {
-    storage.seedLastUpdated(TEST_IDS.projectKey, '2025-06-15T00:00:00.000Z');
+    storage.seedLastUpdated(WS, TEST_IDS.projectKey, '2025-06-15T00:00:00.000Z');
     source.seedProjects([createProject()]);
     source.seedBatches(TEST_IDS.projectKey, [createBatch()]);
 
-    await useCase.execute({ since: '2025-01-01' });
+    await useCase.execute(WS, { since: '2025-01-01' });
 
     expect(source.pullCalls[0]?.since).toBe('2025-01-01');
   });
 
   it('incremental pull subtracts exactly 60 seconds from lastUpdated', async () => {
     const lastUpdated = '2025-06-15T12:01:00.000Z';
-    storage.seedLastUpdated(TEST_IDS.projectKey, lastUpdated);
+    storage.seedLastUpdated(WS, TEST_IDS.projectKey, lastUpdated);
     source.seedProjects([createProject()]);
     source.seedBatches(TEST_IDS.projectKey, [createBatch()]);
 
-    await useCase.execute();
+    await useCase.execute(WS);
 
     const exp = new Date(new Date(lastUpdated).getTime() - 60_000);
     const y = exp.getFullYear();
@@ -245,11 +248,11 @@ describe('PullUseCase', () => {
 
   it('logs incremental pull message when since is set from storage', async () => {
     const messages: string[] = [];
-    storage.seedLastUpdated(TEST_IDS.projectKey, '2025-06-15T00:00:00.000Z');
+    storage.seedLastUpdated(WS, TEST_IDS.projectKey, '2025-06-15T00:00:00.000Z');
     source.seedProjects([createProject()]);
     source.seedBatches(TEST_IDS.projectKey, [createBatch()]);
 
-    await useCase.execute({ onProgress: (msg) => messages.push(msg) });
+    await useCase.execute(WS, { onProgress: (msg: string) => messages.push(msg) });
 
     expect(messages.some((m) => m.includes('Incremental pull'))).toBe(true);
   });
@@ -259,7 +262,7 @@ describe('PullUseCase', () => {
     source.seedProjects([createProject()]);
     source.seedBatches(TEST_IDS.projectKey, [createBatch()]);
 
-    await useCase.execute({ since: '2025-01-01', onProgress: (msg) => messages.push(msg) });
+    await useCase.execute(WS, { since: '2025-01-01', onProgress: (msg: string) => messages.push(msg) });
 
     expect(messages.some((m) => m.includes('Incremental pull'))).toBe(true);
   });
@@ -269,7 +272,7 @@ describe('PullUseCase', () => {
     source.seedProjects([createProject()]);
     source.seedBatches(TEST_IDS.projectKey, [createBatch()]);
 
-    await useCase.execute({ onProgress: (msg) => messages.push(msg) });
+    await useCase.execute(WS, { onProgress: (msg: string) => messages.push(msg) });
 
     expect(messages.some((m) => m.includes('Incremental pull'))).toBe(false);
   });
@@ -284,7 +287,7 @@ describe('PullUseCase', () => {
     source.seedProjects([createProject()]);
     source.seedBatches(TEST_IDS.projectKey, [batch]);
 
-    await useCase.execute({ onProgress: (msg) => messages.push(msg) });
+    await useCase.execute(WS, { onProgress: (msg: string) => messages.push(msg) });
 
     expect(messages.some((m) => m.includes('2 issues') && m.includes('3 comments'))).toBe(true);
   });
@@ -302,12 +305,12 @@ describe('PullUseCase', () => {
     source.seedProjects([createProject()]);
     source.seedBatches(TEST_IDS.projectKey, [batch]);
 
-    await useCase.execute({ onProgress: (msg) => messages.push(msg) });
+    await useCase.execute(WS, { onProgress: (msg: string) => messages.push(msg) });
 
     const percentMatches = messages.filter((m) => m.includes('%'));
     for (const msg of percentMatches) {
       const pctMatch = /\((\d+)%\)/.exec(msg);
-      if (pctMatch) {
+      if (pctMatch !== null) {
         expect(Number(pctMatch[1])).toBeLessThanOrEqual(100);
       }
     }
@@ -319,9 +322,9 @@ describe('PullUseCase', () => {
       createProject({ key: TEST_IDS.projectKey2 }),
     ]);
     source.seedBatches(TEST_IDS.projectKey, [createBatch()]);
-    source.seedBatches(TEST_IDS.projectKey2, [createBatch({ issues: [createIssue({ key: TEST_IDS.projectKey2 + '-1', projectKey: TEST_IDS.projectKey2 })] })]);
+    source.seedBatches(TEST_IDS.projectKey2, [createBatch({ issues: [createIssue({ key: `${TEST_IDS.projectKey2  }-1`, projectKey: TEST_IDS.projectKey2 })] })]);
 
-    const results = await useCase.execute();
+    const results = await useCase.execute(WS);
 
     expect(results).toHaveLength(2);
     expect(results[0]?.issuesCount).toBeGreaterThan(0);
@@ -332,7 +335,7 @@ describe('PullUseCase', () => {
     source.seedProjects([createProject()]);
     source.seedBatches(TEST_IDS.projectKey, [createBatch()]);
 
-    await useCase.execute({ projectKey: TEST_IDS.projectKey });
+    await useCase.execute(WS, { projectKey: TEST_IDS.projectKey });
 
     expect(source.pullCalls[0]?.projectKey).toBe(TEST_IDS.projectKey);
     expect(source.pullCalls).toHaveLength(1);

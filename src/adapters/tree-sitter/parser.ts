@@ -42,7 +42,7 @@ export class TreeSitterParser implements ICodeParser {
     this.tsxParser.setLanguage(TSX_GRAMMAR as Parameters<Parser['setLanguage']>[0]);
   }
 
-  parseFile(
+  async parseFile(
     absPath: string,
     content: string,
     language: CodeLanguage,
@@ -86,7 +86,7 @@ export class TreeSitterParser implements ICodeParser {
     let nextSymbolQn = currentSymbolQn;
     let pushed = false;
 
-    if (kind) {
+    if (kind !== undefined) {
       const name = extractName(node) ?? '<anonymous>';
       const qualifiedName = [ctx.qnPrefix, ...ctx.qnStack, name].join('.');
       ctx.qnStack.push(name);
@@ -108,7 +108,7 @@ export class TreeSitterParser implements ICodeParser {
     ) {
       for (const declarator of childrenOfType(node, 'variable_declarator')) {
         const name = identifierText(declarator.childForFieldName('name'));
-        if (!name) {continue;}
+        if (name === null || name === '') {continue;}
         ctx.symbols.push({
           projectId: '',
           qualifiedName: [ctx.qnPrefix, name].join('.'),
@@ -121,7 +121,7 @@ export class TreeSitterParser implements ICodeParser {
       }
     } else if (node.type === 'import_statement') {
       const fromFile = relativeImportTarget(node);
-      if (fromFile) {
+      if (fromFile !== null && fromFile !== '') {
         const names = importedNames(node);
         ctx.imports.push({
           projectId: '',
@@ -130,9 +130,9 @@ export class TreeSitterParser implements ICodeParser {
           names,
         });
       }
-    } else if (node.type === 'call_expression' && currentSymbolQn) {
+    } else if (node.type === 'call_expression' && currentSymbolQn !== null && currentSymbolQn !== '') {
       const callee = node.childForFieldName('function');
-      if (callee) {
+      if (callee !== null) {
         const calleeText = callee.text;
         ctx.rawCalls.push({
           fromQn: currentSymbolQn,
@@ -145,7 +145,7 @@ export class TreeSitterParser implements ICodeParser {
 
     for (let i = 0; i < node.namedChildCount; i++) {
       const child = node.namedChild(i);
-      if (child) {
+      if (child !== null) {
         this.walk(child, ctx, nextSymbolQn);
       }
     }
@@ -171,7 +171,7 @@ function extractName(node: SyntaxNode): string | null {
 }
 
 function identifierText(node: SyntaxNode | null): string | null {
-  if (!node) {return null;}
+  if (node === null) {return null;}
   return node.text;
 }
 
@@ -188,7 +188,7 @@ function childrenOfType(node: SyntaxNode, type: string): SyntaxNode[] {
 
 function relativeImportTarget(node: SyntaxNode): string | null {
   const source = node.childForFieldName('source');
-  if (!source) {return null;}
+  if (source === null) {return null;}
   const text = source.text.replace(/^['"`]|['"`]$/g, '');
   if (!text.startsWith('.')) {
     return null;
@@ -199,7 +199,7 @@ function relativeImportTarget(node: SyntaxNode): string | null {
 function importedNames(node: SyntaxNode): string[] {
   const names: string[] = [];
   const clause = node.namedChildren.find((c) => c.type === 'import_clause');
-  if (!clause) {return names;}
+  if (clause === undefined) {return names;}
   for (const child of clause.namedChildren) {
     if (child.type === 'identifier') {
       names.push(child.text);
@@ -207,12 +207,12 @@ function importedNames(node: SyntaxNode): string[] {
       for (const spec of child.namedChildren) {
         if (spec.type === 'import_specifier') {
           const nameNode = spec.childForFieldName('name');
-          if (nameNode) {names.push(nameNode.text);}
+          if (nameNode !== null) {names.push(nameNode.text);}
         }
       }
     } else if (child.type === 'namespace_import') {
       const alias = child.namedChildren.find((c) => c.type === 'identifier');
-      if (alias) {names.push(`* as ${alias.text}`);}
+      if (alias !== undefined) {names.push(`* as ${alias.text}`);}
     }
   }
   return names;

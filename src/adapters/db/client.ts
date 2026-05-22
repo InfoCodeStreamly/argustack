@@ -30,7 +30,7 @@ function buildAfterCreate(engine: DbEngine) {
   ): void {
     if (engine === 'postgresql') {
       conn.query('SET default_transaction_read_only = true', (err) => {
-        if (err) {
+        if (err !== null && err !== undefined) {
           done(err, conn);
           return;
         }
@@ -40,7 +40,7 @@ function buildAfterCreate(engine: DbEngine) {
       });
     } else if (engine === 'mysql') {
       conn.query('SET SESSION TRANSACTION READ ONLY', (err) => {
-        if (err) {
+        if (err !== null && err !== undefined) {
           done(err, conn);
           return;
         }

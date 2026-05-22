@@ -1,13 +1,9 @@
 import { copyFileSync, existsSync, mkdirSync, readFileSync, writeFileSync, chmodSync } from 'node:fs';
 import { join } from 'node:path';
-import { Client } from 'pg';
 import type { IDockerControl, ComposeUpResult } from '../../core/ports/docker-control.js';
+import type { IHubReadinessProbe } from '../../core/ports/hub-readiness-probe.js';
+import type { IWorkspaceStore } from '../../core/ports/workspace-store.js';
 import type { HubPorts } from './resolve-hub-ports.js';
-import { PostgresWorkspaceStore, createPool } from '../../adapters/postgres/index.js';
-
-const HUB_DB_USER = 'argustack';
-const HUB_DB_PASSWORD = 'argustack_hub';
-const HUB_DB_NAME = 'argustack_hub';
 
 export interface BootstrapHubOptions {
   readonly hubDir: string;
@@ -22,8 +18,17 @@ export type BootstrapHubResult =
   | { ok: true; wroteCompose: boolean; wroteConfig: boolean }
   | { ok: false; stage: 'fs' | 'docker' | 'wait-db' | 'schema'; details: string; composeError?: ComposeUpResult };
 
-const PG_HEALTH_TIMEOUT_MS = 60_000;
-const PG_HEALTH_INTERVAL_MS = 1_000;
+/**
+ * Factory producing an {@link IWorkspaceStore} bound to the freshly
+ * bootstrapped hub Postgres. The use case knows nothing about how the
+ * store is constructed — composition root (CLI) wires the concrete
+ * adapter and pool. Synchronous: creating a pool is non-blocking; the
+ * store performs the first await on `initialize()`.
+ */
+export type HubWorkspaceStoreFactory = (port: number) => {
+  store: IWorkspaceStore;
+  close: () => Promise<void>;
+};
 
 /**
  * Idempotent bootstrap of the hub stack:
@@ -42,6 +47,8 @@ const PG_HEALTH_INTERVAL_MS = 1_000;
 export class BootstrapHubUseCase {
   constructor(
     private readonly docker: IDockerControl,
+    private readonly readinessProbe: IHubReadinessProbe,
+    private readonly workspaceStoreFactory: HubWorkspaceStoreFactory,
   ) {}
 
   async execute(options: BootstrapHubOptions): Promise<BootstrapHubResult> {
@@ -76,7 +83,7 @@ export class BootstrapHubUseCase {
       return { ok: false, stage: 'fs', details: err instanceof Error ? err.message : String(err) };
     }
 
-    if (!options.skipDocker) {
+    if (options.skipDocker !== true) {
       log('docker compose up -d');
       const composePath = join(options.hubDir, 'docker-compose.yml');
       const composeResult = await this.docker.composeUp(composePath, options.hubDir);
@@ -85,56 +92,23 @@ export class BootstrapHubUseCase {
       }
 
       log('waiting for Postgres to accept connections');
-      const ready = await this.waitForPg(options.ports.pg);
+      const ready = await this.readinessProbe.waitForReady(options.ports.pg);
       if (!ready.ok) {
         return { ok: false, stage: 'wait-db', details: ready.details };
       }
     }
 
     log('apply hub schema');
-    const pool = createPool({
-      host: 'localhost',
-      port: options.ports.pg,
-      user: HUB_DB_USER,
-      password: HUB_DB_PASSWORD,
-      database: HUB_DB_NAME,
-    });
+    const { store, close } = this.workspaceStoreFactory(options.ports.pg);
     try {
-      const store = new PostgresWorkspaceStore(pool);
       await store.initialize();
     } catch (err) {
       return { ok: false, stage: 'schema', details: err instanceof Error ? err.message : String(err) };
     } finally {
-      await pool.end();
+      await close();
     }
 
     return { ok: true, wroteCompose, wroteConfig };
-  }
-
-  private async waitForPg(port: number): Promise<{ ok: true } | { ok: false; details: string }> {
-    const deadline = Date.now() + PG_HEALTH_TIMEOUT_MS;
-    let lastError = 'unknown';
-    while (Date.now() < deadline) {
-      const client = new Client({
-        host: 'localhost',
-        port,
-        user: HUB_DB_USER,
-        password: HUB_DB_PASSWORD,
-        database: HUB_DB_NAME,
-        connectionTimeoutMillis: 2000,
-      });
-      try {
-        await client.connect();
-        await client.query('SELECT 1');
-        await client.end();
-        return { ok: true };
-      } catch (err) {
-        lastError = err instanceof Error ? err.message : String(err);
-        try { await client.end(); } catch { /* ignore */ }
-        await new Promise((r) => setTimeout(r, PG_HEALTH_INTERVAL_MS));
-      }
-    }
-    return { ok: false, details: `Postgres did not become ready in ${String(PG_HEALTH_TIMEOUT_MS / 1000)}s: ${lastError}` };
   }
 }
 

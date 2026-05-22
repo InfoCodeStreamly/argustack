@@ -18,7 +18,7 @@ export class FakeSkillRunner implements ISkillRunner {
     yield await Promise.resolve(this._output);
   }
 
-  isAvailable(): Promise<boolean> {
+  async isAvailable(): Promise<boolean> {
     return Promise.resolve(this._available);
   }
 

@@ -13,6 +13,7 @@ import { describe, it, expect, beforeEach } from 'vitest';
 import { MoveTaskUseCase } from '../../../src/use-cases/move-task.js';
 import { FakeBoardStore } from '../../fixtures/fakes/fake-board-store.js';
 import { FakeSkillRunner } from '../../fixtures/fakes/fake-skill-runner.js';
+import type { BoardTaskData } from '../../../src/core/types/board.js';
 
 // ─── Board-specific test constants ───────────────────────────────────────────
 
@@ -32,26 +33,26 @@ const BOARD_IDS = {
 
 // ─── Factory helpers ─────────────────────────────────────────────────────────
 
-function seedStandardPipeline(store: FakeBoardStore): void {
-  store.pipeline = {
+async function seedStandardPipeline(targetStore: FakeBoardStore): Promise<void> {
+  await targetStore.savePipeline({
     columns: [
       { name: BOARD_IDS.backlog, displayName: 'Backlog', type: 'system' },
       { name: BOARD_IDS.inProgress, displayName: 'In Progress', type: 'system' },
       { name: BOARD_IDS.done, displayName: 'Done', type: 'system' },
     ],
     port: 5002,
-  };
+  });
 }
 
-function seedSkillPipeline(store: FakeBoardStore): void {
-  store.pipeline = {
+async function seedSkillPipeline(targetStore: FakeBoardStore): Promise<void> {
+  await targetStore.savePipeline({
     columns: [
       { name: BOARD_IDS.backlog, displayName: 'Backlog', type: 'system' },
       { name: BOARD_IDS.skillCol, displayName: 'Code Review', type: 'skill' },
       { name: BOARD_IDS.done, displayName: 'Done', type: 'system' },
     ],
     port: 5002,
-  };
+  });
 }
 
 async function seedTask(store: FakeBoardStore, overrides?: Partial<{
@@ -61,7 +62,7 @@ async function seedTask(store: FakeBoardStore, overrides?: Partial<{
   column: string;
   jiraKey: string | null;
   assignee: string | null;
-}>) {
+}>): Promise<BoardTaskData> {
   const created = await store.createTask({
     title: overrides?.title ?? BOARD_IDS.title,
     mdPath: overrides?.mdPath ?? BOARD_IDS.mdPath,
@@ -72,15 +73,15 @@ async function seedTask(store: FakeBoardStore, overrides?: Partial<{
     updatedAt: '2025-01-01T00:00:00.000Z',
   });
 
-  if (overrides?.id && overrides.id !== created.id) {
+  if (overrides?.id !== undefined && overrides.id !== '' && overrides.id !== created.id) {
     const task = store.tasks.find((t) => t.id === created.id);
-    if (task) {
+    if (task !== undefined) {
       task.id = overrides.id;
     }
   }
 
   const found = store.tasks.find((t) => t.title === (overrides?.title ?? BOARD_IDS.title));
-  if (!found) { throw new Error('Task not found after creation'); }
+  if (found === undefined) { throw new Error('Task not found after creation'); }
   return found;
 }
 
@@ -99,7 +100,7 @@ describe('MoveTaskUseCase', () => {
 
   describe('execute — happy path', () => {
     it('moves a task to a valid system column and returns updated task data', async () => {
-      seedStandardPipeline(store);
+      await seedStandardPipeline(store);
       const task = await seedTask(store);
 
       const output = await useCase.execute({ taskId: task.id, targetColumn: BOARD_IDS.inProgress });
@@ -110,7 +111,7 @@ describe('MoveTaskUseCase', () => {
     });
 
     it('persists the column change in the store', async () => {
-      seedStandardPipeline(store);
+      await seedStandardPipeline(store);
       const task = await seedTask(store);
 
       await useCase.execute({ taskId: task.id, targetColumn: BOARD_IDS.inProgress });
@@ -120,7 +121,7 @@ describe('MoveTaskUseCase', () => {
     });
 
     it('returns skillTriggered: false when target is a system column', async () => {
-      seedStandardPipeline(store);
+      await seedStandardPipeline(store);
       const task = await seedTask(store);
 
       const output = await useCase.execute({ taskId: task.id, targetColumn: BOARD_IDS.done });
@@ -129,7 +130,7 @@ describe('MoveTaskUseCase', () => {
     });
 
     it('moves a task from in-progress back to backlog', async () => {
-      seedStandardPipeline(store);
+      await seedStandardPipeline(store);
       const task = await seedTask(store, { column: BOARD_IDS.inProgress });
 
       const output = await useCase.execute({ taskId: task.id, targetColumn: BOARD_IDS.backlog });
@@ -138,7 +139,7 @@ describe('MoveTaskUseCase', () => {
     });
 
     it('preserves mdPath, jiraKey, and assignee on the returned task', async () => {
-      seedStandardPipeline(store);
+      await seedStandardPipeline(store);
       const task = await seedTask(store, { jiraKey: TEST_IDS.issueKey, assignee: 'alice' });
 
       const output = await useCase.execute({ taskId: task.id, targetColumn: BOARD_IDS.inProgress });
@@ -149,7 +150,7 @@ describe('MoveTaskUseCase', () => {
     });
 
     it('updates the updatedAt timestamp on the returned task', async () => {
-      seedStandardPipeline(store);
+      await seedStandardPipeline(store);
       const task = await seedTask(store);
       const before = task.updatedAt;
 
@@ -161,7 +162,7 @@ describe('MoveTaskUseCase', () => {
 
   describe('execute — skill column', () => {
     it('triggers skill runner when target column is of type skill', async () => {
-      seedSkillPipeline(store);
+      await seedSkillPipeline(store);
       const task = await seedTask(store);
 
       const output = await useCase.execute({ taskId: task.id, targetColumn: BOARD_IDS.skillCol });
@@ -170,7 +171,7 @@ describe('MoveTaskUseCase', () => {
     });
 
     it('executes the skill with the task mdPath as argument', async () => {
-      seedSkillPipeline(store);
+      await seedSkillPipeline(store);
       const task = await seedTask(store);
 
       await useCase.execute({ taskId: task.id, targetColumn: BOARD_IDS.skillCol });
@@ -181,7 +182,7 @@ describe('MoveTaskUseCase', () => {
     });
 
     it('streams skill output via onSkillOutput callback', async () => {
-      seedSkillPipeline(store);
+      await seedSkillPipeline(store);
       const task = await seedTask(store);
       skillRunner.setOutput('review complete');
 
@@ -195,7 +196,7 @@ describe('MoveTaskUseCase', () => {
     });
 
     it('returns skillTriggered: false when skill runner is unavailable', async () => {
-      seedSkillPipeline(store);
+      await seedSkillPipeline(store);
       skillRunner.setAvailable(false);
       const task = await seedTask(store);
 
@@ -206,7 +207,7 @@ describe('MoveTaskUseCase', () => {
     });
 
     it('does not invoke onSkillOutput when runner is unavailable', async () => {
-      seedSkillPipeline(store);
+      await seedSkillPipeline(store);
       skillRunner.setAvailable(false);
       const task = await seedTask(store);
 
@@ -220,7 +221,7 @@ describe('MoveTaskUseCase', () => {
     });
 
     it('still persists the column change even when skill runner is unavailable', async () => {
-      seedSkillPipeline(store);
+      await seedSkillPipeline(store);
       skillRunner.setAvailable(false);
       const task = await seedTask(store);
 
@@ -231,7 +232,7 @@ describe('MoveTaskUseCase', () => {
     });
 
     it('works without an onSkillOutput callback on a skill column', async () => {
-      seedSkillPipeline(store);
+      await seedSkillPipeline(store);
       const task = await seedTask(store);
 
       await expect(
@@ -242,7 +243,7 @@ describe('MoveTaskUseCase', () => {
 
   describe('execute — error handling', () => {
     it('throws when taskId does not exist in the store', async () => {
-      seedStandardPipeline(store);
+      await seedStandardPipeline(store);
 
       await expect(
         useCase.execute({ taskId: 'non-existent-id', targetColumn: BOARD_IDS.inProgress }),
@@ -250,7 +251,7 @@ describe('MoveTaskUseCase', () => {
     });
 
     it('throws when targetColumn does not exist in the pipeline', async () => {
-      seedStandardPipeline(store);
+      await seedStandardPipeline(store);
       const task = await seedTask(store);
 
       await expect(
@@ -259,7 +260,7 @@ describe('MoveTaskUseCase', () => {
     });
 
     it('error message for missing task includes the provided taskId', async () => {
-      seedStandardPipeline(store);
+      await seedStandardPipeline(store);
       const missingId = 'missing-task-xyz';
 
       await expect(
@@ -268,7 +269,7 @@ describe('MoveTaskUseCase', () => {
     });
 
     it('error message for missing column includes the provided column name', async () => {
-      seedStandardPipeline(store);
+      await seedStandardPipeline(store);
       const task = await seedTask(store);
 
       await expect(
@@ -279,7 +280,7 @@ describe('MoveTaskUseCase', () => {
 
   describe('execute — multiple tasks', () => {
     it('moves only the requested task, leaving others unchanged', async () => {
-      seedStandardPipeline(store);
+      await seedStandardPipeline(store);
       const task1 = await seedTask(store, { title: BOARD_IDS.title });
       const task2 = await seedTask(store, { title: BOARD_IDS.title2, mdPath: BOARD_IDS.mdPath2 });
 
@@ -290,7 +291,7 @@ describe('MoveTaskUseCase', () => {
     });
 
     it('can move both tasks independently to different columns', async () => {
-      seedStandardPipeline(store);
+      await seedStandardPipeline(store);
       const task1 = await seedTask(store, { title: BOARD_IDS.title });
       const task2 = await seedTask(store, { title: BOARD_IDS.title2, mdPath: BOARD_IDS.mdPath2 });
 

@@ -8,7 +8,9 @@ import {
   getWorkspaceStore,
   textResponse,
   errorResponse,
+  workspaceNotFoundResponse,
   getErrorMessage,
+  hasText,
   ANNOTATIONS,
 } from '../helpers.js';
 import { readWorkspaceConfigFromHub } from '../../workspace/config.js';
@@ -29,20 +31,21 @@ export function registerWorkspaceTools(server: McpServer): void {
     },
     async ({ workspace_id: workspaceIdInput }) => {
       const ws = await loadWorkspace(workspaceIdInput);
-      if (!ws.ok) { return errorResponse(ws.reason); }
+      if (!ws.ok) { return workspaceNotFoundResponse(ws.reason); }
       const settings = ws.workspace.settings ?? {};
 
+      const joinOrNone = (s: string): string => s.length > 0 ? s : '(none)';
       const lines = [
         `Argustack Hub Workspace`,
         `Name:        ${ws.workspace.name}`,
         `Id:          ${ws.workspace.id}`,
         `Last active: ${ws.workspace.lastActiveAt ?? 'never'}`,
         '',
-        `Jira projects:  ${(settings.jiraProjectKeys ?? []).join(', ') || '(none)'}`,
-        `Git repos:      ${(settings.gitRepoPaths ?? []).join(', ') || '(none)'}`,
-        `GitHub repos:   ${(settings.githubRepos ?? []).map((r) => `${r.owner}/${r.repo}`).join(', ') || '(none)'}`,
-        `CSV files:      ${(settings.csvFilePaths ?? []).map((c) => c.path).join(', ') || '(none)'}`,
-        `External DBs:   ${(settings.dbConfigs ?? []).map((d) => d.name).join(', ') || '(none)'}`,
+        `Jira projects:  ${joinOrNone((settings.jiraProjectKeys ?? []).join(', '))}`,
+        `Git repos:      ${joinOrNone((settings.gitRepoPaths ?? []).join(', '))}`,
+        `GitHub repos:   ${joinOrNone((settings.githubRepos ?? []).map((r) => `${r.owner}/${r.repo}`).join(', '))}`,
+        `CSV files:      ${joinOrNone((settings.csvFilePaths ?? []).map((c) => c.path).join(', '))}`,
+        `External DBs:   ${joinOrNone((settings.dbConfigs ?? []).map((d) => d.name).join(', '))}`,
       ];
       return textResponse(lines.join('\n'));
     },
@@ -60,9 +63,9 @@ export function registerWorkspaceTools(server: McpServer): void {
     },
     async ({ workspace_id: workspaceIdInput }) => {
       const ws = await loadWorkspace(workspaceIdInput);
-      if (!ws.ok) { return errorResponse(ws.reason); }
+      if (!ws.ok) { return workspaceNotFoundResponse(ws.reason); }
       const { source } = await createAdapters(ws.workspaceId);
-      if (!source) {
+      if (source === null) {
         return errorResponse('Jira is not configured. Add credentials with `argustack add jira --url ... --email ... --token ...`.');
       }
       try {
@@ -95,9 +98,9 @@ export function registerWorkspaceTools(server: McpServer): void {
       if ((settings.githubRepos?.length ?? 0) > 0) { enabled.push(SOURCE_META.github.label); }
       if ((settings.csvFilePaths?.length ?? 0) > 0) { enabled.push(SOURCE_META.csv.label); }
       if ((settings.dbConfigs?.length ?? 0) > 0) { enabled.push(SOURCE_META.db.label); }
+      const sourcesText = enabled.length > 0 ? enabled.join(', ') : 'none';
       return textResponse(
-        `Switched to workspace: ${result.workspace.name} [${result.workspace.id}]\n` +
-        `Sources: ${enabled.join(', ') || 'none'}`,
+        `Switched to workspace: ${result.workspace.name} [${result.workspace.id}]\nSources: ${sourcesText}`,
       );
     },
   );
@@ -136,7 +139,8 @@ export function registerWorkspaceTools(server: McpServer): void {
         const lines = structured.map((w) => {
           const marker = w.active ? '●' : '○';
           const suffix = w.active ? ' (active)' : '';
-          return `  ${marker} ${w.name}${suffix} [${w.id}] — ${w.sources.join(', ') || 'no sources'}`;
+          const sourcesText = w.sources.length > 0 ? w.sources.join(', ') : 'no sources';
+          return `  ${marker} ${w.name}${suffix} [${w.id}] — ${sourcesText}`;
         });
         return {
           content: [{ type: 'text' as const, text: `Workspaces (${String(all.length)}):\n${lines.join('\n')}` }],
@@ -162,17 +166,17 @@ export function registerWorkspaceTools(server: McpServer): void {
     },
     async ({ workspace_id: workspaceIdInput, project, since }) => {
       const ws = await loadWorkspace(workspaceIdInput);
-      if (!ws.ok) { return errorResponse(ws.reason); }
+      if (!ws.ok) { return workspaceNotFoundResponse(ws.reason); }
       const { source, storage, workspaceId } = await createAdapters(ws.workspaceId);
-      if (!source) { return errorResponse('Jira is not configured.'); }
+      if (source === null) { return errorResponse('Jira is not configured.'); }
 
       try {
         const { PullUseCase } = await import('../../use-cases/pull.js');
         const pullUseCase = new PullUseCase(source, storage);
         const progressLines: string[] = [];
         const results = await pullUseCase.execute(workspaceId, {
-          ...(project ? { projectKey: project } : {}),
-          ...(since ? { since } : {}),
+          ...(hasText(project) ? { projectKey: project } : {}),
+          ...(hasText(since) ? { since } : {}),
           onProgress: (msg) => progressLines.push(msg),
         });
 

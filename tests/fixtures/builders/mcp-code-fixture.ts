@@ -62,6 +62,7 @@ export async function setupMcpCodeFixture(): Promise<McpCodeFixture> {
     embedding,
     meta,
     storage: storageStub,
+    chatLlm: null,
   };
   setActiveCodeAdapters(adapters);
 

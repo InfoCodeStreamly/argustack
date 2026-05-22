@@ -37,14 +37,14 @@ export function generateEnv(
 ): string {
   const lines: string[] = [];
 
-  if (proxy) {
+  if (proxy != null) {
     lines.push(
       '# === Jira (via proxy) ===',
       `JIRA_PROXY_TOKEN=${proxy.proxyToken}`,
       `JIRA_PROJECTS=${proxy.jiraProjects.join(',')}`,
       '',
     );
-  } else if (jira) {
+  } else if (jira != null) {
     lines.push(
       '# === Jira ===',
       `JIRA_URL=${jira.jiraUrl}`,
@@ -55,7 +55,7 @@ export function generateEnv(
     );
   }
 
-  if (git) {
+  if (git != null) {
     lines.push(
       '# === Git ===',
       `GIT_REPO_PATHS=${git.gitRepoPaths.join(',')}`,
@@ -63,7 +63,7 @@ export function generateEnv(
     );
   }
 
-  if (github) {
+  if (github != null) {
     lines.push(
       '# === GitHub ===',
       `GITHUB_TOKEN=${github.githubToken}`,
@@ -73,7 +73,7 @@ export function generateEnv(
     );
   }
 
-  if (csv) {
+  if (csv != null) {
     lines.push(
       '# === Jira CSV ===',
       `CSV_FILE_PATH=${csv.csvFilePath}`,
@@ -81,7 +81,7 @@ export function generateEnv(
     );
   }
 
-  if (db) {
+  if (db != null) {
     lines.push(
       '# === Target Database (project DB to analyze) ===',
       `TARGET_DB_ENGINE=${db.targetDbEngine}`,
@@ -106,11 +106,11 @@ export function generateEnv(
     '# OPENAI_API_KEY=sk-...',
   );
 
-  return lines.join('\n') + '\n';
+  return `${lines.join('\n')  }\n`;
 }
 
 export function generateDockerCompose(dbPort: number, pgwebPort: number, workspaceName?: string): string {
-  const prefix = workspaceName ? `argustack-${workspaceName}` : 'argustack';
+  const prefix = workspaceName !== undefined && workspaceName !== '' ? `argustack-${workspaceName}` : 'argustack';
   return `services:
   db:
     image: pgvector/pgvector:pg16
@@ -167,36 +167,36 @@ export function createWorkspaceFiles(
   mkdirSync(join(workspaceDir, 'data'), { recursive: true });
 
   let config = createEmptyConfig(workspaceName);
-  if (jira || proxy) {
+  if (jira != null || proxy != null) {
     config = addSource(config, 'jira');
     const selectedTypes = jira?.issueTypes ?? proxy?.issueTypes;
     const selectedTypeIds = jira?.issueTypeIds ?? proxy?.issueTypeIds;
-    if (config.sources.jira) {
-      if (selectedTypes) { config.sources.jira.issueTypes = selectedTypes; }
-      if (selectedTypeIds) { config.sources.jira.issueTypeIds = selectedTypeIds; }
+    if (config.sources.jira != null) {
+      if (selectedTypes != null) { config.sources.jira.issueTypes = selectedTypes; }
+      if (selectedTypeIds != null) { config.sources.jira.issueTypeIds = selectedTypeIds; }
     }
   }
-  if (git) {
+  if (git != null) {
     config = addSource(config, 'git');
   }
-  if (github) {
+  if (github != null) {
     config = addSource(config, 'github');
   }
-  if (csv) {
+  if (csv != null) {
     config = addSource(config, 'csv');
   }
-  if (db) {
+  if (db != null) {
     config = addSource(config, 'db');
   }
   writeConfig(workspaceDir, config);
 
   writeFileSync(join(workspaceDir, '.env'), generateEnv(jira, git, github, csv, db, dbPort, proxy));
 
-  if (proxy) {
+  if (proxy != null) {
     const proxyConfig = buildDefaultProxyConfig(proxy.proxyUrl);
     writeFileSync(
       join(workspaceDir, '.argustack', 'proxy.json'),
-      JSON.stringify(proxyConfig, null, 2) + '\n',
+      `${JSON.stringify(proxyConfig, null, 2)  }\n`,
     );
   }
 
@@ -218,7 +218,7 @@ export function createWorkspaceFiles(
     };
     writeFileSync(
       join(workspaceDir, '.mcp.json'),
-      JSON.stringify(mcpConfig, null, 2) + '\n',
+      `${JSON.stringify(mcpConfig, null, 2)  }\n`,
     );
   } catch { /* optional file, ignore */ }
 
@@ -241,26 +241,26 @@ export function printSummary(
   console.log('');
 
   console.log(chalk.dim('  Sources configured:'));
-  if (proxy) {
+  if (proxy != null) {
     console.log(`    ${chalk.green('✓')} Jira (proxy) — ${maskHost(proxy.proxyUrl.replace(/^https?:\/\//, ''))}`);
-  } else if (jira) {
+  } else if (jira != null) {
     console.log(`    ${chalk.green('✓')} Jira — ${maskHost(jira.jiraUrl.replace(/^https?:\/\//, ''))}`);
   }
-  if (git) {
+  if (git != null) {
     for (const p of git.gitRepoPaths) {
       console.log(`    ${chalk.green('✓')} Git — ${maskPath(p)}`);
     }
   }
-  if (github) {
+  if (github != null) {
     console.log(`    ${chalk.green('✓')} GitHub — ${maskOrgRepo(github.githubOwner, github.githubRepo)}`);
   }
-  if (csv) {
+  if (csv != null) {
     console.log(`    ${chalk.green('✓')} Jira CSV — ${csv.csvFilePath}`);
   }
-  if (db) {
+  if (db != null) {
     console.log(`    ${chalk.green('✓')} Database — ${maskHost(db.targetDbHost)}:${db.targetDbPort}`);
   }
-  if (!jira && !proxy && !git && !github && !csv && !db) {
+  if (jira == null && proxy == null && git == null && github == null && csv == null && db == null) {
     console.log(`    ${chalk.yellow('—')} None yet. Use ${chalk.cyan('argustack source add <type>')}`);
   }
 
@@ -269,7 +269,7 @@ export function printSummary(
     console.log(chalk.dim('  Next steps:'));
     console.log(`  ${chalk.cyan('cd')} ${workspaceDir}`);
     console.log(`  ${chalk.cyan('docker compose up -d')}          # start database`);
-    if (jira || proxy) {
+    if (jira != null || proxy != null) {
       console.log(`  ${chalk.cyan('argustack sync jira')}            # sync from Jira`);
     }
     console.log(`  ${chalk.cyan(`http://localhost:${pgwebPort}`)}            # browse data in pgweb`);

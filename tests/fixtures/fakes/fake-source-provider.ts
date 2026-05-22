@@ -22,7 +22,7 @@ export class FakeSourceProvider implements ISourceProvider {
 
   // eslint-disable-next-line @typescript-eslint/require-await -- fake: async generator impl
   async *pullIssues(projectKey: string, since?: string): AsyncGenerator<IssueBatch> {
-    this.pullCalls.push({ projectKey, since });
+    this.pullCalls.push(since !== undefined ? { projectKey, since } : { projectKey });
 
     const projectBatches = this._batches.get(projectKey) ?? [];
     for (const batch of projectBatches) {
@@ -38,7 +38,7 @@ export class FakeSourceProvider implements ISourceProvider {
     this._batches.set(projectKey, batches);
   }
 
-  getIssueCount(projectKey: string, _since?: string): Promise<number> {
+  async getIssueCount(projectKey: string, _since?: string): Promise<number> {
     const total = this._batches.get(projectKey)?.reduce((sum, b) => sum + b.issues.length, 0) ?? 0;
     return Promise.resolve(total);
   }
@@ -46,7 +46,7 @@ export class FakeSourceProvider implements ISourceProvider {
   private _createCounter = 0;
   readonly createCalls: Issue[] = [];
 
-  createIssue(issue: Issue): Promise<string> {
+  async createIssue(issue: Issue): Promise<string> {
     this.createCalls.push(issue);
     this._createCounter++;
     return Promise.resolve(`${issue.projectKey}-${String(1000 + this._createCounter)}`);

@@ -39,9 +39,14 @@ function readString(payload: Record<string, unknown>, key: string, fallback = ''
 export function pointToHit(point: QdrantSearchPoint): SemanticHit {
   const payload = point.payload ?? {};
   const symbolIdValue = payload['symbolId'];
-  const symbolId = typeof symbolIdValue === 'string'
-    ? symbolIdValue
-    : typeof point.id === 'string' ? point.id : String(point.id);
+  let symbolId: string;
+  if (typeof symbolIdValue === 'string') {
+    symbolId = symbolIdValue;
+  } else if (typeof point.id === 'string') {
+    symbolId = point.id;
+  } else {
+    symbolId = String(point.id);
+  }
   const hitPayload: SemanticHitPayload = {
     projectId: readString(payload, 'projectId'),
     filePath: readString(payload, 'filePath'),
@@ -52,7 +57,7 @@ export function pointToHit(point: QdrantSearchPoint): SemanticHit {
     endLine: Number(payload['endLine'] ?? 0),
   };
   const content = readString(payload, 'content');
-  if (content) {
+  if (content !== '') {
     hitPayload.content = content;
   }
   return {

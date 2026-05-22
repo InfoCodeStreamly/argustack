@@ -28,7 +28,7 @@ vi.mock('node:path', async (importOriginal) => {
 });
 
 vi.mock('../../../src/workspace/resolver.js', () => ({
-  findWorkspaceRoot: vi.fn(),
+  findLegacyWorkspaceRoot: vi.fn(),
 }));
 
 import { existsSync, readFileSync, writeFileSync, mkdirSync } from 'node:fs';
@@ -96,30 +96,28 @@ describe('resolveServerPath', () => {
 
 describe('buildMcpEntry', () => {
   it('returns an entry with command node', () => {
-    const entry = buildMcpEntry('/abs/dist/mcp/server.js', '/workspace/path');
+    const entry = buildMcpEntry('/abs/dist/mcp/server.js');
 
     expect(entry.command).toBe('node');
   });
 
   it('puts the server path in args array', () => {
     const serverPath = '/abs/dist/mcp/server.js';
-    const entry = buildMcpEntry(serverPath, '/workspace/path');
+    const entry = buildMcpEntry(serverPath);
 
     expect(entry.args).toEqual([serverPath]);
   });
 
-  it('sets ARGUSTACK_WORKSPACE env var to the given workspace path', () => {
-    const workspacePath = '/home/testuser/projects/my-workspace';
-    const entry = buildMcpEntry('/abs/dist/mcp/server.js', workspacePath);
+  it('returns an empty env (hub MCP reads ~/.argustack/config.env itself)', () => {
+    const entry = buildMcpEntry('/abs/dist/mcp/server.js');
 
-    expect(entry.env['ARGUSTACK_WORKSPACE']).toBe(workspacePath);
+    expect(entry.env).toEqual({});
   });
 
-  it('only has ARGUSTACK_WORKSPACE in env (no extra keys)', () => {
-    const entry = buildMcpEntry('/some/server.js', '/some/workspace');
+  it('does not set ARGUSTACK_WORKSPACE (workspace is resolved at runtime)', () => {
+    const entry = buildMcpEntry('/some/server.js');
 
-    expect(Object.keys(entry.env)).toHaveLength(1);
-    expect(Object.keys(entry.env)[0]).toBe('ARGUSTACK_WORKSPACE');
+    expect(Object.keys(entry.env)).toHaveLength(0);
   });
 });
 

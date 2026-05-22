@@ -157,7 +157,7 @@ function scanFile(filePath: string): Violation[] {
 
     const match = UNDEFINED_UNION_PATTERN.exec(line) ?? MULTI_UNION_UNDEFINED_PATTERN.exec(line);
 
-    if (match?.[1] && match[2]) {
+    if (match?.[1] !== undefined && match[1] !== '' && match[2] !== undefined && match[2] !== '') {
       const fieldName = match[1];
       const typeStr = match[2];
       const cleanType = typeStr.trim();
@@ -214,7 +214,7 @@ function scanAllLayers(): LayerViolations[] {
       layerMap.set(layer, []);
     }
     const items = layerMap.get(layer);
-    if (items) { items.push(violation); }
+    if (items !== undefined) { items.push(violation); }
   }
 
   const results: LayerViolations[] = [];
@@ -261,7 +261,7 @@ function formatViolationsReport(layerResults: LayerViolations[]): string {
     '',
     `Found ${totalViolations} violation(s) in ${totalFiles} file(s)`,
     '',
-    '+' + '-'.repeat(68) + '+',
+    `+${  '-'.repeat(68)  }+`,
     '| FIX ORDER (Hexagonal Architecture - fix from inside out):          |',
     '|                                                                    |',
     '|   1  CORE        -> Fix FIRST (no dependencies)                   |',
@@ -271,7 +271,7 @@ function formatViolationsReport(layerResults: LayerViolations[]): string {
     '|                                                                    |',
     '| After src/ is fixed, run: npm run check                           |',
     '| TypeScript will catch "field: undefined" in tests!                |',
-    '+' + '-'.repeat(68) + '+',
+    `+${  '-'.repeat(68)  }+`,
     '',
     'HOW TO FIX EACH VIOLATION:',
     '  WRONG:  fieldName: string | undefined;',
@@ -279,9 +279,9 @@ function formatViolationsReport(layerResults: LayerViolations[]): string {
     '',
   ];
 
-  lines.push('+' + '-'.repeat(20) + '+' + '-'.repeat(10) + '+' + '-'.repeat(9) + '+');
+  lines.push(`+${  '-'.repeat(20)  }+${  '-'.repeat(10)  }+${  '-'.repeat(9)  }+`);
   lines.push('| Layer              | Files    | Errors  |');
-  lines.push('+' + '-'.repeat(20) + '+' + '-'.repeat(10) + '+' + '-'.repeat(9) + '+');
+  lines.push(`+${  '-'.repeat(20)  }+${  '-'.repeat(10)  }+${  '-'.repeat(9)  }+`);
 
   for (const { layer, violations } of layerResults) {
     const fileCount = new Set(violations.map(v => v.file)).size;
@@ -291,7 +291,7 @@ function formatViolationsReport(layerResults: LayerViolations[]): string {
     lines.push(`| ${layerName} | ${files} | ${errCount} |`);
   }
 
-  lines.push('+' + '-'.repeat(20) + '+' + '-'.repeat(10) + '+' + '-'.repeat(9) + '+');
+  lines.push(`+${  '-'.repeat(20)  }+${  '-'.repeat(10)  }+${  '-'.repeat(9)  }+`);
   lines.push('');
 
   for (const { layer, violations } of layerResults) {
@@ -311,7 +311,7 @@ function formatViolationsReport(layerResults: LayerViolations[]): string {
         byFile.set(relativePath, []);
       }
       const items = byFile.get(relativePath);
-      if (items) { items.push(v); }
+      if (items !== undefined) { items.push(v); }
     }
 
     for (const [file, fileViolations] of byFile) {
