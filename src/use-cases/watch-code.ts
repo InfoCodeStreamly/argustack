@@ -59,7 +59,7 @@ export class WatchCodeUseCase {
           resolve();
         })();
       };
-      if (input.signal) {
+      if (input.signal !== undefined) {
         if (input.signal.aborted) {
           cleanup();
           return;

@@ -20,11 +20,11 @@ export function registerRemoveCommand(group: Command): void {
       const { store, close } = await openHubStore();
       try {
         const workspace = (await store.getById(name)) ?? (await store.getByName(name));
-        if (!workspace) {
+        if (workspace === null) {
           throw new Error(`Workspace "${name}" not found.`);
         }
 
-        if (!opts.yes) {
+        if (opts.yes !== true) {
           const confirmed = await confirm({
             message:
               `Delete workspace "${workspace.name}" (id=${workspace.id})?\n` +

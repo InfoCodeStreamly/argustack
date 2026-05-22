@@ -46,7 +46,7 @@ export class ProxyClient {
   }
 
   async authenticate(): Promise<string> {
-    if (this.accessToken && Date.now() < this.tokenExpiresAt) {
+    if (this.accessToken !== null && this.accessToken !== '' && Date.now() < this.tokenExpiresAt) {
       return this.accessToken;
     }
 
@@ -62,7 +62,7 @@ export class ProxyClient {
     }
 
     const tokenEndpoint = this.config.auth.token_endpoint;
-    if (!tokenEndpoint) {
+    if (tokenEndpoint === undefined || tokenEndpoint === '') {
       throw new Error('Token endpoint is required for bearer_exchange auth');
     }
 
@@ -84,7 +84,7 @@ export class ProxyClient {
 
     const body = await response.json() as Record<string, unknown>;
     const token = (body['access_token'] ?? body['token'] ?? body['accessToken']) as string | undefined;
-    if (!token) {
+    if (token === undefined || token === '') {
       throw new Error('Token exchange response missing access_token field');
     }
 
@@ -97,7 +97,7 @@ export class ProxyClient {
 
   private buildUrl(endpointPath: string, params?: Record<string, string>): string {
     const base = `${this.config.base_url}${endpointPath}`;
-    if (!params || Object.keys(params).length === 0) {
+    if (params === undefined || Object.keys(params).length === 0) {
       return base;
     }
     const searchParams = new URLSearchParams(params);

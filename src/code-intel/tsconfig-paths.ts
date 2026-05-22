@@ -51,10 +51,10 @@ async function readMerged(
   } catch {
     return null;
   }
-  if (json.extends) {
+  if (json.extends !== undefined && json.extends !== '') {
     const parentPath = resolve(dirname(path), json.extends);
     const parent = await readMerged(parentPath, visited);
-    if (parent) {
+    if (parent !== null) {
       return {
         compilerOptions: {
           ...parent.compilerOptions,

@@ -41,7 +41,7 @@ vi.mock('chalk', () => ({
 
 const mockListForAuthenticatedUser = vi.fn();
 const mockOctokit = vi.fn(function (this: Record<string, unknown>) {
-  this.rest = {
+  this['rest'] = {
     repos: { listForAuthenticatedUser: mockListForAuthenticatedUser },
   };
 });

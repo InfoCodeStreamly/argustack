@@ -6,8 +6,10 @@ import {
   createAdapters,
   textResponse,
   errorResponse,
+  workspaceNotFoundResponse,
   getErrorMessage,
   str,
+  hasText,
   ANNOTATIONS,
 } from '../helpers.js';
 
@@ -75,7 +77,7 @@ export function registerDatabaseTools(server: McpServer): void {
     },
     async ({ workspace_id: workspaceIdInput, table, schema, source }) => {
       const ws = await loadWorkspace(workspaceIdInput);
-      if (!ws.ok) { return errorResponse(ws.reason); }
+      if (!ws.ok) { return workspaceNotFoundResponse(ws.reason); }
       const { storage, workspaceId } = await createAdapters(ws.workspaceId);
 
       try {
@@ -84,9 +86,9 @@ export function registerDatabaseTools(server: McpServer): void {
         const conditions: string[] = ['workspace_id = $1'];
         const params: unknown[] = [];
         let paramIdx = 2;
-        if (source) { conditions.push(`source_name = $${String(paramIdx)}`); params.push(source); paramIdx++; }
-        if (schema) { conditions.push(`table_schema = $${String(paramIdx)}`); params.push(schema); paramIdx++; }
-        if (table) { conditions.push(`table_name ILIKE $${String(paramIdx)}`); params.push(`%${table}%`); paramIdx++; }
+        if (hasText(source)) { conditions.push(`source_name = $${String(paramIdx)}`); params.push(source); paramIdx++; }
+        if (hasText(schema)) { conditions.push(`table_schema = $${String(paramIdx)}`); params.push(schema); paramIdx++; }
+        if (hasText(table)) { conditions.push(`table_name ILIKE $${String(paramIdx)}`); params.push(`%${table}%`); paramIdx++; }
         const where = `WHERE ${conditions.join(' AND ')}`;
 
         const tablesResult = await storage.queryForWorkspace(workspaceId,
@@ -131,14 +133,14 @@ export function registerDatabaseTools(server: McpServer): void {
         const lines: string[] = [`Database Schema (${String(tablesResult.rows.length)} tables) — workspace ${workspaceId}`, ''];
         for (const row of tablesResult.rows) {
           const t = row as unknown as DbTableRow;
-          const sizeStr = t.size_bytes ? ` (${formatBytes(t.size_bytes)})` : '';
+          const sizeStr = t.size_bytes !== null && t.size_bytes > 0 ? ` (${formatBytes(t.size_bytes)})` : '';
           const rowStr = t.row_count !== null ? `, ~${String(t.row_count)} rows` : '';
           lines.push(`## ${t.table_schema}.${t.table_name}${sizeStr}${rowStr}`);
           const cols = colsByTable.get(t.table_name) ?? [];
           for (const c of cols) {
             const pk = c.is_primary_key ? ' PK' : '';
             const nullable = c.is_nullable ? ' NULL' : ' NOT NULL';
-            const def = c.default_value ? ` DEFAULT ${c.default_value}` : '';
+            const def = c.default_value !== null && c.default_value.length > 0 ? ` DEFAULT ${c.default_value}` : '';
             lines.push(`  ${c.column_name}: ${c.data_type}${pk}${nullable}${def}`);
           }
           const tableFks = fksByTable.get(t.table_name) ?? [];
@@ -179,13 +181,13 @@ export function registerDatabaseTools(server: McpServer): void {
     },
     async ({ workspace_id: workspaceIdInput, sql, source }) => {
       const ws = await loadWorkspace(workspaceIdInput);
-      if (!ws.ok) { return errorResponse(ws.reason); }
+      if (!ws.ok) { return workspaceNotFoundResponse(ws.reason); }
       const bindings = ws.workspace.settings?.dbConfigs ?? [];
-      const dbCfg: DbSourceConfig | undefined = source
+      const dbCfg: DbSourceConfig | undefined = hasText(source)
         ? bindings.find((b) => b.name === source)
         : bindings[0];
 
-      if (!dbCfg) {
+      if (dbCfg === undefined) {
         return errorResponse(`No external database configured for workspace "${ws.workspaceId}". Add one with: argustack add db --workspace ${ws.workspaceId} ...`);
       }
 
@@ -208,7 +210,7 @@ export function registerDatabaseTools(server: McpServer): void {
             return textResponse('Query returned 0 rows.');
           }
           const firstRow = result.rows[0];
-          if (!firstRow) { return textResponse('Query returned 0 rows.'); }
+          if (firstRow === undefined) { return textResponse('Query returned 0 rows.'); }
           const cols = Object.keys(firstRow);
           const header = cols.join(' | ');
           const separator = cols.map((c) => '-'.repeat(c.length)).join(' | ');
@@ -236,14 +238,14 @@ export function registerDatabaseTools(server: McpServer): void {
     },
     async ({ workspace_id: workspaceIdInput, source }) => {
       const ws = await loadWorkspace(workspaceIdInput);
-      if (!ws.ok) { return errorResponse(ws.reason); }
+      if (!ws.ok) { return workspaceNotFoundResponse(ws.reason); }
       const { storage, workspaceId } = await createAdapters(ws.workspaceId);
 
       try {
         await storage.initialize();
         const conditions = ['workspace_id = $1'];
         const params: unknown[] = [];
-        if (source) { conditions.push('source_name = $2'); params.push(source); }
+        if (hasText(source)) { conditions.push('source_name = $2'); params.push(source); }
         const where = `WHERE ${conditions.join(' AND ')}`;
 
         const statsResult = await storage.queryForWorkspace(workspaceId,
@@ -255,7 +257,7 @@ export function registerDatabaseTools(server: McpServer): void {
           params);
 
         const s = statsResult.rows[0] as unknown as DbStatsRow | undefined;
-        if (!s) {
+        if (s === undefined) {
           return textResponse('No database schema data found.');
         }
 
@@ -285,7 +287,7 @@ export function registerDatabaseTools(server: McpServer): void {
           lines.push('', 'Largest tables (by row count):');
           for (const row of largestResult.rows) {
             const typed = row as unknown as LargestTableRow;
-            const size = typed.size_bytes ? ` (${formatBytes(typed.size_bytes)})` : '';
+            const size = typed.size_bytes > 0 ? ` (${formatBytes(typed.size_bytes)})` : '';
             lines.push(`  ${typed.table_name}: ~${String(typed.row_count)} rows${size}`);
           }
         }

@@ -4,11 +4,11 @@ import { existsSync } from 'node:fs';
 import { join, resolve } from 'node:path';
 import { spawn } from 'node:child_process';
 import chalk from 'chalk';
-import ora, { type Ora } from 'ora';
+import ora from 'ora';
 import type { InitFlags, GitSetupResult } from './types.js';
 import { resolvePath, getErrorMsg, maskPath } from './types.js';
 
-function gitCloneWithProgress(url: string, targetPath: string, spinner: Ora): Promise<void> {
+async function gitCloneWithProgress(url: string, targetPath: string, onProgress: (text: string) => void): Promise<void> {
   return new Promise<void>((res, rej) => {
     const proc = spawn('git', ['clone', '--progress', url, targetPath], {
       stdio: ['pipe', 'pipe', 'pipe'],
@@ -20,9 +20,9 @@ function gitCloneWithProgress(url: string, targetPath: string, spinner: Ora): Pr
     proc.stderr.on('data', (data: Buffer) => {
       const line = data.toString().trim();
       const match = /(\w[\w\s]+?):\s+(\d+)%\s+\((\d+)\/(\d+)\)/.exec(line);
-      if (match) {
+      if (match != null) {
         const [, phase, pct] = match;
-        spinner.text = `Cloning ${repoName}: ${phase?.trim()} ${pct}%`;
+        onProgress(`Cloning ${repoName}: ${phase?.trim() ?? ''} ${pct ?? ''}%`);
       }
     });
 
@@ -43,7 +43,7 @@ async function collectGitRepoLocal(): Promise<string | null> {
     message: 'Path to local repo:',
     validate: (val): string | true => {
       const trimmed = val.trim();
-      if (!trimmed) {
+      if (trimmed === '') {
         return 'Path is required';
       }
       const resolved = resolvePath(trimmed);
@@ -61,7 +61,7 @@ async function collectGitRepoGithub(): Promise<{ paths: string[]; token: string;
     message: 'GitHub token (PAT):',
     mask: '*',
     validate: (val): string | true => {
-      if (!val.trim()) {
+      if (val.trim() === '') {
         return 'Token is required';
       }
       return true;
@@ -102,7 +102,7 @@ async function collectGitRepoGithub(): Promise<{ paths: string[]; token: string;
     choices: repos.map((r) => ({
       value: { cloneUrl: r.clone_url, fullName: r.full_name },
       name: `${r.full_name} ${r.isPrivate ? '(private)' : '(public)'}`,
-      ...(r.description ? { description: r.description } : {}),
+      ...(r.description != null && r.description !== '' ? { description: r.description } : {}),
     })),
   });
 
@@ -116,7 +116,7 @@ async function collectGitRepoGithub(): Promise<{ paths: string[]; token: string;
   for (const { cloneUrl, fullName } of selectedRepos) {
     const repoName = cloneUrl.split('/').pop()?.replace(/\.git$/, '') ?? 'repo';
     const workspaceName = process.env['ARGUSTACK_INIT_WORKSPACE'];
-    const defaultPath = workspaceName
+    const defaultPath = workspaceName !== undefined && workspaceName !== ''
       ? resolve(workspaceName, repoName)
       : resolve(repoName);
     const cloneDir = await input({
@@ -129,7 +129,7 @@ async function collectGitRepoGithub(): Promise<{ paths: string[]; token: string;
 
     try {
       const authUrl = cloneUrl.replace('https://github.com/', `https://${githubToken.trim()}@github.com/`);
-      await gitCloneWithProgress(authUrl, targetPath, cloneSpinner);
+      await gitCloneWithProgress(authUrl, targetPath, (text) => { cloneSpinner.text = text; });
       cloneSpinner.succeed(`Cloned to ${targetPath}`);
       clonedPaths.push(targetPath);
       clonedRepos.push(fullName);
@@ -147,7 +147,7 @@ async function collectGitRepoUrl(): Promise<string | null> {
     message: 'Repository URL (HTTPS):',
     validate: (val): string | true => {
       const trimmed = val.trim();
-      if (!trimmed) {
+      if (trimmed === '') {
         return 'URL is required';
       }
       if (!trimmed.startsWith('https://') && !trimmed.startsWith('git@')) {
@@ -159,7 +159,7 @@ async function collectGitRepoUrl(): Promise<string | null> {
 
   const defaultDir = repoUrl.trim().split('/').pop()?.replace(/\.git$/, '') ?? 'repo';
   const workspaceName = process.env['ARGUSTACK_INIT_WORKSPACE'];
-  const defaultPath = workspaceName
+  const defaultPath = workspaceName !== undefined && workspaceName !== ''
     ? resolve(workspaceName, defaultDir)
     : resolve(defaultDir);
   const cloneDir = await input({
@@ -171,7 +171,7 @@ async function collectGitRepoUrl(): Promise<string | null> {
   const spinner = ora(`Cloning ${repoUrl.trim()}...`).start();
 
   try {
-    await gitCloneWithProgress(repoUrl.trim(), targetPath, spinner);
+    await gitCloneWithProgress(repoUrl.trim(), targetPath, (text) => { spinner.text = text; });
     spinner.succeed(`Cloned to ${targetPath}`);
     return targetPath;
   } catch (err: unknown) {
@@ -228,7 +228,7 @@ export async function setupGitInteractive(): Promise<GitSetupResult | null> {
 
     if (mode === 'local') {
       const path = await collectGitRepoLocal();
-      if (path) {
+      if (path != null && path !== '') {
         gitRepoPaths.push(path);
       }
     } else if (mode === 'github') {
@@ -238,7 +238,7 @@ export async function setupGitInteractive(): Promise<GitSetupResult | null> {
       savedGithubRepos.push(...result.repos);
     } else {
       const path = await collectGitRepoUrl();
-      if (path) {
+      if (path != null && path !== '') {
         gitRepoPaths.push(path);
       }
     }
@@ -268,15 +268,15 @@ export async function setupGitInteractive(): Promise<GitSetupResult | null> {
 
   return {
     gitRepoPaths,
-    ...(savedGithubToken ? { githubToken: savedGithubToken } : {}),
+    ...(savedGithubToken !== undefined && savedGithubToken !== '' ? { githubToken: savedGithubToken } : {}),
     ...(savedGithubRepos.length > 0 ? { githubRepos: savedGithubRepos } : {}),
   };
 }
 
 export function setupGitFromFlags(flags: InitFlags): GitSetupResult | null {
-  if (!flags.gitRepo) {
+  if (flags.gitRepo === undefined || flags.gitRepo === '') {
     throw new Error('Git requires: --git-repo');
   }
-  const paths = flags.gitRepo.split(',').map((p) => p.trim()).filter(Boolean);
+  const paths = flags.gitRepo.split(',').map((p) => p.trim()).filter((p) => p !== '');
   return { gitRepoPaths: paths };
 }

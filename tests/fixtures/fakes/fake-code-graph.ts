@@ -35,12 +35,12 @@ export class FakeCodeGraph implements ICodeGraph {
     symbols: CodeSymbol[];
   }[] = [];
 
-  initialize(): Promise<void> {
+  async initialize(): Promise<void> {
     this.initializeCalls.push(Date.now());
     return Promise.resolve();
   }
 
-  ensureProject(project: CodeProject): Promise<void> {
+  async ensureProject(project: CodeProject): Promise<void> {
     this.projects.set(project.id, project);
     this.ensureProjectCalls.push(project);
     if (!this.files.has(project.id)) {
@@ -52,14 +52,14 @@ export class FakeCodeGraph implements ICodeGraph {
     return Promise.resolve();
   }
 
-  deleteProject(projectId: string): Promise<void> {
+  async deleteProject(projectId: string): Promise<void> {
     this.projects.delete(projectId);
     this.files.delete(projectId);
     this.symbols.delete(projectId);
     return Promise.resolve();
   }
 
-  upsertFiles(projectId: string, files: CodeFile[]): Promise<void> {
+  async upsertFiles(projectId: string, files: CodeFile[]): Promise<void> {
     this.upsertFilesCalls.push({ projectId, files });
     const bucket = this.getFileBucket(projectId);
     for (const f of files) {
@@ -68,7 +68,7 @@ export class FakeCodeGraph implements ICodeGraph {
     return Promise.resolve();
   }
 
-  deleteFile(projectId: string, path: string): Promise<void> {
+  async deleteFile(projectId: string, path: string): Promise<void> {
     this.getFileBucket(projectId).delete(path);
     const symBucket = this.getSymbolBucket(projectId);
     for (const [qn, sym] of symBucket) {
@@ -79,7 +79,7 @@ export class FakeCodeGraph implements ICodeGraph {
     return Promise.resolve();
   }
 
-  replaceFileSymbols(
+  async replaceFileSymbols(
     projectId: string,
     filePath: string,
     symbols: CodeSymbol[],
@@ -97,47 +97,47 @@ export class FakeCodeGraph implements ICodeGraph {
     return Promise.resolve();
   }
 
-  upsertImports(edges: CodeImport[]): Promise<void> {
+  async upsertImports(edges: CodeImport[]): Promise<void> {
     this.imports.push(...edges);
     return Promise.resolve();
   }
 
-  upsertCalls(edges: CodeCallEdge[]): Promise<void> {
+  async upsertCalls(edges: CodeCallEdge[]): Promise<void> {
     this.calls.push(...edges);
     return Promise.resolve();
   }
 
-  upsertImplements(edges: CodeImplementsEdge[]): Promise<void> {
+  async upsertImplements(edges: CodeImplementsEdge[]): Promise<void> {
     this.implementsEdges.push(...edges);
     return Promise.resolve();
   }
 
-  upsertExtends(edges: CodeExtendsEdge[]): Promise<void> {
+  async upsertExtends(edges: CodeExtendsEdge[]): Promise<void> {
     this.extendsEdges.push(...edges);
     return Promise.resolve();
   }
 
-  upsertInjects(edges: CodeInjectsEdge[]): Promise<void> {
+  async upsertInjects(edges: CodeInjectsEdge[]): Promise<void> {
     this.injectsEdges.push(...edges);
     return Promise.resolve();
   }
 
-  findSymbol(opts: FindSymbolOptions): Promise<CodeSymbol[]> {
+  async findSymbol(opts: FindSymbolOptions): Promise<CodeSymbol[]> {
     const bucket = this.getSymbolBucket(opts.projectId);
     const query = opts.query.toLowerCase();
     const limit = opts.limit ?? 25;
     const matches: CodeSymbol[] = [];
     for (const sym of bucket.values()) {
       if (!sym.name.toLowerCase().includes(query)) {continue;}
-      if (opts.kind && sym.kind !== opts.kind) {continue;}
-      if (opts.layer && sym.layer !== opts.layer) {continue;}
+      if (opts.kind !== undefined && sym.kind !== opts.kind) {continue;}
+      if (opts.layer !== undefined && sym.layer !== opts.layer) {continue;}
       matches.push(sym);
       if (matches.length >= limit) {break;}
     }
     return Promise.resolve(matches);
   }
 
-  getDependencies(
+  async getDependencies(
     projectId: string,
     file: string,
     depth: number,
@@ -145,7 +145,7 @@ export class FakeCodeGraph implements ICodeGraph {
     return Promise.resolve(this.traverseImports(projectId, file, depth, true));
   }
 
-  getDependents(
+  async getDependents(
     projectId: string,
     file: string,
     depth: number,
@@ -153,7 +153,7 @@ export class FakeCodeGraph implements ICodeGraph {
     return Promise.resolve(this.traverseImports(projectId, file, depth, false));
   }
 
-  getCallers(
+  async getCallers(
     projectId: string,
     qualifiedName: string,
     depth: number,
@@ -161,7 +161,7 @@ export class FakeCodeGraph implements ICodeGraph {
     return Promise.resolve(this.traverseCalls(projectId, qualifiedName, depth, false));
   }
 
-  getCallees(
+  async getCallees(
     projectId: string,
     qualifiedName: string,
     depth: number,
@@ -169,7 +169,7 @@ export class FakeCodeGraph implements ICodeGraph {
     return Promise.resolve(this.traverseCalls(projectId, qualifiedName, depth, true));
   }
 
-  getCallPath(
+  async getCallPath(
     projectId: string,
     fromQn: string,
     toQn: string,
@@ -179,7 +179,7 @@ export class FakeCodeGraph implements ICodeGraph {
     const visited = new Set<string>([fromQn]);
     while (queue.length > 0) {
       const path = queue.shift();
-      if (!path) {break;}
+      if (path === undefined) {break;}
       const head = path[path.length - 1];
       if (head === undefined) {continue;}
       if (head === toQn) {
@@ -201,7 +201,7 @@ export class FakeCodeGraph implements ICodeGraph {
     return Promise.resolve(null);
   }
 
-  findArchViolations(
+  async findArchViolations(
     projectId: string,
     _layerOrder?: CodeLayer[],
   ): Promise<CodeCallEdge[]> {
@@ -211,7 +211,7 @@ export class FakeCodeGraph implements ICodeGraph {
       if (e.projectId !== projectId) {continue;}
       const a = bucket.get(e.fromQn);
       const b = bucket.get(e.toQn);
-      if (!a?.layer || !b?.layer) {continue;}
+      if (a?.layer == null || b?.layer == null) {continue;}
       if (
         (a.layer === 'domain' && (b.layer === 'infrastructure' || b.layer === 'presentation')) ||
         (a.layer === 'application' && b.layer === 'presentation')
@@ -222,7 +222,7 @@ export class FakeCodeGraph implements ICodeGraph {
     return Promise.resolve(violations);
   }
 
-  findUnusedExports(projectId: string): Promise<CodeSymbol[]> {
+  async findUnusedExports(projectId: string): Promise<CodeSymbol[]> {
     const bucket = this.getSymbolBucket(projectId);
     const calledQns = new Set(
       this.calls.filter((c) => c.projectId === projectId).map((c) => c.toQn),
@@ -236,7 +236,7 @@ export class FakeCodeGraph implements ICodeGraph {
     return Promise.resolve(result);
   }
 
-  getImplementers(
+  async getImplementers(
     projectId: string,
     interfaceQn: string,
   ): Promise<CodeSymbol[]> {
@@ -251,14 +251,14 @@ export class FakeCodeGraph implements ICodeGraph {
     );
   }
 
-  getLayerSymbols(projectId: string, layer: CodeLayer): Promise<CodeSymbol[]> {
+  async getLayerSymbols(projectId: string, layer: CodeLayer): Promise<CodeSymbol[]> {
     const bucket = this.getSymbolBucket(projectId);
     return Promise.resolve(
       Array.from(bucket.values()).filter((s) => s.layer === layer),
     );
   }
 
-  close(): Promise<void> {
+  async close(): Promise<void> {
     return Promise.resolve();
   }
 
@@ -303,7 +303,7 @@ export class FakeCodeGraph implements ICodeGraph {
 
   private getFileBucket(projectId: string): Map<string, CodeFile> {
     let bucket = this.files.get(projectId);
-    if (!bucket) {
+    if (bucket === undefined) {
       bucket = new Map();
       this.files.set(projectId, bucket);
     }
@@ -312,7 +312,7 @@ export class FakeCodeGraph implements ICodeGraph {
 
   private getSymbolBucket(projectId: string): Map<string, CodeSymbol> {
     let bucket = this.symbols.get(projectId);
-    if (!bucket) {
+    if (bucket === undefined) {
       bucket = new Map();
       this.symbols.set(projectId, bucket);
     }
@@ -340,7 +340,7 @@ export class FakeCodeGraph implements ICodeGraph {
         visited.add(to);
         next.add(to);
         const f = bucket.get(to);
-        if (f) {result.push(f);}
+        if (f !== undefined) {result.push(f);}
       }
       frontier = next;
       if (frontier.size === 0) {break;}
@@ -369,7 +369,7 @@ export class FakeCodeGraph implements ICodeGraph {
         visited.add(to);
         next.add(to);
         const sym = bucket.get(to);
-        if (sym) {result.push(sym);}
+        if (sym !== undefined) {result.push(sym);}
       }
       frontier = next;
       if (frontier.size === 0) {break;}

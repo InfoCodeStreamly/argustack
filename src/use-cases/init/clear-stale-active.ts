@@ -16,11 +16,11 @@ export class ClearStaleActiveUseCase {
 
   async execute(): Promise<ClearStaleActiveResult> {
     const active = getActiveWorkspace();
-    if (!active) {
+    if (active === null) {
       return { cleared: false, reason: 'no-active' };
     }
     const existing = await this.hubStore.getById(active.activeWorkspaceId);
-    if (existing) {
+    if (existing !== null) {
       return { cleared: false, reason: 'still-valid' };
     }
     clearActiveWorkspace();

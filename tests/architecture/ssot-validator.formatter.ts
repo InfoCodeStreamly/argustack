@@ -12,7 +12,7 @@ function groupByCategory(violations: Violation[]): Map<string, Violation[]> {
   const groups = new Map<string, Violation[]>();
   for (const v of violations) {
     const existing = groups.get(v.category);
-    if (existing) {
+    if (existing !== undefined) {
       existing.push(v);
     } else {
       groups.set(v.category, [v]);

@@ -24,7 +24,7 @@ export class PullRequestBuilder {
     return this;
   }
 
-  withState(state: string): this {
+  withState(state: 'open' | 'closed' | 'merged'): this {
     this.overrides.state = state;
     return this;
   }

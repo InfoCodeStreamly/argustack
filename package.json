@@ -1,6 +1,6 @@
 {
   "name": "argustack",
-  "version": "0.3.0",
+  "version": "0.3.1",
   "description": "Project analysis platform — Jira + Git + DB",
   "type": "module",
   "bin": {
@@ -17,7 +17,9 @@
     "start": "node dist/cli/index.js",
     "lint": "eslint src/ tests/",
     "lint:fix": "eslint src/ tests/ --fix",
-    "typecheck": "tsc --noEmit",
+    "typecheck": "tsc -p tsconfig.test.json --noEmit",
+    "typecheck:src": "tsc --noEmit",
+    "type-check": "npm run typecheck",
     "test": "vitest run",
     "test:watch": "vitest",
     "test:coverage": "vitest run --coverage",

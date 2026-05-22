@@ -16,7 +16,7 @@ describe('discoverFiles', () => {
   });
 
   async function collect(extraExcludes?: string[]): Promise<string[]> {
-    const opts = extraExcludes ? { extraExcludes } : undefined;
+    const opts = extraExcludes !== undefined ? { extraExcludes } : undefined;
     const result: string[] = [];
     for await (const f of discoverFiles(root, opts)) {
       result.push(f.relPath);

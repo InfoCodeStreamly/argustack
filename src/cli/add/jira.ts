@@ -25,18 +25,18 @@ export function registerJiraCommand(group: Command): void {
     .option('--token <token>', 'Jira API token — stored in hub config')
     .option('--projects <keys>', 'Comma-separated Jira project keys (e.g. ARG,PAP)')
     .action(async (opts: Options) => {
-      if (!opts.projects) {
+      if (opts.projects === undefined || opts.projects === '') {
         throw new Error('--projects is required (comma-separated Jira project keys).');
       }
-      const projects = opts.projects.split(',').map((s) => s.trim()).filter(Boolean);
+      const projects = opts.projects.split(',').map((s) => s.trim()).filter((s) => s !== '');
       if (projects.length === 0) {
         throw new Error('--projects must list at least one project key.');
       }
 
       const credentialsPatch: Record<string, string> = {};
-      if (opts.url) { credentialsPatch['JIRA_URL'] = opts.url; }
-      if (opts.email) { credentialsPatch['JIRA_EMAIL'] = opts.email; }
-      if (opts.token) { credentialsPatch['JIRA_API_TOKEN'] = opts.token; }
+      if (opts.url !== undefined && opts.url !== '') { credentialsPatch['JIRA_URL'] = opts.url; }
+      if (opts.email !== undefined && opts.email !== '') { credentialsPatch['JIRA_EMAIL'] = opts.email; }
+      if (opts.token !== undefined && opts.token !== '') { credentialsPatch['JIRA_API_TOKEN'] = opts.token; }
       if (Object.keys(credentialsPatch).length > 0) {
         upsertHubEnv(credentialsPatch);
         console.log(chalk.dim('  ● updated hub credentials (config.env)'));

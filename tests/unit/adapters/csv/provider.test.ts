@@ -15,6 +15,7 @@ import {
   createCsvHeaders,
   createCsvRow,
 } from '../../../fixtures/shared/test-constants.js';
+import type { CsvRowResult } from '../../../../src/adapters/csv/mapper.js';
 
 // ─── Module mocks ─────────────────────────────────────────────────────────────
 
@@ -72,7 +73,7 @@ const SCHEMA_STUB = {
  * Uses a sync generator cast to AsyncIterable to avoid require-await.
  */
 function makeAsyncIterable(rows: string[][]): AsyncIterable<string[]> {
-  function* gen() {
+  function* gen(): Generator<string[]> {
     for (const row of rows) {
       yield row;
     }
@@ -95,7 +96,7 @@ function setupStreamMock(rows: string[][]): void {
 /**
  * Creates a minimal CsvRowResult stub for mapCsvRow to return.
  */
-function makeCsvRowResult(projectKey: string, issueKey: string, updated?: string) {
+function makeCsvRowResult(projectKey: string, issueKey: string, updated?: string): CsvRowResult {
   return {
     issue: createIssue({
       key: issueKey,

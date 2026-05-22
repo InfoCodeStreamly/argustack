@@ -26,7 +26,7 @@ describe('ProxyJiraProvider', () => {
       ...responses.map((r) => new Response(JSON.stringify(r), { status: 200 })),
     ];
     let callIndex = 0;
-    vi.spyOn(globalThis, 'fetch').mockImplementation(() => {
+    vi.spyOn(globalThis, 'fetch').mockImplementation(async () => {
       const response = queue[callIndex++] ?? new Response('{}', { status: 200 });
       return Promise.resolve(response);
     });

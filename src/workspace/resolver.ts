@@ -30,14 +30,14 @@ export async function requireWorkspaceId(
   hubStore: IWorkspaceStore,
 ): Promise<string> {
   const fromExplicit = await resolveExplicit(explicit, hubStore);
-  if (fromExplicit) {
+  if (fromExplicit !== null && fromExplicit !== '') {
     return fromExplicit;
   }
 
   const envId = process.env['ARGUSTACK_WORKSPACE_ID'];
-  if (envId && envId.trim().length > 0) {
+  if (envId !== undefined && envId.trim().length > 0) {
     const found = await hubStore.getById(envId.trim());
-    if (found) {
+    if (found != null) {
       return found.id;
     }
     throw new Error(
@@ -46,17 +46,17 @@ export async function requireWorkspaceId(
   }
 
   const activeId = getActiveWorkspaceId();
-  if (activeId) {
+  if (activeId !== null && activeId !== '') {
     const found = await hubStore.getById(activeId);
-    if (found) {
+    if (found != null) {
       return found.id;
     }
   }
 
   const legacyId = findLegacyWorkspaceId(process.cwd());
-  if (legacyId) {
+  if (legacyId !== null && legacyId !== '') {
     const found = await hubStore.getById(legacyId);
-    if (found) {
+    if (found != null) {
       return found.id;
     }
   }
@@ -64,7 +64,7 @@ export async function requireWorkspaceId(
   const all = await hubStore.list();
   if (all.length === 1) {
     const onlyEntry = all[0];
-    if (onlyEntry) {
+    if (onlyEntry != null) {
       return onlyEntry.id;
     }
   }
@@ -86,16 +86,16 @@ async function resolveExplicit(
   explicit: string | undefined,
   hubStore: IWorkspaceStore,
 ): Promise<string | null> {
-  if (!explicit || explicit.trim().length === 0) {
+  if (explicit === undefined || explicit.trim().length === 0) {
     return null;
   }
   const trimmed = explicit.trim();
   const byId = await hubStore.getById(trimmed);
-  if (byId) {
+  if (byId != null) {
     return byId.id;
   }
   const byName = await hubStore.getByName(trimmed);
-  if (byName) {
+  if (byName != null) {
     return byName.id;
   }
   throw new Error(

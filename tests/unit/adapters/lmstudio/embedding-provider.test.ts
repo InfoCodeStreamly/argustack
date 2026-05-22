@@ -26,10 +26,11 @@ function jsonResponse(body: unknown, status = 200): Response {
 
 function getCallArgs(index: number): [string | URL | Request, RequestInit | undefined] {
   const call = fetchMock.mock.calls[index];
-  if (!call) {
+  if (call === undefined) {
     throw new Error(`fetchMock has no call at index ${String(index)}`);
   }
-  return call;
+  const [input, init] = call;
+  return [input, init];
 }
 
 function getCallBody(index: number): Record<string, unknown> {
@@ -49,7 +50,7 @@ describe('LmStudioCodeEmbeddingProvider', () => {
   });
 
   it('embedCode POSTs to /v1/embeddings per chunk (batch=1 default)', async () => {
-    fetchMock.mockImplementation(() =>
+    fetchMock.mockImplementation(async () =>
       Promise.resolve(
         jsonResponse({ data: [{ embedding: new Array(2560).fill(0.1) as number[], index: 0 }] }),
       ),

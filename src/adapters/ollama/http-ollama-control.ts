@@ -28,7 +28,7 @@ export class HttpOllamaControl implements IOllamaControl {
     this.serveLogPath = options.serveLogPath ?? null;
   }
 
-  isInstalled(): Promise<boolean> {
+  async isInstalled(): Promise<boolean> {
     return this.platform.hasCommand('ollama');
   }
 
@@ -49,7 +49,8 @@ export class HttpOllamaControl implements IOllamaControl {
     if (result.code !== 0) {
       return null;
     }
-    return result.stdout.trim() || null;
+    const trimmed = result.stdout.trim();
+    return trimmed !== '' ? trimmed : null;
   }
 
   async installViaBrew(): Promise<InstallResult> {
@@ -78,7 +79,7 @@ export class HttpOllamaControl implements IOllamaControl {
 
   async startInBackground(): Promise<void> {
     const stdio: ('ignore' | number)[] = ['ignore', 'ignore', 'ignore'];
-    if (this.serveLogPath) {
+    if (this.serveLogPath !== null && this.serveLogPath !== '') {
       try {
         const fh = await open(this.serveLogPath, 'a');
         stdio[1] = fh.fd;
@@ -128,7 +129,7 @@ export class HttpOllamaControl implements IOllamaControl {
       if (!response.ok) {
         return { ok: false, kind: 'hub-down', details: `HTTP ${String(response.status)}` };
       }
-      if (!response.body) {
+      if (response.body === null) {
         return { ok: false, kind: 'unknown', details: 'no response body' };
       }
 
@@ -147,7 +148,7 @@ export class HttpOllamaControl implements IOllamaControl {
         for (const line of lines) {
           if (line.trim().length === 0) { continue; }
           const event = parseJsonSafe(line);
-          if (!event) { continue; }
+          if (event === null) { continue; }
           lastStatus = typeof event['status'] === 'string' ? event['status'] : lastStatus;
           if (typeof event['error'] === 'string') {
             return classifyPullError(event['error']);
@@ -155,13 +156,13 @@ export class HttpOllamaControl implements IOllamaControl {
           const completed = Number(event['completed'] ?? 0);
           const total = Number(event['total'] ?? 0);
           const now = Date.now();
-          if (onProgress && total > 0 && now - lastProgressEmit > PULL_PROGRESS_INTERVAL_MS) {
+          if (onProgress !== undefined && total > 0 && now - lastProgressEmit > PULL_PROGRESS_INTERVAL_MS) {
             lastProgressEmit = now;
             onProgress(Math.min(100, Math.round((completed / total) * 100)), lastStatus);
           }
         }
       }
-      onProgress?.(100, lastStatus || 'done');
+      onProgress?.(100, lastStatus !== '' ? lastStatus : 'done');
       return { ok: true };
     } catch (err) {
       return { ok: false, kind: 'no-internet', details: err instanceof Error ? err.message : String(err) };

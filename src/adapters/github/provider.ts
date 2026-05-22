@@ -1,6 +1,7 @@
 import type { Octokit } from 'octokit';
 import type { IGitHubProvider } from '../../core/ports/github-provider.js';
 import type { GitHubBatch, Release } from '../../core/types/github.js';
+import type { PullRequestReview, PullRequestComment, PullRequestFile } from '../../core/types/github.js';
 import { createGitHubClient, type GitHubCredentials } from './client.js';
 import {
   mapPullRequest,
@@ -29,7 +30,7 @@ export class GitHubProvider implements IGitHubProvider {
 
   async getPrCount(since?: Date): Promise<number> {
     let q = `repo:${this.owner}/${this.repo} is:pr`;
-    if (since) {
+    if (since !== undefined) {
       q += ` updated:>=${since.toISOString().slice(0, 10)}`;
     }
     const result = await this.octokit.rest.search.issuesAndPullRequests({
@@ -63,7 +64,7 @@ export class GitHubProvider implements IGitHubProvider {
     for await (const response of iterator) {
       for (const rawPr of response.data) {
         const updatedAt = new Date(rawPr.updated_at);
-        if (since && updatedAt < since) {
+        if (since !== undefined && updatedAt < since) {
           if (batch.pullRequests.length > 0) {
             yield batch;
           }
@@ -121,7 +122,7 @@ export class GitHubProvider implements IGitHubProvider {
     );
   }
 
-  private async fetchReviews(prNumber: number) {
+  private async fetchReviews(prNumber: number): Promise<PullRequestReview[]> {
     const reviews = await this.octokit.paginate(
       this.octokit.rest.pulls.listReviews,
       { owner: this.owner, repo: this.repo, pull_number: prNumber, per_page: 100 },
@@ -131,7 +132,7 @@ export class GitHubProvider implements IGitHubProvider {
     );
   }
 
-  private async fetchReviewComments(prNumber: number) {
+  private async fetchReviewComments(prNumber: number): Promise<PullRequestComment[]> {
     const comments = await this.octokit.paginate(
       this.octokit.rest.pulls.listReviewComments,
       { owner: this.owner, repo: this.repo, pull_number: prNumber, per_page: 100 },
@@ -141,7 +142,7 @@ export class GitHubProvider implements IGitHubProvider {
     );
   }
 
-  private async fetchFiles(prNumber: number) {
+  private async fetchFiles(prNumber: number): Promise<PullRequestFile[]> {
     const files = await this.octokit.paginate(
       this.octokit.rest.pulls.listFiles,
       { owner: this.owner, repo: this.repo, pull_number: prNumber, per_page: 100 },

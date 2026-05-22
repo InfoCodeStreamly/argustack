@@ -1,16 +1,8 @@
-import { describe, it, expect, vi } from 'vitest';
+import { describe, it, expect } from 'vitest';
 
-vi.mock('../../../src/workspace/resolver.js', () => ({
-  findWorkspaceRoot: vi.fn(() => null),
-}));
-
-vi.mock('../../../src/workspace/registry.js', () => ({
-  listRegisteredWorkspaces: vi.fn(() => []),
-}));
-
-describe('registerWorkspacesCommand', () => {
-  it('exports registerWorkspacesCommand function', async () => {
-    const mod = await import('../../../src/cli/workspaces.js');
-    expect(typeof mod.registerWorkspacesCommand).toBe('function');
+describe('registerWorkspaceCommands', () => {
+  it('exports registerWorkspaceCommands function', async () => {
+    const mod = await import('../../../src/cli/workspace/index.js');
+    expect(typeof mod.registerWorkspaceCommands).toBe('function');
   });
 });

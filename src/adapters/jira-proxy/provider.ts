@@ -28,13 +28,13 @@ export class ProxyJiraProvider implements ISourceProvider {
       const types = this.issueTypes.map((t) => `"${t}"`).join(', ');
       jql += ` AND issuetype in (${types})`;
     }
-    if (since) {
+    if (since !== undefined && since !== '') {
       jql += ` AND updated >= "${since}"`;
     }
     return jql;
   }
 
-  updateIssue(_issueKey: string, _fields: Partial<Issue>): Promise<void> {
+  async updateIssue(_issueKey: string, _fields: Partial<Issue>): Promise<void> {
     return Promise.reject(new Error('Proxy adapter is read-only. Push updates require direct Jira API credentials.'));
   }
 
@@ -92,7 +92,7 @@ export class ProxyJiraProvider implements ISourceProvider {
         fields: DEFAULT_SEARCH_FIELDS,
       };
 
-      if (nextPageToken) {
+      if (nextPageToken !== undefined && nextPageToken !== '') {
         params['nextPageToken'] = nextPageToken;
       } else {
         params['startAt'] = String(startAt);
@@ -125,12 +125,12 @@ export class ProxyJiraProvider implements ISourceProvider {
       nextPageToken = typeof data['nextPageToken'] === 'string' ? data['nextPageToken'] : undefined;
       const isLast = data['isLast'];
 
-      if (isLast === true || !nextPageToken) {
+      if (isLast === true || nextPageToken === undefined || nextPageToken === '') {
         const total = typeof data['total'] === 'number' ? data['total'] : Infinity;
         startAt += issues.length;
-        if (startAt >= total && !nextPageToken) {
+        if (startAt >= total && (nextPageToken === undefined || nextPageToken === '')) {
           hasMore = false;
-        } else if (!nextPageToken) {
+        } else if (nextPageToken === undefined || nextPageToken === '') {
           hasMore = false;
         }
       }
@@ -138,7 +138,7 @@ export class ProxyJiraProvider implements ISourceProvider {
   }
 
   private async enrichDescriptions(issues: Issue[]): Promise<void> {
-    let pending = issues.filter((i) => !i.description);
+    let pending = issues.filter((i) => i.description === null || i.description === '');
     if (pending.length === 0) {
       return;
     }
@@ -168,7 +168,16 @@ export class ProxyJiraProvider implements ISourceProvider {
               const fields = data['fields'] as Record<string, unknown> | undefined;
               if (fields?.['description'] !== undefined) {
                 const desc = fields['description'];
-                issue.description = typeof desc === 'string' ? desc : (desc !== null ? JSON.stringify(desc) : null);
+                const target = issue;
+                let serialized: string | null;
+                if (typeof desc === 'string') {
+                  serialized = desc;
+                } else if (desc !== null) {
+                  serialized = JSON.stringify(desc);
+                } else {
+                  serialized = null;
+                }
+                target.description = serialized;
               }
             } catch {
               failed.push(issue);

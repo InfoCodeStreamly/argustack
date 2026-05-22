@@ -65,7 +65,7 @@ function writeJsonFile(
   data: Record<string, unknown>,
 ): void {
   mkdirSync(dirname(filePath), { recursive: true });
-  writeFileSync(filePath, JSON.stringify(data, null, 2) + '\n');
+  writeFileSync(filePath, `${JSON.stringify(data, null, 2)  }\n`);
 }
 
 function detectClaudeClients(): ClaudeClient[] {
@@ -112,7 +112,7 @@ export function installIntoConfig(
 ): void {
   const config = readJsonFile(configPath);
 
-  if (!config['mcpServers'] || typeof config['mcpServers'] !== 'object') {
+  if (config['mcpServers'] == null || typeof config['mcpServers'] !== 'object') {
     config['mcpServers'] = {};
   }
 
@@ -130,7 +130,7 @@ function uninstallFromConfig(configPath: string): boolean {
   const config = readJsonFile(configPath);
   const servers = config['mcpServers'] as Record<string, unknown> | undefined;
 
-  if (!servers || !('argustack' in servers)) {
+  if (servers == null || !('argustack' in servers)) {
     return false;
   }
 

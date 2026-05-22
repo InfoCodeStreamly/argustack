@@ -26,7 +26,7 @@ export class FakeDbProvider implements IDbProvider {
     this.queryRows = options?.queryRows ?? [];
   }
 
-  connect(): Promise<void> {
+  async connect(): Promise<void> {
     this.connected = true;
     return Promise.resolve();
   }
@@ -38,15 +38,15 @@ export class FakeDbProvider implements IDbProvider {
     }
   }
 
-  query(_sql: string): Promise<QueryResult> {
+  async query(_sql: string): Promise<QueryResult> {
     return Promise.resolve({ rows: this.queryRows });
   }
 
-  getTableCount(): Promise<number> {
+  async getTableCount(): Promise<number> {
     return Promise.resolve(this.tableCount);
   }
 
-  disconnect(): Promise<void> {
+  async disconnect(): Promise<void> {
     this.disconnected = true;
     return Promise.resolve();
   }

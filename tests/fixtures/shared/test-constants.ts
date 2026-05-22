@@ -636,7 +636,7 @@ export function createProxySearchResponse(
   }
   if (options?.isLast !== undefined) {
     result['isLast'] = options.isLast;
-  } else if (!options?.nextPageToken) {
+  } else if (options?.nextPageToken === undefined || options.nextPageToken === '') {
     result['isLast'] = true;
   }
   return result;

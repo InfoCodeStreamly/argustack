@@ -111,16 +111,16 @@ describe('SqlJsBoardStore', () => {
   });
 
   describe('getDb guard', () => {
-    it('throws when getAllTasks is called before initialize', () => {
+    it('throws when getAllTasks is called before initialize', async () => {
       const store = new SqlJsBoardStore(WORKSPACE_DIR);
 
-      expect(() => store.getAllTasks()).toThrow('BoardStore not initialized');
+      await expect(store.getAllTasks()).rejects.toThrow('BoardStore not initialized');
     });
 
-    it('throws when createTask is called before initialize', () => {
+    it('throws when createTask is called before initialize', async () => {
       const store = new SqlJsBoardStore(WORKSPACE_DIR);
 
-      expect(() =>
+      await expect(
         store.createTask({
           title: 'Uninitialized',
           mdPath: 'tasks/task.md',
@@ -130,7 +130,7 @@ describe('SqlJsBoardStore', () => {
           createdAt: new Date().toISOString(),
           updatedAt: new Date().toISOString(),
         }),
-      ).toThrow('BoardStore not initialized');
+      ).rejects.toThrow('BoardStore not initialized');
     });
   });
 
@@ -606,7 +606,7 @@ describe('SqlJsBoardStore', () => {
       await store.initialize();
       await store.close();
 
-      expect(() => store.getAllTasks()).toThrow('BoardStore not initialized');
+      await expect(store.getAllTasks()).rejects.toThrow('BoardStore not initialized');
     });
 
     it('does not throw when called on an uninitialized store', async () => {

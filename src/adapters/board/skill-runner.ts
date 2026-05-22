@@ -38,7 +38,7 @@ export class ClaudeSkillRunner implements ISkillRunner {
 
   cancel(executionId: string): void {
     const child = this.processes.get(executionId);
-    if (child) {
+    if (child !== undefined) {
       child.kill('SIGTERM');
       this.processes.delete(executionId);
     }
@@ -48,7 +48,7 @@ export class ClaudeSkillRunner implements ISkillRunner {
     const stdout = child.stdout;
     const stderr = child.stderr;
 
-    if (!stdout || !stderr) { return; }
+    if (stdout === null || stderr === null) { return; }
 
     const chunks: string[] = [];
     const state = { done: false };

@@ -35,7 +35,7 @@ describe('code quality: no eslint-disable', () => {
       for (let i = 0; i < lines.length; i++) {
         const line = lines[i] ?? '';
         if (line.includes('eslint-disable')) {
-          const relative = filePath.replace(ROOT + '/', '');
+          const relative = filePath.replace(`${ROOT  }/`, '');
           violations.push(`${relative}:${i + 1} → ${line.trim()}`);
         }
       }

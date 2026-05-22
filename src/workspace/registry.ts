@@ -35,8 +35,8 @@ export function registerWorkspace(workspacePath: string, name?: string): void {
   try {
     const entries = readRegistry();
     const existing = entries.find((e) => e.path === workspacePath);
-    if (existing) {
-      if (name && existing.name !== name) {
+    if (existing != null) {
+      if (name !== undefined && name !== '' && existing.name !== name) {
         existing.name = name;
         writeRegistry(entries);
       }
@@ -68,7 +68,7 @@ export function listLegacyWorkspaces(): WorkspaceInfo[] {
     live.push(entry);
 
     const config = readConfig(entry.path);
-    const sources = config ? getEnabledSources(config) : [];
+    const sources = config != null ? getEnabledSources(config) : [];
     const displayName = config?.name ?? entry.name;
 
     workspaces.push({
@@ -119,5 +119,5 @@ function writeRegistry(entries: RegistryEntry[]): void {
   if (!existsSync(hubDir())) {
     mkdirSync(hubDir(), { recursive: true });
   }
-  writeFileSync(registryFile(), JSON.stringify(entries, null, 2) + '\n');
+  writeFileSync(registryFile(), `${JSON.stringify(entries, null, 2)  }\n`);
 }

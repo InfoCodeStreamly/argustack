@@ -6,7 +6,7 @@ const hoisted = vi.hoisted(() => {
   const query = vi.fn<QueryFn>();
   const clientQuery = vi.fn<QueryFn>();
   const clientRelease = vi.fn();
-  const connect = vi.fn(() => Promise.resolve({
+  const connect = vi.fn(async () => Promise.resolve({
     query: clientQuery,
     release: clientRelease,
   }));
@@ -49,7 +49,7 @@ beforeEach(() => {
 
 function queryCall(index: number): { sql: string; params: unknown[] } {
   const call = mockQuery.mock.calls[index];
-  if (!call) {
+  if (call === undefined) {
     throw new Error(`mockQuery has no call at index ${String(index)}`);
   }
   const [sql, params] = call;

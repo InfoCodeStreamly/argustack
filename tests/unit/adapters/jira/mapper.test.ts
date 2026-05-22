@@ -2,7 +2,7 @@ import { describe, it, expect } from 'vitest';
 import { mapJiraIssue } from '../../../../src/adapters/jira/mapper.js';
 import { TEST_IDS } from '../../../fixtures/shared/test-constants.js';
 
-function makeRawIssue(overrides?: Record<string, unknown>) {
+function makeRawIssue(overrides?: Record<string, unknown>): Record<string, unknown> {
   return {
     key: TEST_IDS.issueKey,
     id: TEST_IDS.issueId,

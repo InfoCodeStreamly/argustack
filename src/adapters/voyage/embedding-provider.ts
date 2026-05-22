@@ -85,7 +85,7 @@ export class VoyageCodeEmbeddingProvider implements ICodeEmbedding {
     return json.data
       .map((entry) => {
         const doc = docs[entry.index];
-        if (!doc) {return null;}
+        if (doc === undefined) {return null;}
         return { id: doc.id, score: entry.relevance_score };
       })
       .filter((r): r is RerankResult => r !== null);
@@ -145,6 +145,6 @@ export class VoyageCodeEmbeddingProvider implements ICodeEmbedding {
   }
 }
 
-function sleep(ms: number): Promise<void> {
+async function sleep(ms: number): Promise<void> {
   return new Promise((resolve) => setTimeout(resolve, ms));
 }

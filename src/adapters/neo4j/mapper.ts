@@ -29,7 +29,7 @@ export function nodeToCodeFile(node: Node): CodeFile {
     hash: readString(props, 'hash'),
   };
   const gitSha = readString(props, 'gitSha');
-  if (gitSha) {
+  if (gitSha !== '') {
     file.gitSha = gitSha;
   }
   return file;
@@ -47,13 +47,13 @@ export function nodeToCodeSymbol(node: Node): CodeSymbol {
     endLine: toNumber(props['endLine'] as number | Integer),
   };
   const signature = readString(props, 'signature');
-  if (signature) {
+  if (signature !== '') {
     symbol.signature = signature;
   }
-  if (props['visibility']) {
+  if (typeof props['visibility'] === 'string' && props['visibility'] !== '') {
     symbol.visibility = props['visibility'] as 'public' | 'private' | 'protected';
   }
-  if (props['layer']) {
+  if (typeof props['layer'] === 'string' && props['layer'] !== '') {
     symbol.layer = props['layer'] as CodeLayer;
   }
   return symbol;

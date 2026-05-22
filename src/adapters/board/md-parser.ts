@@ -23,7 +23,7 @@ export function parseMdContent(content: string): ParsedMd {
   let body = content;
 
   const fmMatch = /^---\s*\n([\s\S]*?)\n---\s*\n/.exec(content);
-  if (fmMatch?.[1]) {
+  if (fmMatch?.[1] !== undefined && fmMatch[1] !== '') {
     frontmatter = parseYamlSimple(fmMatch[1]);
     body = content.slice(fmMatch[0].length);
   }
@@ -44,7 +44,7 @@ export function updateMdFrontmatter(
   let frontmatter: MdFrontmatter = {};
   let body = content;
 
-  if (fmMatch?.[1]) {
+  if (fmMatch?.[1] !== undefined && fmMatch[1] !== '') {
     frontmatter = parseYamlSimple(fmMatch[1]);
     body = content.slice(fmMatch[0].length);
   }
@@ -63,7 +63,7 @@ function parseYamlSimple(raw: string): MdFrontmatter {
   const result: MdFrontmatter = {};
   for (const line of raw.split('\n')) {
     const match = /^(\w+)\s*:\s*(.+)/.exec(line);
-    if (match?.[1] && match[2]) {
+    if (match?.[1] !== undefined && match[1] !== '' && match[2] !== undefined && match[2] !== '') {
       result[match[1]] = match[2].trim();
     }
   }

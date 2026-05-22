@@ -39,7 +39,7 @@ export function registerSourceCommands(program: Command): void {
       try {
         const workspaceId = await resolveWorkspaceFlag(store, options.workspace);
         const workspace = await store.getById(workspaceId);
-        if (!workspace) {
+        if (workspace === null) {
           throw new Error(`Workspace "${workspaceId}" disappeared during resolution.`);
         }
         const { configured, missing } = summarize(workspace);
@@ -57,7 +57,7 @@ export function registerSourceCommands(program: Command): void {
           }
         }
         console.log('');
-        console.log(chalk.dim('  Bind a source: argustack add <jira|git|github|csv|db|code> --workspace ' + workspace.id));
+        console.log(chalk.dim(`  Bind a source: argustack add <jira|git|github|csv|db|code> --workspace ${  workspace.id}`));
         console.log('');
       } finally {
         await close();

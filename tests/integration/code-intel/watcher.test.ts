@@ -11,7 +11,7 @@ import { FakeCodeMetaStore } from '../../fixtures/fakes/fake-code-meta-store.js'
 import { FakeCodeEmbedding } from '../../fixtures/fakes/fake-code-embedding.js';
 import { createCodeProject, CODE_TEST_IDS } from '../../fixtures/shared/test-constants.js';
 
-function waitUntil(predicate: () => boolean, timeoutMs = 5000): Promise<void> {
+async function waitUntil(predicate: () => boolean, timeoutMs = 5000): Promise<void> {
   const start = Date.now();
   return new Promise((resolve, reject) => {
     const check = (): void => {

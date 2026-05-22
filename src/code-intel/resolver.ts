@@ -17,7 +17,7 @@ export class SymbolResolver {
   constructor(symbols: CodeSymbol[]) {
     for (const sym of symbols) {
       const list = this.index.get(sym.name);
-      if (list) {
+      if (list !== undefined) {
         list.push(sym);
       } else {
         this.index.set(sym.name, [sym]);
@@ -30,12 +30,12 @@ export class SymbolResolver {
     const counts = new Map<string, number>();
     for (const call of parsed.rawCalls) {
       const calleeName = extractIdentifier(call.calleeText);
-      if (!calleeName) {continue;}
+      if (calleeName === null || calleeName === '') {continue;}
       const candidates = this.index.get(calleeName);
-      if (!candidates || candidates.length === 0) {continue;}
+      if (candidates === undefined || candidates.length === 0) {continue;}
       const sameFile = candidates.find((c) => c.filePath === parsed.filePath);
       const target = sameFile ?? candidates[0];
-      if (!target) {continue;}
+      if (target === undefined) {continue;}
       const key = `${call.fromQn}->${target.qualifiedName}`;
       counts.set(key, (counts.get(key) ?? 0) + 1);
     }

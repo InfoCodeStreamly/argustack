@@ -19,7 +19,7 @@ export function discoverSkills(projectDir?: string): DiscoveredSkill[] {
     }
   }
 
-  if (projectDir) {
+  if (projectDir !== undefined && projectDir !== '') {
     const projectSkillsDir = join(projectDir, '.claude', 'skills');
     if (existsSync(projectSkillsDir)) {
       for (const skill of scanSkillsDir(projectSkillsDir, 'project')) {
@@ -66,7 +66,7 @@ function extractSkillDescription(skillMdPath: string): string {
   try {
     const content = readFileSync(skillMdPath, 'utf-8');
     const fmMatch = /^---\s*\n([\s\S]*?)\n---/.exec(content);
-    if (!fmMatch?.[1]) {
+    if (fmMatch?.[1] === undefined || fmMatch[1] === '') {
       return '';
     }
     const descMatch = /description:\s*["']?(.+?)["']?\s*$/m.exec(fmMatch[1]);

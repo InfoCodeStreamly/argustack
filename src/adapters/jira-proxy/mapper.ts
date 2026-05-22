@@ -67,7 +67,7 @@ export function mapProxyIssue(raw: Record<string, unknown>, mapping?: ProxyField
 }
 
 export function resolvePath(obj: unknown, path: string): unknown {
-  if (!path || obj === null || obj === undefined) {
+  if (path === '' || obj === null || obj === undefined) {
     return undefined;
   }
 
@@ -86,7 +86,7 @@ export function resolvePath(obj: unknown, path: string): unknown {
         return undefined;
       }
       const remaining = parts.slice(parts.indexOf(part) + 1).join('.');
-      if (remaining) {
+      if (remaining !== '') {
         return arr.map((item) => resolvePath(item, remaining)).filter((v) => v !== undefined);
       }
       return arr;

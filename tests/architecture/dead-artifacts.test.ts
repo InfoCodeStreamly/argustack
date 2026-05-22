@@ -38,7 +38,7 @@ function filterByRule(ruleName: string): CruiseViolation[] {
 }
 
 function formatViolations(items: CruiseViolation[]): string {
-  return items.map(v => `  ${v.to || v.from}`).join('\n');
+  return items.map(v => `  ${v.to !== '' ? v.to : v.from}`).join('\n');
 }
 
 describe('Dead Artifacts Detection', () => {

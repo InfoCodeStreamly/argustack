@@ -14,14 +14,14 @@ export class FakeCodeParser implements ICodeParser {
     this.results.set(absPath, parsed);
   }
 
-  parseFile(
+  async parseFile(
     absPath: string,
     _content: string,
     language: CodeLanguage,
   ): Promise<ParsedFile> {
     this.parseCalls.push({ absPath, language });
     const result = this.results.get(absPath);
-    if (result) {return Promise.resolve(result);}
+    if (result !== undefined) {return Promise.resolve(result);}
     return Promise.resolve({
       filePath: absPath,
       language,

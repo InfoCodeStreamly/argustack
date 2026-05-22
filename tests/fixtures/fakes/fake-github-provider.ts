@@ -8,24 +8,15 @@ export class FakeGitHubProvider implements IGitHubProvider {
   private _releases: Release[] = [];
   readonly pullCalls: { since?: Date }[] = [];
 
-  pullPullRequests(since?: Date): AsyncGenerator<GitHubBatch> {
-    this.pullCalls.push({ since });
-    const batches = this._batches;
-    let i = 0;
-    const gen: AsyncGenerator<GitHubBatch> = {
-      next: () =>
-        i < batches.length
-          ? Promise.resolve({ value: batches[i++], done: false } as IteratorResult<GitHubBatch>)
-          : Promise.resolve({ value: undefined, done: true } as IteratorResult<GitHubBatch>),
-      return: () =>
-        Promise.resolve({ value: undefined, done: true } as IteratorResult<GitHubBatch>),
-      throw: (e: unknown) => Promise.reject(e instanceof Error ? e : new Error(String(e))),
-      [Symbol.asyncIterator]() { return gen; },
-    };
-    return gen;
+  async *pullPullRequests(since?: Date): AsyncGenerator<GitHubBatch> {
+    this.pullCalls.push(since !== undefined ? { since } : {});
+    await Promise.resolve();
+    for (const batch of this._batches) {
+      yield batch;
+    }
   }
 
-  pullReleases(): Promise<Release[]> {
+  async pullReleases(): Promise<Release[]> {
     return Promise.resolve(this._releases);
   }
 
@@ -37,7 +28,7 @@ export class FakeGitHubProvider implements IGitHubProvider {
     this._releases = [...releases];
   }
 
-  getPrCount(_since?: Date): Promise<number> {
+  async getPrCount(_since?: Date): Promise<number> {
     const total = this._batches.reduce((sum, b) => sum + b.pullRequests.length, 0);
     return Promise.resolve(total);
   }

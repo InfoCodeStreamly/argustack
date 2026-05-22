@@ -45,12 +45,24 @@ export interface HubCredentials {
   readonly githubToken?: string;
 }
 
+/**
+ * Optional chat LLM used for query expansion (HyDE) by code search
+ * tools. Argustack works without it; when configured, it improves
+ * `explain_feature` retrieval quality.
+ */
+export interface HubChatLlmConfig {
+  readonly provider: 'ollama' | 'lmstudio' | 'custom';
+  readonly model: string;
+  readonly url?: string;
+}
+
 export interface HubConfig {
   readonly hubDir: string;
   readonly db: DbConfig;
   readonly neo4j: HubNeo4jConfig;
   readonly qdrant: HubQdrantConfig;
   readonly embedding: HubEmbeddingConfig;
+  readonly chatLlm: HubChatLlmConfig | null;
   readonly credentials: HubCredentials;
 }
 
@@ -76,7 +88,7 @@ export function hubConfigPath(): string {
  * @throws Error when `config.env` does not exist (hub not initialised).
  */
 export function loadHubConfig(): HubConfig {
-  if (cached) {
+  if (cached != null) {
     return cached;
   }
 
@@ -92,26 +104,22 @@ export function loadHubConfig(): HubConfig {
 
   const rawProvider = merged['CODE_EMBEDDING_PROVIDER']?.toLowerCase();
   const userConfigured = typeof rawProvider === 'string' && rawProvider.length > 0;
-  const provider: HubEmbeddingProvider =
-    rawProvider === 'voyage' ? 'voyage' :
-    rawProvider === 'lmstudio' ? 'lmstudio' :
-    rawProvider === 'custom' ? 'custom' :
-    'ollama';
+  const provider: HubEmbeddingProvider = pickEmbeddingProvider(rawProvider);
 
   const credentials: { -readonly [K in keyof HubCredentials]: HubCredentials[K] } = {};
-  if (merged['JIRA_URL']) {
+  if (merged['JIRA_URL'] !== undefined && merged['JIRA_URL'] !== '') {
     credentials.jiraUrl = merged['JIRA_URL'];
   }
-  if (merged['JIRA_EMAIL']) {
+  if (merged['JIRA_EMAIL'] !== undefined && merged['JIRA_EMAIL'] !== '') {
     credentials.jiraEmail = merged['JIRA_EMAIL'];
   }
-  if (merged['JIRA_API_TOKEN']) {
+  if (merged['JIRA_API_TOKEN'] !== undefined && merged['JIRA_API_TOKEN'] !== '') {
     credentials.jiraApiToken = merged['JIRA_API_TOKEN'];
   }
-  if (merged['JIRA_PROXY_TOKEN']) {
+  if (merged['JIRA_PROXY_TOKEN'] !== undefined && merged['JIRA_PROXY_TOKEN'] !== '') {
     credentials.jiraProxyToken = merged['JIRA_PROXY_TOKEN'];
   }
-  if (merged['GITHUB_TOKEN']) {
+  if (merged['GITHUB_TOKEN'] !== undefined && merged['GITHUB_TOKEN'] !== '') {
     credentials.githubToken = merged['GITHUB_TOKEN'];
   }
 
@@ -133,10 +141,32 @@ export function loadHubConfig(): HubConfig {
       url: merged['QDRANT_URL'] ?? 'http://localhost:15436',
     },
     embedding: buildEmbedding(provider, userConfigured, merged),
+    chatLlm: buildChatLlm(merged),
     credentials,
   };
   cached = config;
   return config;
+}
+
+function pickEmbeddingProvider(rawProvider: string | undefined): HubEmbeddingProvider {
+  if (rawProvider === 'voyage') { return 'voyage'; }
+  if (rawProvider === 'lmstudio') { return 'lmstudio'; }
+  if (rawProvider === 'custom') { return 'custom'; }
+  return 'ollama';
+}
+
+function buildChatLlm(env: Record<string, string | undefined>): HubChatLlmConfig | null {
+  const model = env['CHAT_LLM_MODEL'];
+  if (model === undefined || model.length === 0) { return null; }
+  const rawProvider = env['CHAT_LLM_PROVIDER']?.toLowerCase();
+  const provider: HubChatLlmConfig['provider'] =
+    rawProvider === 'lmstudio' || rawProvider === 'custom' ? rawProvider : 'ollama';
+  const url = env['CHAT_LLM_URL'];
+  return {
+    provider,
+    model,
+    ...(url !== undefined && url.length > 0 ? { url } : {}),
+  };
 }
 
 function buildEmbedding(
@@ -159,22 +189,22 @@ function buildEmbedding(
     model: env['EMBEDDING_MODEL'] ?? d.model,
     dimensions: Number(env['EMBEDDING_DIMS'] ?? String(d.dims)),
   };
-  if (env['LMSTUDIO_URL']) {
+  if (env['LMSTUDIO_URL'] !== undefined && env['LMSTUDIO_URL'] !== '') {
     config.lmstudioUrl = env['LMSTUDIO_URL'];
   }
-  if (env['OLLAMA_URL']) {
+  if (env['OLLAMA_URL'] !== undefined && env['OLLAMA_URL'] !== '') {
     config.ollamaUrl = env['OLLAMA_URL'];
   }
-  if (env['CUSTOM_EMBEDDING_URL']) {
+  if (env['CUSTOM_EMBEDDING_URL'] !== undefined && env['CUSTOM_EMBEDDING_URL'] !== '') {
     config.customUrl = env['CUSTOM_EMBEDDING_URL'];
   }
-  if (env['RERANK_MODEL']) {
+  if (env['RERANK_MODEL'] !== undefined && env['RERANK_MODEL'] !== '') {
     config.rerankModel = env['RERANK_MODEL'];
   }
-  if (env['VOYAGE_API_KEY']) {
+  if (env['VOYAGE_API_KEY'] !== undefined && env['VOYAGE_API_KEY'] !== '') {
     config.voyageApiKey = env['VOYAGE_API_KEY'];
   }
-  if (env['OPENAI_API_KEY']) {
+  if (env['OPENAI_API_KEY'] !== undefined && env['OPENAI_API_KEY'] !== '') {
     config.openaiApiKey = env['OPENAI_API_KEY'];
   }
   return config;
@@ -192,7 +222,7 @@ function parseEnvFile(content: string): Record<string, string> {
   const out: Record<string, string> = {};
   for (const rawLine of content.split('\n')) {
     const line = rawLine.trim();
-    if (!line || line.startsWith('#')) {
+    if (line === '' || line.startsWith('#')) {
       continue;
     }
     const eq = line.indexOf('=');

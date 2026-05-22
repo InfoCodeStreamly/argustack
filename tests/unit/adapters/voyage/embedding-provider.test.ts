@@ -26,10 +26,11 @@ function jsonResponse(body: unknown, status = 200): Response {
 
 function getCallArgs(index: number): [string | URL | Request, RequestInit | undefined] {
   const call = fetchMock.mock.calls[index];
-  if (!call) {
+  if (call === undefined) {
     throw new Error(`fetchMock has no call at index ${String(index)}`);
   }
-  return call;
+  const [input, init] = call;
+  return [input, init];
 }
 
 function getCallBody(index: number): Record<string, unknown> {
@@ -75,7 +76,7 @@ describe('VoyageCodeEmbeddingProvider', () => {
   });
 
   it('embedCode batches at 128', async () => {
-    fetchMock.mockImplementation(() =>
+    fetchMock.mockImplementation(async () =>
       Promise.resolve(
         jsonResponse({ data: Array.from({ length: 128 }, (_, i) => ({ embedding: [0], index: i })) }),
       ),

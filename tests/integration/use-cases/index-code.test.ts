@@ -82,7 +82,7 @@ describe('IndexCodeUseCase — integration with fakes', () => {
 
     // Second run — no file changes
     const project = await meta.getProjectById(CODE_TEST_IDS.projectA);
-    if (!project) {throw new Error('project missing');}
+    if (project === null) {throw new Error('project missing');}
     const parser = new TreeSitterParser({ projectRoot: root });
     const useCase = new IndexCodeUseCase(parser, graph, vec, embedding, meta);
     const stats = await useCase.execute({ project });

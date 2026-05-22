@@ -91,9 +91,9 @@ export class QdrantCodeVectorStore implements ICodeVectorStore {
   ): Promise<SemanticHit[]> {
     const name = collectionName(projectId);
     const must: { key: string; match: { value: string } }[] = [];
-    if (opts.layer) {must.push({ key: 'layer', match: { value: opts.layer } });}
-    if (opts.kind) {must.push({ key: 'kind', match: { value: opts.kind } });}
-    if (opts.filePath) {must.push({ key: 'filePath', match: { value: opts.filePath } });}
+    if (opts.layer !== undefined) {must.push({ key: 'layer', match: { value: opts.layer } });}
+    if (opts.kind !== undefined) {must.push({ key: 'kind', match: { value: opts.kind } });}
+    if (opts.filePath !== undefined && opts.filePath !== '') {must.push({ key: 'filePath', match: { value: opts.filePath } });}
 
     const searchArgs: Parameters<QdrantClient['search']>[1] = {
       vector,
@@ -134,7 +134,7 @@ export class QdrantCodeVectorStore implements ICodeVectorStore {
     const info = await this.client.getCollection(name);
     const vectorsConfig = info.config.params.vectors;
     let vectorDim = 0;
-    if (vectorsConfig && typeof vectorsConfig === 'object' && 'size' in vectorsConfig) {
+    if (typeof vectorsConfig === 'object' && 'size' in vectorsConfig) {
       vectorDim = (vectorsConfig as { size: number }).size;
     }
     return {

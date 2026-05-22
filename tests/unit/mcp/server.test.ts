@@ -112,9 +112,9 @@ describe('server export', () => {
 
     await import('../../../src/mcp/server.js');
 
-    expect(McpServer).toHaveBeenCalledWith(
-      expect.objectContaining({ name: 'Argustack' }),
-    );
+    const firstCall = vi.mocked(McpServer).mock.calls[0];
+    expect(firstCall).toBeDefined();
+    expect(firstCall?.[0]).toMatchObject({ name: 'Argustack' });
   });
 
   it('includes icon in constructor when icon file exists', async () => {

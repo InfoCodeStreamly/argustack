@@ -3,37 +3,47 @@ import { mkdirSync, writeFileSync, rmSync, existsSync } from 'node:fs';
 import { join } from 'node:path';
 import { tmpdir } from 'node:os';
 
-vi.mock('node:os', async (importOriginal) => {
-  const actual = await importOriginal();
-  return { ...(actual as Record<string, unknown>), homedir: vi.fn() };
-});
+import {
+  registerWorkspace,
+  listLegacyWorkspaces,
+  pruneDeadLegacyWorkspaces,
+  type WorkspaceInfo,
+} from '../../../src/workspace/registry.js';
 
-import { homedir } from 'node:os';
-import { registerWorkspace, listRegisteredWorkspaces, pruneDeadWorkspaces } from '../../../src/workspace/registry.js';
-
-describe('workspace registry', () => {
+describe('workspace registry (legacy)', () => {
   let tmpHome: string;
   let tmpWs1: string;
   let tmpWs2: string;
 
   beforeEach(() => {
-    tmpHome = join(tmpdir(), `reg-test-${String(Date.now())}`);
+    tmpHome = join(tmpdir(), `reg-test-${String(Date.now())}-${String(Math.random()).slice(2)}`);
     mkdirSync(tmpHome, { recursive: true });
-    vi.mocked(homedir).mockReturnValue(tmpHome);
+    vi.stubEnv('ARGUSTACK_HUB_DIR', join(tmpHome, '.argustack'));
 
     tmpWs1 = join(tmpHome, 'ws1');
     tmpWs2 = join(tmpHome, 'ws2');
 
     mkdirSync(join(tmpWs1, '.argustack'), { recursive: true });
-    writeFileSync(join(tmpWs1, '.argustack', 'config.json'), JSON.stringify({ version: 1, name: 'workspace-one', sources: {}, order: [] }));
+    writeFileSync(
+      join(tmpWs1, '.argustack', 'config.json'),
+      JSON.stringify({ version: 1, name: 'workspace-one', sources: {}, order: [] }),
+    );
 
     mkdirSync(join(tmpWs2, '.argustack'), { recursive: true });
-    writeFileSync(join(tmpWs2, '.argustack', 'config.json'), JSON.stringify({ version: 1, name: 'workspace-two', sources: { jira: { enabled: true } }, order: ['jira'] }));
+    writeFileSync(
+      join(tmpWs2, '.argustack', 'config.json'),
+      JSON.stringify({
+        version: 1,
+        name: 'workspace-two',
+        sources: { jira: { enabled: true } },
+        order: ['jira'],
+      }),
+    );
   });
 
   afterEach(() => {
     rmSync(tmpHome, { recursive: true, force: true });
-    vi.restoreAllMocks();
+    vi.unstubAllEnvs();
   });
 
   describe('registerWorkspace', () => {
@@ -43,7 +53,7 @@ describe('workspace registry', () => {
       const registryPath = join(tmpHome, '.argustack', 'workspaces.json');
       expect(existsSync(registryPath)).toBe(true);
 
-      const workspaces = listRegisteredWorkspaces();
+      const workspaces = listLegacyWorkspaces();
       expect(workspaces).toHaveLength(1);
       expect(workspaces.at(0)?.name).toBe('workspace-one');
       expect(workspaces.at(0)?.path).toBe(tmpWs1);
@@ -53,7 +63,7 @@ describe('workspace registry', () => {
       registerWorkspace(tmpWs1, 'workspace-one');
       registerWorkspace(tmpWs1, 'workspace-one');
 
-      const workspaces = listRegisteredWorkspaces();
+      const workspaces = listLegacyWorkspaces();
       expect(workspaces).toHaveLength(1);
     });
 
@@ -61,55 +71,55 @@ describe('workspace registry', () => {
       registerWorkspace(tmpWs1, 'workspace-one');
       registerWorkspace(tmpWs2, 'workspace-two');
 
-      const workspaces = listRegisteredWorkspaces();
+      const workspaces = listLegacyWorkspaces();
       expect(workspaces).toHaveLength(2);
     });
 
-    it('updates name if path already registered with different name', () => {
+    it('updates name in registry when called with new name', () => {
       registerWorkspace(tmpWs1, 'old-name');
       registerWorkspace(tmpWs1, 'new-name');
 
-      const workspaces = listRegisteredWorkspaces();
+      const workspaces = listLegacyWorkspaces();
       expect(workspaces).toHaveLength(1);
+      // Display name comes from config.json (workspace-one), not registry entry
       expect(workspaces.at(0)?.name).toBe('workspace-one');
     });
   });
 
-  describe('listRegisteredWorkspaces', () => {
+  describe('listLegacyWorkspaces', () => {
     it('returns empty array when no registry exists', () => {
-      const workspaces = listRegisteredWorkspaces();
+      const workspaces = listLegacyWorkspaces();
       expect(workspaces).toEqual([]);
     });
 
-    it('marks active workspace', () => {
+    it('returns active=false for all entries (hub model owns active state)', () => {
       registerWorkspace(tmpWs1, 'workspace-one');
       registerWorkspace(tmpWs2, 'workspace-two');
 
-      const workspaces = listRegisteredWorkspaces(tmpWs1);
-      const active = workspaces.find((w) => w.active);
-      expect(active?.path).toBe(tmpWs1);
+      const workspaces = listLegacyWorkspaces();
+      expect(workspaces.every((w: WorkspaceInfo) => !w.active)).toBe(true);
     });
 
     it('reads sources from workspace config', () => {
       registerWorkspace(tmpWs2, 'workspace-two');
 
-      const workspaces = listRegisteredWorkspaces();
+      const workspaces = listLegacyWorkspaces();
       expect(workspaces.at(0)?.sources).toContain('jira');
     });
 
-    it('auto-prunes dead workspaces', () => {
+    it('auto-prunes dead workspaces on read', () => {
       registerWorkspace(tmpWs1, 'workspace-one');
       registerWorkspace(tmpWs2, 'workspace-two');
 
       rmSync(tmpWs1, { recursive: true, force: true });
 
-      const workspaces = listRegisteredWorkspaces();
+      const workspaces = listLegacyWorkspaces();
       expect(workspaces).toHaveLength(1);
       expect(workspaces.at(0)?.path).toBe(tmpWs2);
     });
   });
 
-  describe('pruneDeadWorkspaces', () => {
+  describe('pruneDeadLegacyWorkspaces', () => {
     it('removes entries for deleted workspaces', () => {
       registerWorkspace(tmpWs1, 'workspace-one');
       registerWorkspace(tmpWs2, 'workspace-two');
@@ -117,9 +127,9 @@ describe('workspace registry', () => {
       rmSync(tmpWs1, { recursive: true, force: true });
       rmSync(tmpWs2, { recursive: true, force: true });
 
-      pruneDeadWorkspaces();
+      pruneDeadLegacyWorkspaces();
 
-      const workspaces = listRegisteredWorkspaces();
+      const workspaces = listLegacyWorkspaces();
       expect(workspaces).toEqual([]);
     });
 
@@ -129,9 +139,9 @@ describe('workspace registry', () => {
 
       rmSync(tmpWs1, { recursive: true, force: true });
 
-      pruneDeadWorkspaces();
+      pruneDeadLegacyWorkspaces();
 
-      const workspaces = listRegisteredWorkspaces();
+      const workspaces = listLegacyWorkspaces();
       expect(workspaces).toHaveLength(1);
       expect(workspaces.at(0)?.path).toBe(tmpWs2);
     });

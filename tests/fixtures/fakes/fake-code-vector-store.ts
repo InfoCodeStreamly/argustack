@@ -35,12 +35,12 @@ export class FakeCodeVectorStore implements ICodeVectorStore {
   readonly searchCalls: { projectId: string; opts: SearchSemanticOptions }[] = [];
   readonly deleteFileCalls: { projectId: string; filePath: string }[] = [];
 
-  initialize(): Promise<void> {
+  async initialize(): Promise<void> {
     this.initializeCalls.push(Date.now());
     return Promise.resolve();
   }
 
-  ensureCollection(projectId: string, dim: number): Promise<void> {
+  async ensureCollection(projectId: string, dim: number): Promise<void> {
     this.ensureCollectionCalls.push({ projectId, dim });
     if (!this.collections.has(projectId)) {
       this.collections.set(projectId, { dim, entries: new Map() });
@@ -48,7 +48,7 @@ export class FakeCodeVectorStore implements ICodeVectorStore {
     return Promise.resolve();
   }
 
-  upsertChunks(
+  async upsertChunks(
     projectId: string,
     chunks: CodeChunk[],
     vectors: number[][],
@@ -58,7 +58,7 @@ export class FakeCodeVectorStore implements ICodeVectorStore {
     for (let i = 0; i < chunks.length; i++) {
       const chunk = chunks[i];
       const vec = vectors[i];
-      if (!chunk || !vec) {continue;}
+      if (chunk === undefined || vec === undefined) {continue;}
       const entry: VectorEntry = {
         symbolId: chunk.symbolId,
         vector: vec,
@@ -77,10 +77,10 @@ export class FakeCodeVectorStore implements ICodeVectorStore {
     return Promise.resolve();
   }
 
-  deleteByFile(projectId: string, filePath: string): Promise<void> {
+  async deleteByFile(projectId: string, filePath: string): Promise<void> {
     this.deleteFileCalls.push({ projectId, filePath });
     const col = this.collections.get(projectId);
-    if (!col) {return Promise.resolve();}
+    if (col === undefined) {return Promise.resolve();}
     for (const [id, entry] of col.entries) {
       if (entry.payload.filePath === filePath) {
         col.entries.delete(id);
@@ -89,24 +89,24 @@ export class FakeCodeVectorStore implements ICodeVectorStore {
     return Promise.resolve();
   }
 
-  deleteBySymbol(projectId: string, symbolId: string): Promise<void> {
+  async deleteBySymbol(projectId: string, symbolId: string): Promise<void> {
     this.collections.get(projectId)?.entries.delete(symbolId);
     return Promise.resolve();
   }
 
-  searchSemantic(
+  async searchSemantic(
     projectId: string,
     vector: number[],
     opts: SearchSemanticOptions,
   ): Promise<SemanticHit[]> {
     this.searchCalls.push({ projectId, opts });
     const col = this.collections.get(projectId);
-    if (!col) {return Promise.resolve([]);}
+    if (col === undefined) {return Promise.resolve([]);}
     const ranked: { entry: VectorEntry; score: number }[] = [];
     for (const entry of col.entries.values()) {
-      if (opts.layer && entry.payload.layer !== opts.layer) {continue;}
-      if (opts.kind && entry.payload.kind !== opts.kind) {continue;}
-      if (opts.filePath && entry.payload.filePath !== opts.filePath) {continue;}
+      if (opts.layer !== undefined && entry.payload.layer !== opts.layer) {continue;}
+      if (opts.kind !== undefined && entry.payload.kind !== opts.kind) {continue;}
+      if (opts.filePath !== undefined && opts.filePath !== '' && entry.payload.filePath !== opts.filePath) {continue;}
       ranked.push({ entry, score: cosineSimilarity(vector, entry.vector) });
     }
     ranked.sort((a, b) => b.score - a.score);
@@ -130,15 +130,15 @@ export class FakeCodeVectorStore implements ICodeVectorStore {
     );
   }
 
-  findSimilar(
+  async findSimilar(
     projectId: string,
     symbolId: string,
     topK: number,
   ): Promise<SemanticHit[]> {
     const col = this.collections.get(projectId);
-    if (!col) {return Promise.resolve([]);}
+    if (col === undefined) {return Promise.resolve([]);}
     const seed = col.entries.get(symbolId);
-    if (!seed) {return Promise.resolve([]);}
+    if (seed === undefined) {return Promise.resolve([]);}
     const ranked: { entry: VectorEntry; score: number }[] = [];
     for (const entry of col.entries.values()) {
       if (entry.symbolId === symbolId) {continue;}
@@ -162,7 +162,7 @@ export class FakeCodeVectorStore implements ICodeVectorStore {
     );
   }
 
-  getCollectionStats(projectId: string): Promise<CollectionStats> {
+  async getCollectionStats(projectId: string): Promise<CollectionStats> {
     const col = this.collections.get(projectId);
     return Promise.resolve({
       pointCount: col?.entries.size ?? 0,
@@ -170,12 +170,16 @@ export class FakeCodeVectorStore implements ICodeVectorStore {
     });
   }
 
-  deleteCollection(projectId: string): Promise<void> {
+  async collectionExists(projectId: string): Promise<boolean> {
+    return Promise.resolve(this.collections.has(projectId));
+  }
+
+  async deleteCollection(projectId: string): Promise<void> {
     this.collections.delete(projectId);
     return Promise.resolve();
   }
 
-  close(): Promise<void> {
+  async close(): Promise<void> {
     return Promise.resolve();
   }
 
@@ -190,7 +194,7 @@ export class FakeCodeVectorStore implements ICodeVectorStore {
 
   private getOrCreate(projectId: string, dim: number): { dim: number; entries: Map<string, VectorEntry> } {
     let col = this.collections.get(projectId);
-    if (!col) {
+    if (col === undefined) {
       col = { dim, entries: new Map() };
       this.collections.set(projectId, col);
     }

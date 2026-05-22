@@ -30,7 +30,7 @@ describe('OpenAIEmbeddingProvider', () => {
   it('calls OpenAI API with correct payload', async () => {
     const mockFetch = vi.fn().mockResolvedValue({
       ok: true,
-      json: () => Promise.resolve({
+      json: async () => Promise.resolve({
         data: [
           { embedding: [0.1, 0.2], index: 0 },
           { embedding: [0.3, 0.4], index: 1 },
@@ -59,7 +59,7 @@ describe('OpenAIEmbeddingProvider', () => {
   it('returns vectors in input order', async () => {
     globalThis.fetch = vi.fn().mockResolvedValue({
       ok: true,
-      json: () => Promise.resolve({
+      json: async () => Promise.resolve({
         data: [
           { embedding: [0.3, 0.4], index: 1 },
           { embedding: [0.1, 0.2], index: 0 },
@@ -80,7 +80,7 @@ describe('OpenAIEmbeddingProvider', () => {
     globalThis.fetch = vi.fn().mockResolvedValue({
       ok: false,
       status: 401,
-      text: () => Promise.resolve('Unauthorized'),
+      text: async () => Promise.resolve('Unauthorized'),
     });
 
     const provider = new OpenAIEmbeddingProvider({ apiKey: 'bad-key' });

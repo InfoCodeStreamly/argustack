@@ -4,7 +4,7 @@ import { join } from 'node:path';
 import chalk from 'chalk';
 import { loadHubConfig, hubDir } from '../workspace/hub-config.js';
 import { listLegacyWorkspaces } from '../workspace/registry.js';
-import { MigrateToHubUseCase, type LegacyWorkspaceInfo } from '../use-cases/migrate-to-hub.js';
+import { MigrateToHubUseCase, type LegacyWorkspaceInfo } from './migrate-to-hub-impl.js';
 
 interface Options {
   dryRun?: boolean;
@@ -14,7 +14,7 @@ interface Options {
 }
 
 function parseRenameFlags(values: string[] | undefined): Record<string, string> {
-  if (!values) { return {}; }
+  if (values == null) { return {}; }
   const map: Record<string, string> = {};
   for (const v of values) {
     const eq = v.indexOf('=');
@@ -69,9 +69,9 @@ export function registerMigrateCommand(program: Command): void {
         const logLines: string[] = [];
 
         const result = await useCase.execute(targets, {
-          ...(options.dryRun ? { dryRun: true } : {}),
-          ...(options.keepLegacy ? { keepLegacy: true } : {}),
-          ...(options.allowConflicts ? { allowConflicts: true } : {}),
+          ...(options.dryRun === true ? { dryRun: true } : {}),
+          ...(options.keepLegacy === true ? { keepLegacy: true } : {}),
+          ...(options.allowConflicts === true ? { allowConflicts: true } : {}),
           rename,
           onProgress: (msg) => {
             console.log(msg);
@@ -80,13 +80,14 @@ export function registerMigrateCommand(program: Command): void {
         });
 
         if (logLines.length > 0) {
-          writeFileSync(logFile, logLines.join('\n') + '\n');
+          writeFileSync(logFile, `${logLines.join('\n')  }\n`);
           console.log(chalk.dim(`\n  Log: ${logFile}`));
         }
 
         console.log('');
         console.log(chalk.bold('  Summary:'));
-        console.log(`    migrated: ${result.migrated.join(', ') || '(none)'}`);
+        const migratedList = result.migrated.join(', ');
+        console.log(`    migrated: ${migratedList !== '' ? migratedList : '(none)'}`);
         if (result.skipped.length > 0) {
           console.log(chalk.yellow(`    skipped:  ${result.skipped.join(', ')}`));
         }

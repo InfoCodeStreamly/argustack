@@ -70,18 +70,18 @@ export class CsvProvider implements ISourceProvider {
       links: [],
     };
 
-    const sinceDate = since ? new Date(since) : null;
+    const sinceDate = since !== undefined && since !== '' ? new Date(since) : null;
 
     for await (const row of parser) {
       const cells = row as string[];
 
-      if (!headers) {
+      if (headers === null) {
         headers = cells;
         schema = detectSchema(headers);
         continue;
       }
 
-      if (!schema) {
+      if (schema === undefined) {
         continue;
       }
 
@@ -91,7 +91,7 @@ export class CsvProvider implements ISourceProvider {
         continue;
       }
 
-      if (sinceDate && result.issue.updated) {
+      if (sinceDate !== null && result.issue.updated !== null && result.issue.updated !== '') {
         const updatedDate = new Date(result.issue.updated);
         if (updatedDate < sinceDate) {
           continue;

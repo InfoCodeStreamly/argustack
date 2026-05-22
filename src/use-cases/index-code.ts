@@ -34,13 +34,13 @@ export class IndexCodeUseCase {
         embedding: this.embedding,
         meta: this.meta,
       };
-      if (this.lsp) {
+      if (this.lsp !== null) {
         indexerOpts.lsp = this.lsp;
       }
       const indexer = new CodeIndexer(indexerOpts);
       const opts: Parameters<CodeIndexer['indexProject']>[0] = {};
       if (input.full !== undefined) {opts.full = input.full;}
-      if (input.onProgress) {opts.onProgress = input.onProgress;}
+      if (input.onProgress !== undefined) {opts.onProgress = input.onProgress;}
       return indexer.indexProject(opts);
     });
   }

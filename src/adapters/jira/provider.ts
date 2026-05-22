@@ -41,7 +41,7 @@ export class JiraProvider implements ISourceProvider {
         : this.issueTypeIds.map((t) => `"${t}"`).join(', ');
       jql += ` AND issuetype in (${values})`;
     }
-    if (since) {
+    if (since !== undefined && since !== '') {
       jql += ` AND updated >= "${since}"`;
     }
     return jql;
@@ -62,10 +62,10 @@ export class JiraProvider implements ISourceProvider {
       summary: issue.summary,
       issuetype: { name: issue.issueType ?? 'Story' },
     };
-    if (issue.description) {
+    if (issue.description !== null && issue.description !== '') {
       (fields as Record<string, unknown>)['description'] = markdownToAdf(issue.description);
     }
-    if (issue.parentKey) {
+    if (issue.parentKey !== null && issue.parentKey !== '') {
       fields.parent = { key: issue.parentKey };
     }
     const result = await this.client.issues.createIssue({ fields });
@@ -78,15 +78,15 @@ export class JiraProvider implements ISourceProvider {
       update['summary'] = fields.summary;
     }
     if (fields.description !== undefined) {
-      update['description'] = fields.description
+      update['description'] = fields.description !== null && fields.description !== ''
         ? markdownToAdf(fields.description)
         : null;
     }
     if (fields.priority !== undefined) {
-      update['priority'] = fields.priority ? { name: fields.priority } : null;
+      update['priority'] = fields.priority !== null && fields.priority !== '' ? { name: fields.priority } : null;
     }
     if (fields.assignee !== undefined) {
-      update['assignee'] = fields.assignee ? { accountId: fields.assigneeId ?? fields.assignee } : null;
+      update['assignee'] = fields.assignee !== null && fields.assignee !== '' ? { accountId: fields.assigneeId ?? fields.assignee } : null;
     }
     if (fields.labels !== undefined) {
       update['labels'] = fields.labels;
@@ -118,7 +118,7 @@ export class JiraProvider implements ISourceProvider {
         fields: ['*all'],
         expand: 'changelog',
       };
-      if (pageToken) {
+      if (pageToken !== undefined && pageToken !== '') {
         searchParams.nextPageToken = pageToken;
       }
 
@@ -149,6 +149,6 @@ export class JiraProvider implements ISourceProvider {
       yield batch;
 
       pageToken = response.nextPageToken ?? undefined;
-    } while (pageToken);
+    } while (pageToken !== undefined && pageToken !== '');
   }
 }

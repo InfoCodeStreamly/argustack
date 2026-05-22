@@ -43,12 +43,12 @@ function formatViolations(violations: CruiseViolation[]): string {
     return 'No violations found';
   }
 
-  const grouped = violations.reduce<Record<string, string[]>>((acc, v) => {
+  const grouped: Record<string, string[]> = {};
+  for (const v of violations) {
     const ruleName = v.rule.name;
-    acc[ruleName] ??= [];
-    acc[ruleName].push(`  ${v.from} → ${v.to}`);
-    return acc;
-  }, {});
+    grouped[ruleName] ??= [];
+    grouped[ruleName].push(`  ${v.from} → ${v.to}`);
+  }
 
   return Object.entries(grouped)
     .map(([rule, deps]) => `\n${rule}:\n${deps.join('\n')}`)

@@ -31,14 +31,14 @@ export function discoverLegacyDbConfig(workspaceRoot: string): LegacyDbConfig {
   const content = readFileSync(envPath, 'utf-8');
   for (const rawLine of content.split('\n')) {
     const line = rawLine.trim();
-    if (!line || line.startsWith('#')) { continue; }
+    if (line === '' || line.startsWith('#')) { continue; }
     const eq = line.indexOf('=');
     if (eq === -1) { continue; }
     const key = line.slice(0, eq).trim();
     const value = line.slice(eq + 1).trim().replace(/^["']|["']$/g, '');
     switch (key) {
       case 'DB_HOST': cfg.host = value; break;
-      case 'DB_PORT': cfg.port = parseInt(value, 10) || 5434; break;
+      case 'DB_PORT': { const parsed = parseInt(value, 10); cfg.port = !isNaN(parsed) && parsed > 0 ? parsed : 5434; break; }
       case 'DB_USER': cfg.user = value; break;
       case 'DB_PASSWORD': cfg.password = value; break;
       case 'DB_NAME': cfg.database = value; break;
@@ -79,7 +79,7 @@ export async function copyTable(
       const values: unknown[] = [workspaceId];
       for (const col of columns) {
         let v = row[col];
-        if (options.idRemap && options.remappedColumns?.includes(col)) {
+        if (options.idRemap !== undefined && options.remappedColumns?.includes(col) === true) {
           const old = v as number | null;
           v = old !== null && options.idRemap.has(old) ? options.idRemap.get(old) : null;
         }

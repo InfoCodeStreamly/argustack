@@ -85,7 +85,15 @@ type RequestHandler = (req: IncomingMessage, res: ServerResponse) => Promise<voi
 let capturedHandler: RequestHandler;
 let mockServerListen: Mock;
 
-function buildResMock() {
+interface ResMock {
+  writeHead: Mock;
+  write: Mock;
+  end: Mock<(chunk?: string) => void>;
+  _written: string[];
+  _waitForEnd: () => Promise<void>;
+}
+
+function buildResMock(): ResMock {
   const written: string[] = [];
   let resolveEnd: () => void;
   const endPromise = new Promise<void>((r) => { resolveEnd = r; });
@@ -93,15 +101,15 @@ function buildResMock() {
     writeHead: vi.fn(),
     write: vi.fn((chunk: string) => { written.push(chunk); }),
     end: vi.fn((chunk?: string) => {
-      if (chunk) { written.push(chunk); }
+      if (chunk !== undefined && chunk !== '') { written.push(chunk); }
       resolveEnd();
     }),
     _written: written,
-    _waitForEnd: () => endPromise,
+    _waitForEnd: async (): Promise<void> => endPromise,
   };
 }
 
-function buildReqMock(method: string, pathname: string, body?: string) {
+function buildReqMock(method: string, pathname: string, body?: string): IncomingMessage & { _emit: () => void } {
   let dataCallback: ((c: string) => void) | null = null;
   let endCallback: (() => void) | null = null;
 
@@ -114,9 +122,9 @@ function buildReqMock(method: string, pathname: string, body?: string) {
       if (event === 'end') { endCallback = cb as () => void; }
       return req;
     }),
-    _emit: () => {
-      if (body && dataCallback) { dataCallback(body); }
-      if (endCallback) { endCallback(); }
+    _emit: (): void => {
+      if (body !== undefined && body !== '' && dataCallback !== null) { dataCallback(body); }
+      if (endCallback !== null) { endCallback(); }
     },
   } as unknown as IncomingMessage & { _emit: () => void };
 

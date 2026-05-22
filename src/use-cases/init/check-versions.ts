@@ -44,7 +44,7 @@ export class CheckVersionsUseCase {
     }
 
     const version = await this.docker.version();
-    if (!version) {
+    if (version === null) {
       return { ok: true, node, docker: null };
     }
 

@@ -34,13 +34,20 @@ function createStorage(): PostgresStorage {
   return new PostgresStorage(hub.db);
 }
 
+function resolveJiraProjectKeys(workspace: Workspace, options: SyncOptions): string[] {
+  if (options.project !== undefined && options.project !== '') {
+    return [options.project];
+  }
+  const bound = workspace.settings?.jiraProjectKeys;
+  if (bound !== undefined) {
+    return [...bound];
+  }
+  return [];
+}
+
 async function syncJira(workspace: Workspace, options: SyncOptions): Promise<void> {
   const hub = loadHubConfig();
-  const projectKeys = options.project
-    ? [options.project]
-    : workspace.settings?.jiraProjectKeys
-      ? [...workspace.settings.jiraProjectKeys]
-      : [];
+  const projectKeys = resolveJiraProjectKeys(workspace, options);
 
   if (projectKeys.length === 0) {
     console.log(chalk.yellow(`  No Jira projects bound to workspace "${workspace.id}"`));
@@ -53,7 +60,11 @@ async function syncJira(workspace: Workspace, options: SyncOptions): Promise<voi
     const proxyConfig = loadProxyConfigForWorkspace(workspace.id);
     source = new ProxyJiraProvider(proxyConfig);
     console.log(chalk.dim(`  Using proxy: ${proxyConfig.name}`));
-  } else if (hub.credentials.jiraUrl && hub.credentials.jiraEmail && hub.credentials.jiraApiToken) {
+  } else if (
+    hub.credentials.jiraUrl !== undefined && hub.credentials.jiraUrl !== '' &&
+    hub.credentials.jiraEmail !== undefined && hub.credentials.jiraEmail !== '' &&
+    hub.credentials.jiraApiToken !== undefined && hub.credentials.jiraApiToken !== ''
+  ) {
     source = new JiraProvider({
       host: hub.credentials.jiraUrl,
       email: hub.credentials.jiraEmail,
@@ -72,7 +83,7 @@ async function syncJira(workspace: Workspace, options: SyncOptions): Promise<voi
       const pull = new PullUseCase(source, storage);
       const results = await pull.execute(workspace.id, {
         projectKey,
-        ...(options.since ? { since: options.since } : {}),
+        ...(options.since !== undefined && options.since !== '' ? { since: options.since } : {}),
         onProgress: (msg) => { spinner.text = msg; },
       });
       for (const r of results) {
@@ -97,7 +108,7 @@ async function syncGit(workspace: Workspace, options: SyncOptions): Promise<void
 
   const storage = createStorage();
   const spinner = ora('Syncing Git...').start();
-  const since = options.since ? new Date(options.since) : undefined;
+  const since = options.since !== undefined && options.since !== '' ? new Date(options.since) : undefined;
   try {
     for (const repoPath of repos) {
       const repoName = repoPath.split('/').pop() ?? repoPath;
@@ -106,7 +117,7 @@ async function syncGit(workspace: Workspace, options: SyncOptions): Promise<void
         const git = new GitProvider(repoPath);
         const pull = new PullGitUseCase(git, storage);
         const result = await pull.execute(workspace.id, repoPath, {
-          ...(since ? { since } : {}),
+          ...(since != null ? { since } : {}),
           onProgress: (msg) => { spinner.text = msg; },
         });
         console.log(chalk.green(`  ✓ ${repoName}: ${String(result.commitsCount)} commits, ${String(result.filesCount)} files, ${String(result.issueRefsCount)} issue refs`));
@@ -122,7 +133,7 @@ async function syncGit(workspace: Workspace, options: SyncOptions): Promise<void
 
 async function syncGithub(workspace: Workspace, options: SyncOptions): Promise<void> {
   const hub = loadHubConfig();
-  if (!hub.credentials.githubToken) {
+  if (hub.credentials.githubToken === undefined || hub.credentials.githubToken === '') {
     console.log(chalk.red('  Missing GITHUB_TOKEN in ~/.argustack/config.env'));
     return;
   }
@@ -135,7 +146,7 @@ async function syncGithub(workspace: Workspace, options: SyncOptions): Promise<v
 
   const storage = createStorage();
   const spinner = ora('Syncing GitHub PRs...').start();
-  const since = options.since ? new Date(options.since) : undefined;
+  const since = options.since !== undefined && options.since !== '' ? new Date(options.since) : undefined;
   try {
     for (const { owner, repo } of repos) {
       const provider = new GitHubProvider({ token: hub.credentials.githubToken, owner, repo });
@@ -143,7 +154,7 @@ async function syncGithub(workspace: Workspace, options: SyncOptions): Promise<v
       const repoFullName = `${owner}/${repo}`;
       spinner.text = `Syncing GitHub: ${repoFullName}`;
       const result = await pull.execute(workspace.id, repoFullName, {
-        ...(since ? { since } : {}),
+        ...(since != null ? { since } : {}),
         onProgress: (msg) => { spinner.text = msg; },
       });
       console.log(chalk.green(`  ✓ ${repoFullName}: ${String(result.prsCount)} PRs, ${String(result.reviewsCount)} reviews, ${String(result.releasesCount)} releases`));
@@ -157,7 +168,7 @@ async function syncGithub(workspace: Workspace, options: SyncOptions): Promise<v
 async function syncCsv(workspace: Workspace, options: SyncOptions): Promise<void> {
   const explicit = options.file;
   const bound = workspace.settings?.csvFilePaths ?? [];
-  const paths = explicit ? [explicit] : bound.map((b) => b.path);
+  const paths = explicit !== undefined && explicit !== '' ? [explicit] : bound.map((b) => b.path);
   if (paths.length === 0) {
     console.log(chalk.yellow(`  No CSV files bound to workspace "${workspace.id}"`));
     return;
@@ -169,12 +180,12 @@ async function syncCsv(workspace: Workspace, options: SyncOptions): Promise<void
     for (const csvFilePath of paths) {
       const source = new CsvProvider(csvFilePath);
       const projects = await source.getProjects();
-      const projectKeys = options.project ? [options.project] : projects.map((p) => p.key);
+      const projectKeys = options.project !== undefined && options.project !== '' ? [options.project] : projects.map((p) => p.key);
       for (const projectKey of projectKeys) {
         const pull = new PullUseCase(source, storage);
         const results = await pull.execute(workspace.id, {
           projectKey,
-          ...(options.since ? { since: options.since } : {}),
+          ...(options.since !== undefined && options.since !== '' ? { since: options.since } : {}),
           onProgress: (msg) => { spinner.text = msg; },
         });
         for (const r of results) {
@@ -243,11 +254,11 @@ export function registerSyncCommand(program: Command): void {
       try {
         const workspaceId = await resolveWorkspaceFlag(store, options.workspace);
         const workspace = await store.getById(workspaceId);
-        if (!workspace) {
+        if (workspace == null) {
           throw new Error(`Workspace "${workspaceId}" disappeared during resolution.`);
         }
 
-        const sources = type
+        const sources = type !== undefined && type !== ''
           ? [type.toLowerCase() as SourceType]
           : enabledSourcesFor(workspace);
 

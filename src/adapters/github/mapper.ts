@@ -26,7 +26,7 @@ export function mapPullRequest(
 
   const mergedAt = raw['merged_at'] as string | null;
   let state: PullRequest['state'];
-  if (mergedAt) {
+  if (mergedAt !== null && mergedAt !== '') {
     state = 'merged';
   } else if (raw['state'] === 'closed') {
     state = 'closed';
@@ -141,12 +141,12 @@ export function extractPrIssueRefs(
 ): PullRequestIssueRef[] {
   const pattern = /\b([A-Z][A-Z0-9]+-\d+)\b/g;
   const keys = new Set<string>();
-  const text = body ? `${title} ${body}` : title;
+  const text = body !== null && body !== '' ? `${title} ${body}` : title;
 
   let match: RegExpExecArray | null;
   while ((match = pattern.exec(text)) !== null) {
     const key = match[1];
-    if (key) {
+    if (key !== undefined && key !== '') {
       const [prefix, num] = key.toUpperCase().split('-');
       keys.add(`${prefix}-${String(Number(num))}`);
     }

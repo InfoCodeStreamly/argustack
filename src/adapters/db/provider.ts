@@ -39,7 +39,7 @@ export class DbProvider implements IDbProvider {
 
   constructor(config: DbConnectionConfig) {
     this.config = config;
-    this.name = config.name || `${config.engine}:${config.database}`;
+    this.name = config.name !== '' ? config.name : `${config.engine}:${config.database}`;
     this.engine = config.engine;
   }
 
@@ -50,7 +50,7 @@ export class DbProvider implements IDbProvider {
 
   async *introspect(): AsyncGenerator<DbSchemaBatch> {
     const db = this.requireConnection();
-    const sourceName = this.config.name || this.config.database;
+    const sourceName = this.config.name !== '' ? this.config.name : this.config.database;
 
     const tables = await this.queryTables(db);
     const primaryKeys = await this.queryPrimaryKeys(db);
@@ -113,14 +113,14 @@ export class DbProvider implements IDbProvider {
   }
 
   async disconnect(): Promise<void> {
-    if (this.knex) {
+    if (this.knex !== null) {
       await this.knex.destroy();
       this.knex = null;
     }
   }
 
   private requireConnection(): Knex {
-    if (!this.knex) {
+    if (this.knex === null) {
       throw new Error('Not connected. Call connect() first.');
     }
     return this.knex;

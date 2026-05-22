@@ -10,12 +10,31 @@ import {
 import { PostgresStorage } from '../adapters/postgres/index.js';
 import { PushUseCase } from '../use-cases/push.js';
 import { updateMdFrontmatter } from '../adapters/board/md-parser.js';
-import { loadHubConfig } from '../workspace/hub-config.js';
+import { loadHubConfig, type HubConfig } from '../workspace/hub-config.js';
 import { openHubStore, resolveWorkspaceFlag } from './add/shared.js';
+import type { ISourceProvider } from '../core/ports/source-provider.js';
 
 interface Options {
   workspace?: string;
   updates?: boolean;
+}
+
+function buildJiraProvider(workspaceId: string, hub: HubConfig): ISourceProvider | null {
+  if (proxyConfigExistsForWorkspace(workspaceId)) {
+    return new ProxyJiraProvider(loadProxyConfigForWorkspace(workspaceId));
+  }
+  if (
+    hub.credentials.jiraUrl !== undefined && hub.credentials.jiraUrl !== '' &&
+    hub.credentials.jiraEmail !== undefined && hub.credentials.jiraEmail !== '' &&
+    hub.credentials.jiraApiToken !== undefined && hub.credentials.jiraApiToken !== ''
+  ) {
+    return new JiraProvider({
+      host: hub.credentials.jiraUrl,
+      email: hub.credentials.jiraEmail,
+      apiToken: hub.credentials.jiraApiToken,
+    });
+  }
+  return null;
 }
 
 export function registerPushCommand(program: Command): void {
@@ -32,32 +51,24 @@ export function registerPushCommand(program: Command): void {
         const workspaceId = await resolveWorkspaceFlag(store, options.workspace);
         await storage.initialize();
 
-        const jira = proxyConfigExistsForWorkspace(workspaceId)
-          ? new ProxyJiraProvider(loadProxyConfigForWorkspace(workspaceId))
-          : (hub.credentials.jiraUrl && hub.credentials.jiraEmail && hub.credentials.jiraApiToken)
-            ? new JiraProvider({
-                host: hub.credentials.jiraUrl,
-                email: hub.credentials.jiraEmail,
-                apiToken: hub.credentials.jiraApiToken,
-              })
-            : null;
+        const jira = buildJiraProvider(workspaceId, hub);
 
-        if (!jira) {
+        if (jira == null) {
           console.log(chalk.red('\n  Jira credentials missing in ~/.argustack/config.env (and no proxy config).'));
           process.exit(1);
         }
 
         const useCase = new PushUseCase(jira, storage);
 
-        if (options.updates) {
+        if (options.updates === true) {
           const spinner = ora('Pushing modified issues to Jira...').start();
           try {
             const result = await useCase.executeUpdates(workspaceId, {
               onProgress: (msg) => { spinner.text = msg; },
             });
             spinner.succeed(
-              `Updated ${String(result.updated.length)} issue(s)` +
-              (result.errors > 0 ? `, ${String(result.errors)} error(s)` : ''),
+              `Updated ${String(result.updated.length)} issue(s)${ 
+              result.errors > 0 ? `, ${String(result.errors)} error(s)` : ''}`,
             );
             for (const item of result.updated) {
               console.log(`  ${chalk.green('✓')} ${item.key} — ${item.summary}`);
@@ -77,14 +88,14 @@ export function registerPushCommand(program: Command): void {
           });
 
           for (const item of result.created) {
-            if (item.mdPath) {
+            if (item.mdPath !== null && item.mdPath !== '') {
               updateMdFrontmatter(item.mdPath, { jiraKey: item.newKey });
             }
           }
 
           spinner.succeed(
-            `Pushed! Created ${String(result.created.length)} issue(s)` +
-            (result.errors > 0 ? `, ${String(result.errors)} error(s)` : ''),
+            `Pushed! Created ${String(result.created.length)} issue(s)${ 
+            result.errors > 0 ? `, ${String(result.errors)} error(s)` : ''}`,
           );
           for (const item of result.created) {
             console.log(`  ${chalk.green('✓')} ${item.newKey} — ${chalk.dim(item.oldKey)}`);

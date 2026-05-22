@@ -9,16 +9,21 @@
 
 import { describe, it, expect, vi, beforeEach } from 'vitest';
 import { TEST_IDS } from '../../../fixtures/shared/test-constants.js';
+import { createMockMcpStorage } from '../../../fixtures/builders/index.js';
+import type * as McpHelpers from '../../../../src/mcp/helpers.js';
 import type { McpServer } from '@modelcontextprotocol/sdk/server/mcp.js';
 
-vi.mock('../../../../src/mcp/helpers.js', () => ({
-  loadWorkspace: vi.fn(),
-  createAdapters: vi.fn(),
+vi.mock('../../../../src/mcp/helpers.js', async (importOriginal) => {
+  const mod = await importOriginal<typeof McpHelpers>();
+  return {
+    ...mod,
+    loadWorkspace: vi.fn(),
+    createAdapters: vi.fn(),
+  };
+});
+
+vi.mock('../../../../src/workspace/config.js', () => ({
   getEnabledSources: vi.fn(() => []),
-  textResponse: (text: string) => ({ content: [{ type: 'text', text }] }),
-  errorResponse: (text: string) => ({ content: [{ type: 'text', text }], isError: true }),
-  getErrorMessage: (err: unknown) => (err instanceof Error ? err.message : String(err)),
-  str: (v: unknown): string => (v == null ? '' : typeof v === 'object' ? JSON.stringify(v) : String(v as string | number | boolean)),
 }));
 
 vi.mock('../../../../src/core/types/index.js', () => ({
@@ -33,7 +38,7 @@ vi.mock('../../../../src/core/types/index.js', () => ({
 
 vi.mock('../../../../src/use-cases/pull.js', () => ({
   PullUseCase: vi.fn(function (this: Record<string, unknown>) {
-    this.execute = vi.fn().mockResolvedValue([
+    this['execute'] = vi.fn().mockResolvedValue([
       { projectKey: TEST_IDS.projectKey, issuesCount: 10, commentsCount: 5, changelogsCount: 20, worklogsCount: 3, linksCount: 2 },
     ]);
   }),
@@ -46,7 +51,7 @@ let loadWorkspace: typeof import('../../../../src/mcp/helpers.js').loadWorkspace
 // eslint-disable-next-line @typescript-eslint/consistent-type-imports
 let createAdapters: typeof import('../../../../src/mcp/helpers.js').createAdapters;
 // eslint-disable-next-line @typescript-eslint/consistent-type-imports
-let getEnabledSources: typeof import('../../../../src/mcp/helpers.js').getEnabledSources;
+let getEnabledSources: typeof import('../../../../src/workspace/config.js').getEnabledSources;
 // eslint-disable-next-line @typescript-eslint/consistent-type-imports
 let PullUseCase: typeof import('../../../../src/use-cases/pull.js').PullUseCase;
 
@@ -61,7 +66,7 @@ const mockServer = {
 
 function getHandler(name: string): ToolHandler {
   const handler = registeredTools.get(name);
-  if (!handler) {throw new Error(`Tool ${name} not registered`);}
+  if (handler === undefined) {throw new Error(`Tool ${name} not registered`);}
   return handler;
 }
 
@@ -72,7 +77,9 @@ beforeEach(async () => {
   const helpers = await import('../../../../src/mcp/helpers.js');
   loadWorkspace = helpers.loadWorkspace;
   createAdapters = helpers.createAdapters;
-  getEnabledSources = helpers.getEnabledSources;
+
+  const configModule = await import('../../../../src/workspace/config.js');
+  getEnabledSources = configModule.getEnabledSources;
 
   const pullModule = await import('../../../../src/use-cases/pull.js');
   PullUseCase = pullModule.PullUseCase;
@@ -85,39 +92,51 @@ beforeEach(async () => {
 // ─── workspace_info ───────────────────────────────────────────────────────────
 
 describe('workspace_info', () => {
-  it('returns errorResponse with diagnostic when workspace is not found', () => {
-    vi.mocked(loadWorkspace).mockReturnValue({ ok: false, reason: 'no .argustack/ marker found' });
+  it('returns errorResponse with diagnostic when workspace is not found', async () => {
+    vi.mocked(loadWorkspace).mockResolvedValue({ ok: false, reason: 'no .argustack/ marker found' });
 
     const handler = getHandler('workspace_info');
-    const result = handler({}) as { content: { text: string }[]; isError?: boolean };
+    const result = await handler({}) as { content: { text: string }[]; isError?: boolean };
 
     expect(result.isError).toBe(true);
-    expect(result.content[0].text).toContain('No Argustack workspace found');
-    expect(result.content[0].text).toContain('no .argustack/ marker found');
-    expect(result.content[0].text).toContain('argustack init');
+    expect(result.content[0]?.text ?? '').toContain('No Argustack workspace found');
+    expect(result.content[0]?.text ?? '').toContain('no .argustack/ marker found');
+    expect(result.content[0]?.text ?? '').toContain('argustack init');
   });
 
-  it('returns workspace root and createdAt when workspace is found with no sources', () => {
-    vi.mocked(loadWorkspace).mockReturnValue({
+  it('returns workspace id, name, and lastActiveAt when workspace is found with no sources', async () => {
+    vi.mocked(loadWorkspace).mockResolvedValue({
       ok: true,
-      root: '/projects/myapp',
+      workspaceId: 'ws-id',
+      workspace: { id: 'ws-id', name: 'myapp', createdAt: '2025-03-01T00:00:00.000Z', lastActiveAt: '2025-03-01T00:00:00.000Z', settings: {} },
       config: { version: 1, sources: {}, order: [], createdAt: '2025-03-01T00:00:00.000Z' },
     });
     vi.mocked(getEnabledSources).mockReturnValue([]);
 
     const handler = getHandler('workspace_info');
-    const result = handler({}) as { content: { text: string }[] };
-    const text = result.content[0].text;
+    const result = await handler({}) as { content: { text: string }[] };
+    const text = result.content[0]?.text ?? '';
 
-    expect(text).toContain('/projects/myapp');
+    expect(text).toContain('myapp');
+    expect(text).toContain('ws-id');
     expect(text).toContain('2025-03-01T00:00:00.000Z');
     expect(text).toContain('(none)');
   });
 
-  it('lists enabled sources with their labels and descriptions', () => {
-    vi.mocked(loadWorkspace).mockReturnValue({
+  it('lists every binding line (jira, git, github, csv, db) regardless of settings', async () => {
+    vi.mocked(loadWorkspace).mockResolvedValue({
       ok: true,
-      root: '/ws',
+      workspaceId: 'ws-id',
+      workspace: {
+        id: 'ws-id',
+        name: 'test',
+        createdAt: '2025-01-01T00:00:00.000Z',
+        lastActiveAt: '2025-01-01T00:00:00.000Z',
+        settings: {
+          jiraProjectKeys: ['ARG', 'PAY'],
+          gitRepoPaths: ['/repo/one'],
+        },
+      },
       config: {
         version: 1,
         sources: {
@@ -131,29 +150,34 @@ describe('workspace_info', () => {
     vi.mocked(getEnabledSources).mockReturnValue(['jira', 'git']);
 
     const handler = getHandler('workspace_info');
-    const result = handler({}) as { content: { text: string }[] };
-    const text = result.content[0].text;
+    const result = await handler({}) as { content: { text: string }[] };
+    const text = result.content[0]?.text ?? '';
 
-    expect(text).toContain('Jira');
-    expect(text).toContain('Issue tracker');
-    expect(text).toContain('Git');
-    expect(text).toContain('Version control');
-    expect(text).toContain('Configured sources (2)');
-    expect(text).toContain('Jira → Git');
+    expect(text).toContain('Jira projects:');
+    expect(text).toContain('ARG');
+    expect(text).toContain('PAY');
+    expect(text).toContain('Git repos:');
+    expect(text).toContain('/repo/one');
+    expect(text).toContain('GitHub repos:');
+    expect(text).toContain('CSV files:');
+    expect(text).toContain('External DBs:');
   });
 
-  it('shows source count in the configured sources line', () => {
-    vi.mocked(loadWorkspace).mockReturnValue({
+  it('shows "(none)" for source bindings that have no entries', async () => {
+    vi.mocked(loadWorkspace).mockResolvedValue({
       ok: true,
-      root: '/ws',
+      workspaceId: 'ws-id',
+      workspace: { id: 'ws-id', name: 'test', createdAt: '2025-01-01T00:00:00.000Z', lastActiveAt: '2025-01-01T00:00:00.000Z', settings: {} },
       config: { version: 1, sources: {}, order: [], createdAt: '2025-01-01T00:00:00.000Z' },
     });
     vi.mocked(getEnabledSources).mockReturnValue(['github']);
 
     const handler = getHandler('workspace_info');
-    const result = handler({}) as { content: { text: string }[] };
+    const result = await handler({}) as { content: { text: string }[] };
+    const text = result.content[0]?.text ?? '';
 
-    expect(result.content[0].text).toContain('Configured sources (1)');
+    expect(text).toContain('Jira projects:  (none)');
+    expect(text).toContain('Git repos:      (none)');
   });
 });
 
@@ -161,28 +185,38 @@ describe('workspace_info', () => {
 
 describe('list_projects', () => {
   it('returns errorResponse when workspace is not found', async () => {
-    vi.mocked(loadWorkspace).mockReturnValue({ ok: false, reason: 'config missing' });
+    vi.mocked(loadWorkspace).mockResolvedValue({ ok: false, reason: 'config missing' });
 
     const handler = getHandler('list_projects');
     const result = await handler({}) as { content: { text: string }[]; isError?: boolean };
 
     expect(result.isError).toBe(true);
-    expect(result.content[0].text).toContain('Workspace not found');
+    expect(result.content[0]?.text ?? '').toContain('Workspace not found');
   });
 
   it('returns errorResponse when Jira source is not configured (source is null)', async () => {
-    vi.mocked(loadWorkspace).mockReturnValue({ ok: true, root: '/ws', config: { version: 1, sources: {}, order: [], createdAt: '2025-01-01' } });
-    vi.mocked(createAdapters).mockResolvedValue({ storage: {} as never, source: null });
+    vi.mocked(loadWorkspace).mockResolvedValue({
+      ok: true,
+      workspaceId: 'ws-id',
+      workspace: { id: 'ws-id', name: 'test', createdAt: '2025-01-01', lastActiveAt: '2025-01-01', settings: {} },
+      config: { version: 1, sources: {}, order: [], createdAt: '2025-01-01' },
+    });
+    vi.mocked(createAdapters).mockResolvedValue({ storage: {} as never, source: null, workspaceId: 'ws-id' });
 
     const handler = getHandler('list_projects');
     const result = await handler({}) as { content: { text: string }[]; isError?: boolean };
 
     expect(result.isError).toBe(true);
-    expect(result.content[0].text).toContain('Jira is not configured');
+    expect(result.content[0]?.text ?? '').toContain('Jira is not configured');
   });
 
   it('returns formatted project list when source.getProjects succeeds', async () => {
-    vi.mocked(loadWorkspace).mockReturnValue({ ok: true, root: '/ws', config: { version: 1, sources: {}, order: [], createdAt: '2025-01-01' } });
+    vi.mocked(loadWorkspace).mockResolvedValue({
+      ok: true,
+      workspaceId: 'ws-id',
+      workspace: { id: 'ws-id', name: 'test', createdAt: '2025-01-01', lastActiveAt: '2025-01-01', settings: {} },
+      config: { version: 1, sources: {}, order: [], createdAt: '2025-01-01' },
+    });
 
     const mockSource = {
       getProjects: vi.fn().mockResolvedValue([
@@ -190,11 +224,11 @@ describe('list_projects', () => {
         { key: 'BETA', name: 'Beta Project' },
       ]),
     };
-    vi.mocked(createAdapters).mockResolvedValue({ storage: {} as never, source: mockSource as never });
+    vi.mocked(createAdapters).mockResolvedValue({ storage: {} as never, source: mockSource as never, workspaceId: 'ws-id' });
 
     const handler = getHandler('list_projects');
     const result = await handler({}) as { content: { text: string }[] };
-    const text = result.content[0].text;
+    const text = result.content[0]?.text ?? '';
 
     expect(text).toContain('2 Jira projects');
     expect(text).toContain('ALPHA');
@@ -204,30 +238,40 @@ describe('list_projects', () => {
   });
 
   it('returns errorResponse when getProjects throws', async () => {
-    vi.mocked(loadWorkspace).mockReturnValue({ ok: true, root: '/ws', config: { version: 1, sources: {}, order: [], createdAt: '2025-01-01' } });
+    vi.mocked(loadWorkspace).mockResolvedValue({
+      ok: true,
+      workspaceId: 'ws-id',
+      workspace: { id: 'ws-id', name: 'test', createdAt: '2025-01-01', lastActiveAt: '2025-01-01', settings: {} },
+      config: { version: 1, sources: {}, order: [], createdAt: '2025-01-01' },
+    });
 
     const mockSource = {
       getProjects: vi.fn().mockRejectedValue(new Error('Unauthorized: invalid token')),
     };
-    vi.mocked(createAdapters).mockResolvedValue({ storage: {} as never, source: mockSource as never });
+    vi.mocked(createAdapters).mockResolvedValue({ storage: {} as never, source: mockSource as never, workspaceId: 'ws-id' });
 
     const handler = getHandler('list_projects');
     const result = await handler({}) as { content: { text: string }[]; isError?: boolean };
 
     expect(result.isError).toBe(true);
-    expect(result.content[0].text).toContain('Unauthorized: invalid token');
+    expect(result.content[0]?.text ?? '').toContain('Unauthorized: invalid token');
   });
 
   it('returns result with 0 projects when Jira returns empty list', async () => {
-    vi.mocked(loadWorkspace).mockReturnValue({ ok: true, root: '/ws', config: { version: 1, sources: {}, order: [], createdAt: '2025-01-01' } });
+    vi.mocked(loadWorkspace).mockResolvedValue({
+      ok: true,
+      workspaceId: 'ws-id',
+      workspace: { id: 'ws-id', name: 'test', createdAt: '2025-01-01', lastActiveAt: '2025-01-01', settings: {} },
+      config: { version: 1, sources: {}, order: [], createdAt: '2025-01-01' },
+    });
 
     const mockSource = { getProjects: vi.fn().mockResolvedValue([]) };
-    vi.mocked(createAdapters).mockResolvedValue({ storage: {} as never, source: mockSource as never });
+    vi.mocked(createAdapters).mockResolvedValue({ storage: {} as never, source: mockSource as never, workspaceId: 'ws-id' });
 
     const handler = getHandler('list_projects');
     const result = await handler({}) as { content: { text: string }[] };
 
-    expect(result.content[0].text).toContain('0 Jira projects');
+    expect(result.content[0]?.text ?? '').toContain('0 Jira projects');
   });
 });
 
@@ -235,38 +279,48 @@ describe('list_projects', () => {
 
 describe('pull_jira', () => {
   it('returns errorResponse when workspace is not found', async () => {
-    vi.mocked(loadWorkspace).mockReturnValue({ ok: false, reason: 'no workspace' });
+    vi.mocked(loadWorkspace).mockResolvedValue({ ok: false, reason: 'no workspace' });
 
     const handler = getHandler('pull_jira');
     const result = await handler({}) as { content: { text: string }[]; isError?: boolean };
 
     expect(result.isError).toBe(true);
-    expect(result.content[0].text).toContain('Workspace not found');
+    expect(result.content[0]?.text ?? '').toContain('Workspace not found');
   });
 
   it('returns errorResponse when Jira source is null', async () => {
-    vi.mocked(loadWorkspace).mockReturnValue({ ok: true, root: '/ws', config: { version: 1, sources: {}, order: [], createdAt: '2025-01-01' } });
+    vi.mocked(loadWorkspace).mockResolvedValue({
+      ok: true,
+      workspaceId: 'ws-id',
+      workspace: { id: 'ws-id', name: 'test', createdAt: '2025-01-01', lastActiveAt: '2025-01-01', settings: {} },
+      config: { version: 1, sources: {}, order: [], createdAt: '2025-01-01' },
+    });
 
-    const mockStorage = { close: vi.fn().mockResolvedValue(undefined) };
-    vi.mocked(createAdapters).mockResolvedValue({ storage: mockStorage as never, source: null });
+    const mockStorage = createMockMcpStorage();
+    vi.mocked(createAdapters).mockResolvedValue({ storage: mockStorage, source: null, workspaceId: 'ws-id' });
 
     const handler = getHandler('pull_jira');
     const result = await handler({}) as { content: { text: string }[]; isError?: boolean };
 
     expect(result.isError).toBe(true);
-    expect(result.content[0].text).toContain('Jira is not configured');
+    expect(result.content[0]?.text ?? '').toContain('Jira is not configured');
   });
 
   it('returns pull summary with issue counts on successful pull', async () => {
-    vi.mocked(loadWorkspace).mockReturnValue({ ok: true, root: '/ws', config: { version: 1, sources: {}, order: [], createdAt: '2025-01-01' } });
+    vi.mocked(loadWorkspace).mockResolvedValue({
+      ok: true,
+      workspaceId: 'ws-id',
+      workspace: { id: 'ws-id', name: 'test', createdAt: '2025-01-01', lastActiveAt: '2025-01-01', settings: {} },
+      config: { version: 1, sources: {}, order: [], createdAt: '2025-01-01' },
+    });
 
-    const mockStorage = { close: vi.fn().mockResolvedValue(undefined) };
+    const mockStorage = createMockMcpStorage();
     const mockSource = {};
-    vi.mocked(createAdapters).mockResolvedValue({ storage: mockStorage as never, source: mockSource as never });
+    vi.mocked(createAdapters).mockResolvedValue({ storage: mockStorage, source: mockSource as never, workspaceId: 'ws-id' });
 
     const handler = getHandler('pull_jira');
     const result = await handler({}) as { content: { text: string }[] };
-    const text = result.content[0].text;
+    const text = result.content[0]?.text ?? '';
 
     expect(text).toContain('Pull complete!');
     expect(text).toContain(TEST_IDS.projectKey);
@@ -275,75 +329,97 @@ describe('pull_jira', () => {
     expect(text).toContain('20 changelogs');
     expect(text).toContain('3 worklogs');
     expect(text).toContain('2 links');
-    expect(mockStorage.close).toHaveBeenCalled();
   });
 
   it('passes project filter to PullUseCase.execute when project arg is provided', async () => {
-    vi.mocked(loadWorkspace).mockReturnValue({ ok: true, root: '/ws', config: { version: 1, sources: {}, order: [], createdAt: '2025-01-01' } });
+    vi.mocked(loadWorkspace).mockResolvedValue({
+      ok: true,
+      workspaceId: 'ws-id',
+      workspace: { id: 'ws-id', name: 'test', createdAt: '2025-01-01', lastActiveAt: '2025-01-01', settings: {} },
+      config: { version: 1, sources: {}, order: [], createdAt: '2025-01-01' },
+    });
 
-    const mockStorage = { close: vi.fn().mockResolvedValue(undefined) };
+    const mockStorage = createMockMcpStorage();
     const mockSource = {};
-    vi.mocked(createAdapters).mockResolvedValue({ storage: mockStorage as never, source: mockSource as never });
+    vi.mocked(createAdapters).mockResolvedValue({ storage: mockStorage, source: mockSource as never, workspaceId: 'ws-id' });
 
     const handler = getHandler('pull_jira');
     await handler({ project: TEST_IDS.projectKey });
 
-    const instance = vi.mocked(PullUseCase).mock.instances[0] as { execute: ReturnType<typeof vi.fn> };
+    const instance = vi.mocked(PullUseCase).mock.instances[0] as unknown as { execute: ReturnType<typeof vi.fn> };
     expect(instance.execute).toHaveBeenCalledWith(
+      'ws-id',
       expect.objectContaining({ projectKey: TEST_IDS.projectKey }),
     );
   });
 
   it('passes since filter to PullUseCase.execute when since arg is provided', async () => {
-    vi.mocked(loadWorkspace).mockReturnValue({ ok: true, root: '/ws', config: { version: 1, sources: {}, order: [], createdAt: '2025-01-01' } });
+    vi.mocked(loadWorkspace).mockResolvedValue({
+      ok: true,
+      workspaceId: 'ws-id',
+      workspace: { id: 'ws-id', name: 'test', createdAt: '2025-01-01', lastActiveAt: '2025-01-01', settings: {} },
+      config: { version: 1, sources: {}, order: [], createdAt: '2025-01-01' },
+    });
 
-    const mockStorage = { close: vi.fn().mockResolvedValue(undefined) };
+    const mockStorage = createMockMcpStorage();
     const mockSource = {};
-    vi.mocked(createAdapters).mockResolvedValue({ storage: mockStorage as never, source: mockSource as never });
+    vi.mocked(createAdapters).mockResolvedValue({ storage: mockStorage, source: mockSource as never, workspaceId: 'ws-id' });
 
     const handler = getHandler('pull_jira');
     await handler({ since: '2025-01-01' });
 
-    const instance = vi.mocked(PullUseCase).mock.instances[0] as { execute: ReturnType<typeof vi.fn> };
+    const instance = vi.mocked(PullUseCase).mock.instances[0] as unknown as { execute: ReturnType<typeof vi.fn> };
     expect(instance.execute).toHaveBeenCalledWith(
+      'ws-id',
       expect.objectContaining({ since: '2025-01-01' }),
     );
   });
 
   it('returns errorResponse when PullUseCase.execute throws', async () => {
-    vi.mocked(loadWorkspace).mockReturnValue({ ok: true, root: '/ws', config: { version: 1, sources: {}, order: [], createdAt: '2025-01-01' } });
+    vi.mocked(loadWorkspace).mockResolvedValue({
+      ok: true,
+      workspaceId: 'ws-id',
+      workspace: { id: 'ws-id', name: 'test', createdAt: '2025-01-01', lastActiveAt: '2025-01-01', settings: {} },
+      config: { version: 1, sources: {}, order: [], createdAt: '2025-01-01' },
+    });
 
-    const mockStorage = { close: vi.fn().mockResolvedValue(undefined) };
+    const mockStorage = createMockMcpStorage();
     const mockSource = {};
-    vi.mocked(createAdapters).mockResolvedValue({ storage: mockStorage as never, source: mockSource as never });
+    vi.mocked(createAdapters).mockResolvedValue({ storage: mockStorage, source: mockSource as never, workspaceId: 'ws-id' });
 
     vi.mocked(PullUseCase).mockImplementation(function (this: Record<string, unknown>) {
-      this.execute = vi.fn().mockRejectedValue(new Error('Jira API rate limit exceeded'));
+      this['execute'] = vi.fn().mockRejectedValue(new Error('Jira API rate limit exceeded'));
     } as never);
 
     const handler = getHandler('pull_jira');
     const result = await handler({}) as { content: { text: string }[]; isError?: boolean };
 
     expect(result.isError).toBe(true);
-    expect(result.content[0].text).toContain('Jira API rate limit exceeded');
+    expect(result.content[0]?.text ?? '').toContain('Jira API rate limit exceeded');
   });
 
   it('does not include projectKey in execute args when project arg is omitted', async () => {
-    vi.mocked(loadWorkspace).mockReturnValue({ ok: true, root: '/ws', config: { version: 1, sources: {}, order: [], createdAt: '2025-01-01' } });
+    vi.mocked(loadWorkspace).mockResolvedValue({
+      ok: true,
+      workspaceId: 'ws-id',
+      workspace: { id: 'ws-id', name: 'test', createdAt: '2025-01-01', lastActiveAt: '2025-01-01', settings: {} },
+      config: { version: 1, sources: {}, order: [], createdAt: '2025-01-01' },
+    });
 
-    const mockStorage = { close: vi.fn().mockResolvedValue(undefined) };
+    const mockStorage = createMockMcpStorage();
     const mockSource = {};
-    vi.mocked(createAdapters).mockResolvedValue({ storage: mockStorage as never, source: mockSource as never });
+    vi.mocked(createAdapters).mockResolvedValue({ storage: mockStorage, source: mockSource as never, workspaceId: 'ws-id' });
 
     vi.mocked(PullUseCase).mockImplementation(function (this: Record<string, unknown>) {
-      this.execute = vi.fn().mockResolvedValue([]);
+      this['execute'] = vi.fn().mockResolvedValue([]);
     } as never);
 
     const handler = getHandler('pull_jira');
     await handler({});
 
-    const instance = vi.mocked(PullUseCase).mock.instances[0] as { execute: ReturnType<typeof vi.fn> };
-    const callArgs = instance.execute.mock.calls[0][0] as Record<string, unknown>;
+    const instance = vi.mocked(PullUseCase).mock.instances[0] as unknown as { execute: ReturnType<typeof vi.fn> };
+    const firstCallArgs = instance.execute.mock.calls[0] ?? [];
+    const callArgs = firstCallArgs[0] as Record<string, unknown>;
     expect(callArgs).not.toHaveProperty('projectKey');
   });
 });

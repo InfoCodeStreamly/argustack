@@ -49,7 +49,7 @@ export class SqlJsBoardStore implements IBoardStore {
   }
 
   private getDb(): SqlJsDb {
-    if (!this.db) {
+    if (this.db === null) {
       throw new Error('BoardStore not initialized. Call initialize() first.');
     }
     return this.db;
@@ -57,11 +57,11 @@ export class SqlJsBoardStore implements IBoardStore {
 
   private queryAll(sql: string, params?: unknown[]): SqliteTaskRow[] {
     const db = this.getDb();
-    if (params?.length) {
+    if (params !== undefined && params.length > 0) {
       db.run('SELECT 1', []);
     }
     const result = db.exec(sql);
-    if (!result[0]) {
+    if (result[0] === undefined) {
       return [];
     }
     const { columns, values } = result[0];
@@ -72,12 +72,12 @@ export class SqlJsBoardStore implements IBoardStore {
     });
   }
 
-  getAllTasks(): Promise<BoardTaskData[]> {
+  async getAllTasks(): Promise<BoardTaskData[]> {
     const rows = this.queryAll('SELECT * FROM board_tasks ORDER BY created_at');
     return Promise.resolve(rows.map(rowToTaskData));
   }
 
-  getTasksByColumn(column: string): Promise<BoardTaskData[]> {
+  async getTasksByColumn(column: string): Promise<BoardTaskData[]> {
     const db = this.getDb();
     db.run('CREATE TEMP TABLE IF NOT EXISTS _param (v TEXT)');
     db.run('DELETE FROM _param');
@@ -88,7 +88,7 @@ export class SqlJsBoardStore implements IBoardStore {
     return Promise.resolve(rows.map(rowToTaskData));
   }
 
-  createTask(task: Omit<BoardTaskData, 'id'>): Promise<BoardTaskData> {
+  async createTask(task: Omit<BoardTaskData, 'id'>): Promise<BoardTaskData> {
     const id = randomUUID();
     const db = this.getDb();
     db.run(
@@ -99,7 +99,7 @@ export class SqlJsBoardStore implements IBoardStore {
     return Promise.resolve({ id, ...task });
   }
 
-  updateTask(id: string, fields: Partial<BoardTaskData>): Promise<void> {
+  async updateTask(id: string, fields: Partial<BoardTaskData>): Promise<void> {
     const sets: string[] = [];
     const values: unknown[] = [];
 
@@ -117,7 +117,7 @@ export class SqlJsBoardStore implements IBoardStore {
     return Promise.resolve();
   }
 
-  deleteTask(id: string): Promise<void> {
+  async deleteTask(id: string): Promise<void> {
     this.getDb().run('DELETE FROM board_tasks WHERE id = ?', [id]);
     return Promise.resolve();
   }
@@ -169,7 +169,7 @@ export class SqlJsBoardStore implements IBoardStore {
     }
   }
 
-  loadPipeline(): Promise<PipelineConfig> {
+  async loadPipeline(): Promise<PipelineConfig> {
     const result = this.getDb().exec('SELECT config_json FROM board_pipeline WHERE id = 1');
     const raw = result[0]?.values[0]?.[0];
     if (typeof raw === 'string') {
@@ -184,7 +184,7 @@ export class SqlJsBoardStore implements IBoardStore {
     });
   }
 
-  savePipeline(config: PipelineConfig): Promise<void> {
+  async savePipeline(config: PipelineConfig): Promise<void> {
     const json = JSON.stringify(config);
     this.getDb().run(
       `INSERT OR REPLACE INTO board_pipeline (id, config_json) VALUES (1, ?)`,
@@ -193,7 +193,7 @@ export class SqlJsBoardStore implements IBoardStore {
     return Promise.resolve();
   }
 
-  close(): Promise<void> {
+  async close(): Promise<void> {
     this.db?.close();
     this.db = null;
     return Promise.resolve();

@@ -82,12 +82,12 @@ export class LmStudioCodeEmbeddingProvider implements ICodeEmbedding {
     if (docs.length === 0) {
       return [];
     }
-    if (!this.rerankModel) {
+    if (this.rerankModel === null || this.rerankModel === '') {
       const limit = Math.min(topK, docs.length);
       const results: RerankResult[] = [];
       for (let i = 0; i < limit; i++) {
         const doc = docs[i];
-        if (!doc) {continue;}
+        if (doc === undefined) {continue;}
         results.push({ id: doc.id, score: 1 - i / Math.max(1, docs.length) });
       }
       return results;
@@ -130,7 +130,7 @@ export class LmStudioCodeEmbeddingProvider implements ICodeEmbedding {
     const json = (await response.json()) as ChatCompletionResponse;
     const text = json.choices[0]?.message.content ?? '';
     const match = /([0-9]*\.?[0-9]+)/.exec(text);
-    if (!match) {
+    if (match === null) {
       return 0;
     }
     const parsed = Number(match[1]);
@@ -199,7 +199,7 @@ export class LmStudioCodeEmbeddingProvider implements ICodeEmbedding {
   }
 }
 
-function sleep(ms: number): Promise<void> {
+async function sleep(ms: number): Promise<void> {
   return new Promise((resolve) => setTimeout(resolve, ms));
 }
 

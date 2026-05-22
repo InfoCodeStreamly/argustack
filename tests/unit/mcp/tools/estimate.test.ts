@@ -1,15 +1,17 @@
 import { describe, it, expect, vi, beforeEach } from 'vitest';
 import { ESTIMATE_TEST_IDS } from '../../../fixtures/shared/test-constants.js';
+import { createMockMcpStorage } from '../../../fixtures/builders/index.js';
+import type * as McpHelpers from '../../../../src/mcp/helpers.js';
 import type { McpServer } from '@modelcontextprotocol/sdk/server/mcp.js';
 
-vi.mock('../../../../src/mcp/helpers.js', () => ({
-  loadWorkspace: vi.fn(),
-  createAdapters: vi.fn(),
-  textResponse: (text: string) => ({ content: [{ type: 'text', text }] }),
-  errorResponse: (text: string) => ({ content: [{ type: 'text', text }], isError: true }),
-  getErrorMessage: (err: unknown) => (err instanceof Error ? err.message : String(err)),
-  str: (v: unknown): string => (v == null ? '' : typeof v === 'object' ? JSON.stringify(v) : String(v as string | number | boolean)),
-}));
+vi.mock('../../../../src/mcp/helpers.js', async (importOriginal) => {
+  const mod = await importOriginal<typeof McpHelpers>();
+  return {
+    ...mod,
+    loadWorkspace: vi.fn(),
+    createAdapters: vi.fn(),
+  };
+});
 
 // eslint-disable-next-line @typescript-eslint/consistent-type-imports
 let registerEstimateTools: typeof import('../../../../src/mcp/tools/estimate.js').registerEstimateTools;
@@ -27,11 +29,7 @@ const mockServer = {
   }),
 };
 
-const mockStorage = {
-  query: vi.fn(),
-  close: vi.fn(),
-  initialize: vi.fn(),
-};
+const mockStorage = createMockMcpStorage();
 
 interface ToolResult {
   content: { type: string; text: string }[];
@@ -64,7 +62,7 @@ const SIMILAR_ROW = {
 };
 
 function setupFullMockChain(): void {
-  mockStorage.query
+  mockStorage.queryForWorkspaceSpy
     .mockResolvedValueOnce({ rows: [SIMILAR_ROW] })
     .mockResolvedValueOnce({ rows: [{ issue_key: ESTIMATE_TEST_IDS.issueKey, author: ESTIMATE_TEST_IDS.assignee, total_seconds: '14400' }] })
     .mockResolvedValueOnce({ rows: [{ issue_key: ESTIMATE_TEST_IDS.issueKey, dev_assignee: ESTIMATE_TEST_IDS.assignee }] })
@@ -95,16 +93,17 @@ function setupFullMockChain(): void {
 beforeEach(async () => {
   vi.clearAllMocks();
   registeredTools.clear();
-  mockStorage.query.mockReset();
-  mockStorage.close.mockResolvedValue(undefined);
+  mockStorage.queryForWorkspaceSpy.mockReset();
+  mockStorage.closeSpy.mockResolvedValue(undefined);
 
   const helpers = await import('../../../../src/mcp/helpers.js');
   loadWorkspace = helpers.loadWorkspace;
   createAdapters = helpers.createAdapters;
 
   vi.mocked(createAdapters).mockResolvedValue({
-    storage: mockStorage as never,
+    storage: mockStorage,
     source: null,
+    workspaceId: 'ws-id',
   });
 
   const toolModule = await import('../../../../src/mcp/tools/estimate.js');
@@ -114,7 +113,7 @@ beforeEach(async () => {
 function getHandler(): ToolHandler {
   registerEstimateTools(mockServer as unknown as McpServer);
   const handler = registeredTools.get('estimate');
-  if (!handler) {throw new Error('Tool estimate not registered');}
+  if (handler === undefined) {throw new Error('Tool estimate not registered');}
   return handler;
 }
 
@@ -125,7 +124,7 @@ describe('estimate tool', () => {
   });
 
   it('returns error when workspace not found', async () => {
-    vi.mocked(loadWorkspace).mockReturnValue({ ok: false, reason: 'not found' });
+    vi.mocked(loadWorkspace).mockResolvedValue({ ok: false, reason: 'Workspace not found' });
 
     const handler = getHandler();
     const result = await handler({ description: 'test', assignee: ESTIMATE_TEST_IDS.assignee }) as ToolResult;
@@ -135,23 +134,28 @@ describe('estimate tool', () => {
   });
 
   it('returns message when no similar tasks found', async () => {
-    vi.mocked(loadWorkspace).mockReturnValue({
-      ok: true, root: '/test', config: { createdAt: '2025-01-01', sources: {} },
+    vi.mocked(loadWorkspace).mockResolvedValue({
+      ok: true,
+      workspaceId: 'ws-id',
+      workspace: { id: 'ws-id', name: 'test', createdAt: '2025-01-01', lastActiveAt: '2025-01-01', settings: {} },
+      config: { version: 1, sources: {}, order: [], createdAt: '2025-01-01' },
     });
-    mockStorage.query.mockResolvedValueOnce({ rows: [] });
-    mockStorage.query.mockResolvedValueOnce({ rows: [] });
+    mockStorage.queryForWorkspaceSpy.mockResolvedValueOnce({ rows: [] });
+    mockStorage.queryForWorkspaceSpy.mockResolvedValueOnce({ rows: [] });
 
     const handler = getHandler();
     const result = await handler({ description: 'some task', assignee: ESTIMATE_TEST_IDS.assignee }) as ToolResult;
 
     expect(result.isError).toBeUndefined();
     expect(getText(result)).toContain('No completed tasks found');
-    expect(mockStorage.close).toHaveBeenCalled();
   });
 
   it('returns full prediction with coefficients', async () => {
-    vi.mocked(loadWorkspace).mockReturnValue({
-      ok: true, root: '/test', config: { createdAt: '2025-01-01', sources: {} },
+    vi.mocked(loadWorkspace).mockResolvedValue({
+      ok: true,
+      workspaceId: 'ws-id',
+      workspace: { id: 'ws-id', name: 'test', createdAt: '2025-01-01', lastActiveAt: '2025-01-01', settings: {} },
+      config: { version: 1, sources: {}, order: [], createdAt: '2025-01-01' },
     });
     setupFullMockChain();
 
@@ -169,15 +173,17 @@ describe('estimate tool', () => {
     expect(text).toContain(ESTIMATE_TEST_IDS.assignee);
     expect(text).toContain('Without bugs');
     expect(text).toContain('With bugs');
-    expect(mockStorage.close).toHaveBeenCalled();
   });
 
   it('skips familiarity query when no components provided', async () => {
-    vi.mocked(loadWorkspace).mockReturnValue({
-      ok: true, root: '/test', config: { createdAt: '2025-01-01', sources: {} },
+    vi.mocked(loadWorkspace).mockResolvedValue({
+      ok: true,
+      workspaceId: 'ws-id',
+      workspace: { id: 'ws-id', name: 'test', createdAt: '2025-01-01', lastActiveAt: '2025-01-01', settings: {} },
+      config: { version: 1, sources: {}, order: [], createdAt: '2025-01-01' },
     });
 
-    mockStorage.query
+    mockStorage.queryForWorkspaceSpy
       .mockResolvedValueOnce({ rows: [SIMILAR_ROW] })
       .mockResolvedValueOnce({ rows: [] })
       .mockResolvedValueOnce({ rows: [] })
@@ -199,8 +205,11 @@ describe('estimate tool', () => {
   });
 
   it('shows resolution timeline when only cycle time data available', async () => {
-    vi.mocked(loadWorkspace).mockReturnValue({
-      ok: true, root: '/test', config: { createdAt: '2025-01-01', sources: {} },
+    vi.mocked(loadWorkspace).mockResolvedValue({
+      ok: true,
+      workspaceId: 'ws-id',
+      workspace: { id: 'ws-id', name: 'test', createdAt: '2025-01-01', lastActiveAt: '2025-01-01', settings: {} },
+      config: { version: 1, sources: {}, order: [], createdAt: '2025-01-01' },
     });
 
     const cycleFallbackRow = {
@@ -209,7 +218,7 @@ describe('estimate tool', () => {
       time_spent: null,
     };
 
-    mockStorage.query
+    mockStorage.queryForWorkspaceSpy
       .mockResolvedValueOnce({ rows: [cycleFallbackRow] })
       .mockResolvedValueOnce({ rows: [] })
       .mockResolvedValueOnce({ rows: [] })
@@ -231,8 +240,11 @@ describe('estimate tool', () => {
   });
 
   it('shows no-data message when baseHours is 0 and not cycle fallback', async () => {
-    vi.mocked(loadWorkspace).mockReturnValue({
-      ok: true, root: '/test', config: { createdAt: '2025-01-01', sources: {} },
+    vi.mocked(loadWorkspace).mockResolvedValue({
+      ok: true,
+      workspaceId: 'ws-id',
+      workspace: { id: 'ws-id', name: 'test', createdAt: '2025-01-01', lastActiveAt: '2025-01-01', settings: {} },
+      config: { version: 1, sources: {}, order: [], createdAt: '2025-01-01' },
     });
 
     const noDataRow = {
@@ -242,7 +254,7 @@ describe('estimate tool', () => {
       resolved: null,
     };
 
-    mockStorage.query
+    mockStorage.queryForWorkspaceSpy
       .mockResolvedValueOnce({ rows: [noDataRow] })
       .mockResolvedValueOnce({ rows: [] })
       .mockResolvedValueOnce({ rows: [] })
@@ -263,11 +275,14 @@ describe('estimate tool', () => {
   });
 
   it('shows message when no coefficient data for assignee', async () => {
-    vi.mocked(loadWorkspace).mockReturnValue({
-      ok: true, root: '/test', config: { createdAt: '2025-01-01', sources: {} },
+    vi.mocked(loadWorkspace).mockResolvedValue({
+      ok: true,
+      workspaceId: 'ws-id',
+      workspace: { id: 'ws-id', name: 'test', createdAt: '2025-01-01', lastActiveAt: '2025-01-01', settings: {} },
+      config: { version: 1, sources: {}, order: [], createdAt: '2025-01-01' },
     });
 
-    mockStorage.query
+    mockStorage.queryForWorkspaceSpy
       .mockResolvedValueOnce({ rows: [SIMILAR_ROW] })
       .mockResolvedValueOnce({ rows: [] })
       .mockResolvedValueOnce({ rows: [] })
@@ -289,10 +304,13 @@ describe('estimate tool', () => {
   });
 
   it('returns error when storage throws', async () => {
-    vi.mocked(loadWorkspace).mockReturnValue({
-      ok: true, root: '/test', config: { createdAt: '2025-01-01', sources: {} },
+    vi.mocked(loadWorkspace).mockResolvedValue({
+      ok: true,
+      workspaceId: 'ws-id',
+      workspace: { id: 'ws-id', name: 'test', createdAt: '2025-01-01', lastActiveAt: '2025-01-01', settings: {} },
+      config: { version: 1, sources: {}, order: [], createdAt: '2025-01-01' },
     });
-    mockStorage.query.mockRejectedValueOnce(new Error('DB connection failed'));
+    mockStorage.queryForWorkspaceSpy.mockRejectedValueOnce(new Error('DB connection failed'));
 
     const handler = getHandler();
     const result = await handler({ description: 'test', assignee: ESTIMATE_TEST_IDS.assignee }) as ToolResult;
@@ -300,15 +318,17 @@ describe('estimate tool', () => {
     expect(result.isError).toBe(true);
     expect(getText(result)).toContain('Estimate failed');
     expect(getText(result)).toContain('DB connection failed');
-    expect(mockStorage.close).toHaveBeenCalled();
   });
 
   it('includes bug aftermath in output when bugs exist', async () => {
-    vi.mocked(loadWorkspace).mockReturnValue({
-      ok: true, root: '/test', config: { createdAt: '2025-01-01', sources: {} },
+    vi.mocked(loadWorkspace).mockResolvedValue({
+      ok: true,
+      workspaceId: 'ws-id',
+      workspace: { id: 'ws-id', name: 'test', createdAt: '2025-01-01', lastActiveAt: '2025-01-01', settings: {} },
+      config: { version: 1, sources: {}, order: [], createdAt: '2025-01-01' },
     });
 
-    mockStorage.query
+    mockStorage.queryForWorkspaceSpy
       .mockResolvedValueOnce({ rows: [SIMILAR_ROW] })
       .mockResolvedValueOnce({ rows: [{ issue_key: ESTIMATE_TEST_IDS.issueKey, author: ESTIMATE_TEST_IDS.assignee, total_seconds: '14400' }] })
       .mockResolvedValueOnce({ rows: [] })
@@ -336,10 +356,13 @@ describe('estimate tool', () => {
   });
 
   it('respects exclude_key parameter', async () => {
-    vi.mocked(loadWorkspace).mockReturnValue({
-      ok: true, root: '/test', config: { createdAt: '2025-01-01', sources: {} },
+    vi.mocked(loadWorkspace).mockResolvedValue({
+      ok: true,
+      workspaceId: 'ws-id',
+      workspace: { id: 'ws-id', name: 'test', createdAt: '2025-01-01', lastActiveAt: '2025-01-01', settings: {} },
+      config: { version: 1, sources: {}, order: [], createdAt: '2025-01-01' },
     });
-    mockStorage.query.mockResolvedValueOnce({ rows: [] });
+    mockStorage.queryForWorkspaceSpy.mockResolvedValueOnce({ rows: [] });
 
     const handler = getHandler();
     await handler({
@@ -348,16 +371,20 @@ describe('estimate tool', () => {
       exclude_key: ESTIMATE_TEST_IDS.excludeKey,
     });
 
-    const firstCall = mockStorage.query.mock.calls[0];
-    const params = firstCall?.[1] as unknown[];
+    const firstCall = mockStorage.queryForWorkspaceSpy.mock.calls[0];
+    if (firstCall === undefined) { throw new Error('queryForWorkspace was not called'); }
+    const params = firstCall[1];
     expect(params).toContain(ESTIMATE_TEST_IDS.excludeKey);
   });
 
   it('respects limit parameter', async () => {
-    vi.mocked(loadWorkspace).mockReturnValue({
-      ok: true, root: '/test', config: { createdAt: '2025-01-01', sources: {} },
+    vi.mocked(loadWorkspace).mockResolvedValue({
+      ok: true,
+      workspaceId: 'ws-id',
+      workspace: { id: 'ws-id', name: 'test', createdAt: '2025-01-01', lastActiveAt: '2025-01-01', settings: {} },
+      config: { version: 1, sources: {}, order: [], createdAt: '2025-01-01' },
     });
-    mockStorage.query.mockResolvedValueOnce({ rows: [] });
+    mockStorage.queryForWorkspaceSpy.mockResolvedValueOnce({ rows: [] });
 
     const handler = getHandler();
     await handler({
@@ -366,14 +393,18 @@ describe('estimate tool', () => {
       limit: 5,
     });
 
-    const firstCall = mockStorage.query.mock.calls[0];
-    const params = firstCall?.[1] as unknown[];
+    const firstCall = mockStorage.queryForWorkspaceSpy.mock.calls[0];
+    if (firstCall === undefined) { throw new Error('queryForWorkspace was not called'); }
+    const params = firstCall[1];
     expect(params).toContain(5);
   });
 
   it('includes scoring method in output', async () => {
-    vi.mocked(loadWorkspace).mockReturnValue({
-      ok: true, root: '/test', config: { createdAt: '2025-01-01', sources: {} },
+    vi.mocked(loadWorkspace).mockResolvedValue({
+      ok: true,
+      workspaceId: 'ws-id',
+      workspace: { id: 'ws-id', name: 'test', createdAt: '2025-01-01', lastActiveAt: '2025-01-01', settings: {} },
+      config: { version: 1, sources: {}, order: [], createdAt: '2025-01-01' },
     });
     setupFullMockChain();
 

@@ -104,7 +104,7 @@ export class MigrateToHubUseCase {
         const legacyPrs = await countTable(srcPool, 'pull_requests').catch(() => 0);
         log(`  legacy: ${String(legacyIssues)} issues, ${String(legacyCommits)} commits, ${String(legacyPrs)} PRs`);
 
-        if (options.dryRun) {
+        if (options.dryRun === true) {
           log('  [dry-run] skipping write');
           continue;
         }
@@ -131,7 +131,7 @@ export class MigrateToHubUseCase {
           log(`  ⚠ count mismatches: ${mismatches.map((m) => `${m.table}(${String(m.legacy)} vs ${String(m.hub)})`).join(', ')}`);
         }
 
-        if (!options.keepLegacy) {
+        if (options.keepLegacy !== true) {
           this.writeMarker(entry.path, workspaceId);
         }
 
@@ -246,7 +246,7 @@ export class MigrateToHubUseCase {
     const markerPath = join(dir, '.hub-migrated');
     writeFileSync(
       markerPath,
-      JSON.stringify({ workspaceId, migratedAt: new Date().toISOString() }, null, 2) + '\n',
+      `${JSON.stringify({ workspaceId, migratedAt: new Date().toISOString() }, null, 2)  }\n`,
     );
   }
 }

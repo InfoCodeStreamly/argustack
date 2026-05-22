@@ -83,7 +83,7 @@ export const server = new McpServer({
   name: 'Argustack',
   title: 'Argustack',
   version: loadPackageVersion(),
-  ...(iconDataUri ? {
+  ...(iconDataUri !== null && iconDataUri.length > 0 ? {
     icons: [{
       src: iconDataUri,
       mimeType: 'image/png',
@@ -112,10 +112,10 @@ export async function startMcpServer(): Promise<void> {
   console.error('Argustack MCP server running on stdio');
 }
 
+const mainArg = typeof process !== 'undefined' ? process.argv[1] : undefined;
 const isDirectRun =
-  typeof process !== 'undefined' &&
-  process.argv[1] &&
-  (process.argv[1].endsWith('/mcp/server.js') || process.argv[1].endsWith('/mcp/server.ts'));
+  mainArg !== undefined &&
+  (mainArg.endsWith('/mcp/server.js') || mainArg.endsWith('/mcp/server.ts'));
 
 if (isDirectRun) {
   startMcpServer().catch((err: unknown) => {

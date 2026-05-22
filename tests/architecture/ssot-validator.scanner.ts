@@ -76,7 +76,7 @@ export function scanFileForHardcodes(filePath: string): Violation[] {
     for (const hp of HARDCODE_PATTERNS) {
       const regex = new RegExp(hp.pattern.source, hp.pattern.flags);
       let match = regex.exec(line);
-      while (match) {
+      while (match !== null) {
         violations.push({
           file: relPath,
           line: i + 1,

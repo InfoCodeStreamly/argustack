@@ -271,7 +271,7 @@ column: backlog
 `;
       vi.mocked(readFileSync).mockReturnValue(existingContent);
 
-      updateMdFrontmatter(TEST_FILE_PATH, { jiraKey: null });
+      updateMdFrontmatter(TEST_FILE_PATH, { jiraKey: null } as unknown as Parameters<typeof updateMdFrontmatter>[1]);
 
       const [, writtenContent] = vi.mocked(writeFileSync).mock.calls[0] as [string, string];
       expect(writtenContent).not.toContain('jiraKey');

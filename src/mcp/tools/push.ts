@@ -5,7 +5,9 @@ import {
   createAdapters,
   textResponse,
   errorResponse,
+  workspaceNotFoundResponse,
   getErrorMessage,
+  hasText,
   ANNOTATIONS,
 } from '../helpers.js';
 import { JiraProvider } from '../../adapters/jira/index.js';
@@ -52,11 +54,11 @@ export function registerPushTools(server: McpServer): void {
       }
 
       const ws = await loadWorkspace(workspaceIdInput);
-      if (!ws.ok) { return errorResponse(ws.reason); }
+      if (!ws.ok) { return workspaceNotFoundResponse(ws.reason); }
       const { storage, workspaceId } = await createAdapters(ws.workspaceId);
 
       const projectKey = projectKeyParam ?? ws.workspace.settings?.jiraProjectKeys?.[0];
-      if (!projectKey) {
+      if (projectKey === undefined || projectKey.length === 0) {
         return errorResponse(`No project_key provided and no jiraProjectKeys bound to workspace "${workspaceId}".`);
       }
 
@@ -121,9 +123,9 @@ export function registerPushTools(server: McpServer): void {
     },
     async ({ workspace_id: workspaceIdInput, mode }) => {
       const ws = await loadWorkspace(workspaceIdInput);
-      if (!ws.ok) { return errorResponse(ws.reason); }
+      if (!ws.ok) { return workspaceNotFoundResponse(ws.reason); }
       const hub = loadHubConfig();
-      if (!hub.credentials.jiraUrl || !hub.credentials.jiraEmail || !hub.credentials.jiraApiToken) {
+      if (!hasText(hub.credentials.jiraUrl) || !hasText(hub.credentials.jiraEmail) || !hasText(hub.credentials.jiraApiToken)) {
         return errorResponse('Jira credentials missing in ~/.argustack/config.env.');
       }
       const { storage, workspaceId } = await createAdapters(ws.workspaceId);
@@ -155,7 +157,7 @@ export function registerPushTools(server: McpServer): void {
 
         const result = await useCase.execute(workspaceId);
         for (const item of result.created) {
-          if (item.mdPath) { updateMdFrontmatter(item.mdPath, { jiraKey: item.newKey }); }
+          if (hasText(item.mdPath)) { updateMdFrontmatter(item.mdPath, { jiraKey: item.newKey }); }
         }
         if (result.created.length === 0) {
           return textResponse('No local issues to push.');
@@ -195,7 +197,7 @@ export function registerPushTools(server: McpServer): void {
       }
 
       const ws = await loadWorkspace(workspaceIdInput);
-      if (!ws.ok) { return errorResponse(ws.reason); }
+      if (!ws.ok) { return workspaceNotFoundResponse(ws.reason); }
       const { storage, workspaceId } = await createAdapters(ws.workspaceId);
 
       try {

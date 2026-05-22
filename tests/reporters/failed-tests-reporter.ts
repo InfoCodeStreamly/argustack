@@ -94,7 +94,7 @@ export default class FailedTestsReporter implements Reporter {
         lines.push(`### [${index + 1}/${this.failedTests.length}] ${thin.slice(0, 50)}`);
         lines.push('', `FILE: ${test.file}`, `TEST: ${test.testName}`, '');
         lines.push('ERROR:', test.error, '');
-        if (test.location) {
+        if (test.location !== '') {
           lines.push(`LOCATION: ${test.location}`, '');
         }
         lines.push(thin, '');
@@ -116,7 +116,7 @@ export default class FailedTestsReporter implements Reporter {
   private getFullTestName(testCase: TestCase): string {
     const names: string[] = [];
     let current: TestCase['parent'] | undefined = testCase.parent;
-    while (current && 'name' in current) {
+    while (current !== undefined && 'name' in current) {
       names.unshift(current.name);
       current = 'parent' in current ? current.parent : undefined;
     }
@@ -125,7 +125,7 @@ export default class FailedTestsReporter implements Reporter {
   }
 
   private formatError(error: unknown): string {
-    if (!error) {
+    if (error === null || error === undefined) {
       return 'Unknown error';
     }
     if (typeof error === 'string') {
@@ -155,7 +155,7 @@ export default class FailedTestsReporter implements Reporter {
   }
 
   private extractLocation(error: unknown): string {
-    if (!error) {
+    if (error === null || error === undefined) {
       return '';
     }
     const err = error as Record<string, unknown>;
@@ -165,7 +165,7 @@ export default class FailedTestsReporter implements Reporter {
     }
 
     const match = /at .+ \((.+):(\d+):(\d+)\)/.exec(raw) ?? /(.+):(\d+):(\d+)/.exec(raw);
-    if (match) {
+    if (match !== null) {
       return `${match[1]}:${match[2]}:${match[3]}`;
     }
     return '';

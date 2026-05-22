@@ -179,7 +179,7 @@ describe('setupDbInteractive (connection string path)', () => {
 
     await setupDbInteractive();
 
-    const [knexConfig] = mockKnexFn.mock.calls[0] as [{
+    const [knexConfig] = mockKnexFn.mock.calls[0] as unknown as [{
       connection: { ssl: { rejectUnauthorized: boolean } | false };
     }];
     expect(knexConfig.connection.ssl).toMatchObject({ rejectUnauthorized: false });
@@ -191,7 +191,7 @@ describe('setupDbInteractive (connection string path)', () => {
 
     await setupDbInteractive();
 
-    const [knexConfig] = mockKnexFn.mock.calls[0] as [{
+    const [knexConfig] = mockKnexFn.mock.calls[0] as unknown as [{
       connection: { ssl: boolean };
     }];
     expect(knexConfig.connection.ssl).toBe(false);

@@ -1,45 +1,36 @@
 /**
  * Unit tests for MCP helper utilities.
  *
- * Covers pure utility functions (textResponse, errorResponse, getErrorMessage, str),
- * the workspace-loading logic (loadWorkspace), and the adapter-creation logic
- * (createAdapters). External modules (workspace resolver, config reader, dotenv,
- * Jira adapter, and Postgres adapter) are all mocked at module boundaries so
- * every path can be exercised without touching the filesystem or a real database.
+ * Covers pure utility functions (textResponse, errorResponse, getErrorMessage, str)
+ * and the workspace-loading logic (loadWorkspace) using a fake workspace store.
+ * The hub-config and active-workspace modules are mocked at the module boundary
+ * so loadWorkspace can be exercised without touching the filesystem.
  */
 
 import { describe, it, expect, vi, beforeEach } from 'vitest';
+import type { Workspace } from '../../../src/core/types/index.js';
+import type { IWorkspaceStore } from '../../../src/core/ports/workspace-store.js';
 import { createWorkspaceConfig } from '../../fixtures/shared/test-constants.js';
 
-vi.mock('../../../src/workspace/resolver.js', () => ({
-  findWorkspaceRoot: vi.fn(),
+vi.mock('../../../src/workspace/hub-config.js', () => ({
+  loadHubConfig: vi.fn(),
+}));
+
+vi.mock('../../../src/workspace/active-workspace.js', () => ({
+  getActiveWorkspace: vi.fn(),
+  setActiveWorkspace: vi.fn(),
+  clearActiveWorkspace: vi.fn(),
+  getActiveWorkspaceId: vi.fn(),
 }));
 
 vi.mock('../../../src/workspace/config.js', () => ({
-  readConfig: vi.fn(),
-  getEnabledSources: vi.fn(),
-}));
-
-vi.mock('dotenv', () => ({
-  default: { config: vi.fn() },
-}));
-
-vi.mock('../../../src/adapters/jira/index.js', () => ({
-  JiraProvider: vi.fn(function JiraProvider(this: { name: string }) {
-    this.name = 'Jira';
-  }),
-}));
-
-vi.mock('../../../src/adapters/postgres/index.js', () => ({
-  PostgresStorage: vi.fn(function PostgresStorage(this: { name: string }) {
-    this.name = 'PostgreSQL';
-  }),
+  readWorkspaceConfigFromHub: vi.fn(),
 }));
 
 // eslint-disable-next-line @typescript-eslint/consistent-type-imports
 let loadWorkspace: typeof import('../../../src/mcp/helpers.js').loadWorkspace;
 // eslint-disable-next-line @typescript-eslint/consistent-type-imports
-let createAdapters: typeof import('../../../src/mcp/helpers.js').createAdapters;
+let setActiveWorkspaceStore: typeof import('../../../src/mcp/helpers.js').setActiveWorkspaceStore;
 // eslint-disable-next-line @typescript-eslint/consistent-type-imports
 let textResponse: typeof import('../../../src/mcp/helpers.js').textResponse;
 // eslint-disable-next-line @typescript-eslint/consistent-type-imports
@@ -49,21 +40,46 @@ let getErrorMessage: typeof import('../../../src/mcp/helpers.js').getErrorMessag
 // eslint-disable-next-line @typescript-eslint/consistent-type-imports
 let str: typeof import('../../../src/mcp/helpers.js').str;
 
-let findWorkspaceRoot: ReturnType<typeof vi.fn>;
-let readConfig: ReturnType<typeof vi.fn>;
+let getActiveWorkspaceMock: ReturnType<typeof vi.fn>;
+let readWorkspaceConfigFromHubMock: ReturnType<typeof vi.fn>;
+
+function createTestWorkspace(overrides?: Partial<Workspace>): Workspace {
+  return {
+    id: 'ws-id',
+    name: 'test-workspace',
+    createdAt: '2025-01-01T00:00:00.000Z',
+    lastActiveAt: '2025-01-01T00:00:00.000Z',
+    settings: {},
+    ...overrides,
+  };
+}
+
+function createFakeStore(workspaces: Workspace[]): IWorkspaceStore {
+  const byId = new Map(workspaces.map((w) => [w.id, w]));
+  const byName = new Map(workspaces.map((w) => [w.name, w]));
+  return {
+    list: vi.fn(async () => Promise.resolve(workspaces)),
+    getById: vi.fn(async (id: string) => Promise.resolve(byId.get(id) ?? null)),
+    getByName: vi.fn(async (name: string) => Promise.resolve(byName.get(name) ?? null)),
+    create: vi.fn(),
+    update: vi.fn(),
+    delete: vi.fn(),
+    touchActive: vi.fn(async () => Promise.resolve()),
+  } as unknown as IWorkspaceStore;
+}
 
 beforeEach(async () => {
   vi.clearAllMocks();
 
-  const resolverModule = await import('../../../src/workspace/resolver.js');
-  findWorkspaceRoot = vi.mocked(resolverModule.findWorkspaceRoot);
+  const activeModule = await import('../../../src/workspace/active-workspace.js');
+  getActiveWorkspaceMock = vi.mocked(activeModule.getActiveWorkspace);
 
   const configModule = await import('../../../src/workspace/config.js');
-  readConfig = vi.mocked(configModule.readConfig);
+  readWorkspaceConfigFromHubMock = vi.mocked(configModule.readWorkspaceConfigFromHub);
 
   const helpers = await import('../../../src/mcp/helpers.js');
   loadWorkspace = helpers.loadWorkspace;
-  createAdapters = helpers.createAdapters;
+  setActiveWorkspaceStore = helpers.setActiveWorkspaceStore;
   textResponse = helpers.textResponse;
   errorResponse = helpers.errorResponse;
   getErrorMessage = helpers.getErrorMessage;
@@ -179,149 +195,76 @@ describe('str', () => {
 // ─── loadWorkspace ─────────────────────────────────────────────────────────
 
 describe('loadWorkspace', () => {
-  it('returns ok:true when root is found and config is valid', () => {
-    const root = '/workspace/root';
-    const config = createWorkspaceConfig();
-    findWorkspaceRoot.mockReturnValue(root);
-    readConfig.mockReturnValue(config);
-
-    const result = loadWorkspace();
-
-    expect(result).toEqual({ ok: true, root, config });
+  beforeEach(() => {
+    delete process.env['ARGUSTACK_WORKSPACE_ID'];
+    getActiveWorkspaceMock.mockReturnValue(null);
   });
 
-  it('returns ok:false when no root found and no env var set', () => {
-    delete process.env['ARGUSTACK_WORKSPACE'];
-    findWorkspaceRoot.mockReturnValue(null);
+  it('returns ok:true when explicit id resolves to a workspace with valid config', async () => {
+    const workspace = createTestWorkspace({ id: 'ws-id', name: 'test-workspace' });
+    const config = createWorkspaceConfig();
+    setActiveWorkspaceStore(createFakeStore([workspace]));
+    readWorkspaceConfigFromHubMock.mockResolvedValue(config);
 
-    const result = loadWorkspace();
+    const result = await loadWorkspace('ws-id');
+
+    expect(result.ok).toBe(true);
+    if (result.ok) {
+      expect(result.workspaceId).toBe('ws-id');
+      expect(result.workspace.name).toBe('test-workspace');
+      expect(result.config).toEqual(config);
+    }
+  });
+
+  it('returns ok:false when explicit id does not exist', async () => {
+    setActiveWorkspaceStore(createFakeStore([]));
+
+    const result = await loadWorkspace('missing-ws');
 
     expect(result.ok).toBe(false);
     if (!result.ok) {
       expect(typeof result.reason).toBe('string');
+      expect(result.reason).toContain('missing-ws');
+    }
+  });
+
+  it('returns ok:false when no workspaces are registered and no hint is given', async () => {
+    setActiveWorkspaceStore(createFakeStore([]));
+
+    const result = await loadWorkspace();
+
+    expect(result.ok).toBe(false);
+    if (!result.ok) {
       expect(result.reason.length).toBeGreaterThan(0);
+      expect(result.reason).toContain('No workspaces registered');
     }
   });
 
-  it('returns ok:false with env var hint when env var is set but root not found', () => {
-    process.env['ARGUSTACK_WORKSPACE'] = '/custom/path';
-    findWorkspaceRoot.mockReturnValue(null);
+  it('returns ok:false with ARGUSTACK_WORKSPACE_ID hint when env var points to missing workspace', async () => {
+    process.env['ARGUSTACK_WORKSPACE_ID'] = 'missing-env-ws';
+    setActiveWorkspaceStore(createFakeStore([]));
 
-    const result = loadWorkspace();
+    const result = await loadWorkspace();
 
     expect(result.ok).toBe(false);
     if (!result.ok) {
-      expect(result.reason).toContain('ARGUSTACK_WORKSPACE is set to "/custom/path"');
-      expect(result.reason).toContain('.argustack/');
+      expect(result.reason).toContain('missing-env-ws');
     }
 
-    delete process.env['ARGUSTACK_WORKSPACE'];
+    delete process.env['ARGUSTACK_WORKSPACE_ID'];
   });
 
-  it('returns ok:false when root found but config is missing', () => {
-    const root = '/workspace/root';
-    findWorkspaceRoot.mockReturnValue(root);
-    readConfig.mockReturnValue(null);
+  it('auto-picks the single workspace when only one exists', async () => {
+    const workspace = createTestWorkspace({ id: 'only-ws', name: 'only' });
+    const config = createWorkspaceConfig();
+    setActiveWorkspaceStore(createFakeStore([workspace]));
+    readWorkspaceConfigFromHubMock.mockResolvedValue(config);
 
-    const result = loadWorkspace();
+    const result = await loadWorkspace();
 
-    expect(result.ok).toBe(false);
-    if (!result.ok) {
-      expect(result.reason).toContain(root);
-      expect(result.reason).toContain('argustack init');
+    expect(result.ok).toBe(true);
+    if (result.ok) {
+      expect(result.workspaceId).toBe('only-ws');
     }
-  });
-});
-
-// ─── createAdapters ────────────────────────────────────────────────────────
-
-describe('createAdapters', () => {
-  const workspaceRoot = '/workspace/root';
-
-  beforeEach(() => {
-    delete process.env['JIRA_URL'];
-    delete process.env['JIRA_EMAIL'];
-    delete process.env['JIRA_API_TOKEN'];
-    delete process.env['DB_HOST'];
-    delete process.env['DB_PORT'];
-    delete process.env['DB_USER'];
-    delete process.env['DB_PASSWORD'];
-    delete process.env['DB_NAME'];
-  });
-
-  it('returns null source when Jira env vars are not set', async () => {
-    const { source } = await createAdapters(workspaceRoot);
-
-    expect(source).toBeNull();
-  });
-
-  it('creates JiraProvider when all three Jira env vars are present', async () => {
-    process.env['JIRA_URL'] = 'https://example.atlassian.net';
-    process.env['JIRA_EMAIL'] = 'user@example.com';
-    process.env['JIRA_API_TOKEN'] = 'secret-token';
-
-    const { source } = await createAdapters(workspaceRoot);
-    const jiraModule = await import('../../../src/adapters/jira/index.js');
-    const MockJiraProvider = vi.mocked(jiraModule.JiraProvider);
-
-    expect(source).not.toBeNull();
-    expect(MockJiraProvider).toHaveBeenCalledWith({
-      host: 'https://example.atlassian.net',
-      email: 'user@example.com',
-      apiToken: 'secret-token',
-    }, undefined);
-  });
-
-  it('creates PostgresStorage with default values when DB env vars are absent', async () => {
-    await createAdapters(workspaceRoot);
-    const postgresModule = await import('../../../src/adapters/postgres/index.js');
-    const MockPostgresStorage = vi.mocked(postgresModule.PostgresStorage);
-
-    expect(MockPostgresStorage).toHaveBeenCalledWith({
-      host: 'localhost',
-      port: 5434,
-      user: 'argustack',
-      password: 'argustack_local',
-      database: 'argustack',
-    });
-  });
-
-  it('creates PostgresStorage with custom values from env when DB env vars are set', async () => {
-    process.env['DB_HOST'] = 'db.internal';
-    process.env['DB_PORT'] = '5432';
-    process.env['DB_USER'] = 'myuser';
-    process.env['DB_PASSWORD'] = 'mypassword';
-    process.env['DB_NAME'] = 'mydb';
-
-    await createAdapters(workspaceRoot);
-    const postgresModule = await import('../../../src/adapters/postgres/index.js');
-    const MockPostgresStorage = vi.mocked(postgresModule.PostgresStorage);
-
-    expect(MockPostgresStorage).toHaveBeenCalledWith({
-      host: 'db.internal',
-      port: 5432,
-      user: 'myuser',
-      password: 'mypassword',
-      database: 'mydb',
-    });
-  });
-
-  it('calls dotenv.config with the workspace .env path', async () => {
-    const dotenvModule = await import('dotenv');
-    const dotenvConfig = vi.mocked(dotenvModule.default.config);
-
-    await createAdapters(workspaceRoot);
-
-    expect(dotenvConfig).toHaveBeenCalledWith({
-      path: `${workspaceRoot}/.env`,
-      override: true,
-    });
-  });
-
-  it('returns a storage instance when createAdapters resolves', async () => {
-    const { storage } = await createAdapters(workspaceRoot);
-
-    expect(storage).toBeDefined();
-    expect(storage).not.toBeNull();
   });
 });

@@ -48,7 +48,7 @@ export class TypeScriptLspClient implements ILspClient {
   }
 
   async start(projectRoot: string): Promise<void> {
-    if (this.process) {return;}
+    if (this.process !== null) {return;}
     const child = spawn(this.command, this.args, { cwd: projectRoot });
     this.process = child;
     const reader = new StreamMessageReader(child.stdout);
@@ -70,7 +70,7 @@ export class TypeScriptLspClient implements ILspClient {
   }
 
   async stop(): Promise<void> {
-    if (this.connection) {
+    if (this.connection !== null) {
       try {
         await this.connection.sendRequest('shutdown');
         await this.connection.sendNotification('exit');
@@ -78,7 +78,7 @@ export class TypeScriptLspClient implements ILspClient {
       this.connection.dispose();
       this.connection = null;
     }
-    if (this.process) {
+    if (this.process !== null) {
       this.process.kill();
       this.process = null;
     }
@@ -144,13 +144,13 @@ export class TypeScriptLspClient implements ILspClient {
       method,
       { textDocument: { uri }, position: { line, character } },
     );
-    if (!result) {return [];}
+    if (result === null) {return [];}
     const raw = Array.isArray(result) ? result : [result];
     return raw.map(toLspLocation);
   }
 
   private requireConnection(): MessageConnection {
-    if (!this.connection) {
+    if (this.connection === null) {
       throw new Error('LSP client not started — call start() first');
     }
     return this.connection;
@@ -181,11 +181,11 @@ function flattenSymbols(
       startLine: sym.range.start.line + 1,
       endLine: sym.range.end.line + 1,
     };
-    if (container) {
+    if (container !== undefined && container !== '') {
       lspSymbol.containerName = container;
     }
     out.push(lspSymbol);
-    if (sym.children && sym.children.length > 0) {
+    if (sym.children !== undefined && sym.children.length > 0) {
       out.push(...flattenSymbols(sym.children, uri, sym.name));
     }
   }

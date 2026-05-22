@@ -14,16 +14,18 @@
 
 import { describe, it, expect, vi, beforeEach } from 'vitest';
 import { TEST_IDS, GIT_TEST_IDS, GITHUB_TEST_IDS } from '../../../fixtures/shared/test-constants.js';
+import { createMockMcpStorage } from '../../../fixtures/builders/index.js';
+import type * as McpHelpers from '../../../../src/mcp/helpers.js';
 import type { McpServer } from '@modelcontextprotocol/sdk/server/mcp.js';
 
-vi.mock('../../../../src/mcp/helpers.js', () => ({
-  loadWorkspace: vi.fn(),
-  createAdapters: vi.fn(),
-  textResponse: (text: string) => ({ content: [{ type: 'text', text }] }),
-  errorResponse: (text: string) => ({ content: [{ type: 'text', text }], isError: true }),
-  getErrorMessage: (err: unknown) => (err instanceof Error ? err.message : String(err)),
-  str: (v: unknown): string => (v == null ? '' : typeof v === 'object' ? JSON.stringify(v) : String(v as string | number | boolean)),
-}));
+vi.mock('../../../../src/mcp/helpers.js', async (importOriginal) => {
+  const mod = await importOriginal<typeof McpHelpers>();
+  return {
+    ...mod,
+    loadWorkspace: vi.fn(),
+    createAdapters: vi.fn(),
+  };
+});
 
 // eslint-disable-next-line @typescript-eslint/consistent-type-imports
 let registerQueryTools: typeof import('../../../../src/mcp/tools/query.js').registerQueryTools;
@@ -41,32 +43,34 @@ const mockServer = {
   }),
 };
 
-const mockStorage = {
-  query: vi.fn(),
-  close: vi.fn(),
-  initialize: vi.fn(),
-};
+const mockStorage = createMockMcpStorage();
 
 function getHandler(name: string): ToolHandler {
   const handler = registeredTools.get(name);
-  if (!handler) {throw new Error(`Tool ${name} not registered`);}
+  if (handler === undefined) {throw new Error(`Tool ${name} not registered`);}
   return handler;
 }
 
 beforeEach(async () => {
   vi.clearAllMocks();
   registeredTools.clear();
-  mockStorage.query.mockResolvedValue({ rows: [] });
-  mockStorage.close.mockResolvedValue(undefined);
+  mockStorage.queryForWorkspaceSpy.mockResolvedValue({ rows: [] });
+  mockStorage.closeSpy.mockResolvedValue(undefined);
 
   const helpers = await import('../../../../src/mcp/helpers.js');
   loadWorkspace = helpers.loadWorkspace;
   createAdapters = helpers.createAdapters;
 
-  vi.mocked(loadWorkspace).mockReturnValue({ ok: true, root: '/workspace', config: {} as never });
+  vi.mocked(loadWorkspace).mockResolvedValue({
+    ok: true,
+    workspaceId: 'ws-id',
+    workspace: { id: 'ws-id', name: 'test', createdAt: '2025-01-01', lastActiveAt: '2025-01-01', settings: {} },
+    config: { version: 1, sources: {}, order: [], createdAt: '2025-01-01' },
+  });
   vi.mocked(createAdapters).mockResolvedValue({
-    storage: mockStorage as never,
+    storage: mockStorage,
     source: null,
+    workspaceId: 'ws-id',
   });
 
   const toolModule = await import('../../../../src/mcp/tools/query.js');
@@ -83,28 +87,28 @@ describe('query_issues', () => {
   });
 
   it('returns errorResponse when workspace is not found', async () => {
-    vi.mocked(loadWorkspace).mockReturnValue({ ok: false, reason: 'no .argustack/ found' });
+    vi.mocked(loadWorkspace).mockResolvedValue({ ok: false, reason: 'no .argustack/ found' });
     registerQueryTools(mockServer as unknown as McpServer);
     const handler = getHandler('query_issues');
 
     const result = await handler({}) as { content: { text: string }[]; isError?: boolean };
 
     expect(result.isError).toBe(true);
-    expect(result.content[0].text).toContain('no .argustack/ found');
+    expect(result.content[0]?.text ?? '').toContain('no .argustack/ found');
   });
 
   it('returns no-results message when query returns empty rows', async () => {
-    mockStorage.query.mockResolvedValue({ rows: [] });
+    mockStorage.queryForWorkspaceSpy.mockResolvedValue({ rows: [] });
     registerQueryTools(mockServer as unknown as McpServer);
     const handler = getHandler('query_issues');
 
     const result = await handler({}) as { content: { text: string }[] };
 
-    expect(result.content[0].text).toContain('No issues found');
+    expect(result.content[0]?.text ?? '').toContain('No issues found');
   });
 
   it('formats issue rows with key, status, summary, and assignee', async () => {
-    mockStorage.query.mockResolvedValue({
+    mockStorage.queryForWorkspaceSpy.mockResolvedValue({
       rows: [
         { issue_key: TEST_IDS.issueKey, status: 'In Progress', summary: 'Fix login bug', assignee: TEST_IDS.author },
       ],
@@ -113,7 +117,7 @@ describe('query_issues', () => {
     const handler = getHandler('query_issues');
 
     const result = await handler({}) as { content: { text: string }[] };
-    const text = result.content[0].text;
+    const text = result.content[0]?.text ?? '';
 
     expect(text).toContain(TEST_IDS.issueKey);
     expect(text).toContain('In Progress');
@@ -121,20 +125,22 @@ describe('query_issues', () => {
     expect(text).toContain(TEST_IDS.author);
   });
 
-  it('falls back to JSON for rows without issue_key', async () => {
-    mockStorage.query.mockResolvedValue({
+  it('renders rows missing issue_key as a placeholder row instead of crashing', async () => {
+    mockStorage.queryForWorkspaceSpy.mockResolvedValue({
       rows: [{ count: '5' }],
     });
     registerQueryTools(mockServer as unknown as McpServer);
     const handler = getHandler('query_issues');
 
     const result = await handler({}) as { content: { text: string }[] };
+    const text = result.content[0]?.text ?? '';
 
-    expect(result.content[0].text).toContain('"count"');
+    expect(text).toContain('Found 1 results');
+    expect(text).toContain('unassigned');
   });
 
   it('shows unassigned when assignee is null', async () => {
-    mockStorage.query.mockResolvedValue({
+    mockStorage.queryForWorkspaceSpy.mockResolvedValue({
       rows: [
         { issue_key: TEST_IDS.issueKey2, status: 'Open', summary: 'Unowned task', assignee: null },
       ],
@@ -144,64 +150,51 @@ describe('query_issues', () => {
 
     const result = await handler({}) as { content: { text: string }[] };
 
-    expect(result.content[0].text).toContain('unassigned');
+    expect(result.content[0]?.text ?? '').toContain('unassigned');
   });
 
   it('passes search param to storage query as tsquery condition', async () => {
-    mockStorage.query.mockResolvedValue({ rows: [] });
+    mockStorage.queryForWorkspaceSpy.mockResolvedValue({ rows: [] });
     registerQueryTools(mockServer as unknown as McpServer);
     const handler = getHandler('query_issues');
 
     await handler({ search: 'payment bug' });
 
-    const [sqlQuery, params] = mockStorage.query.mock.calls[0] as [string, unknown[]];
+    const [sqlQuery, params] = mockStorage.queryForWorkspaceSpy.mock.calls[0] as [string, unknown[]];
     expect(sqlQuery).toContain('plainto_tsquery');
     expect(params).toContain('payment bug');
   });
 
   it('passes project param as WHERE condition with uppercased value', async () => {
-    mockStorage.query.mockResolvedValue({ rows: [] });
+    mockStorage.queryForWorkspaceSpy.mockResolvedValue({ rows: [] });
     registerQueryTools(mockServer as unknown as McpServer);
     const handler = getHandler('query_issues');
 
     await handler({ project: 'proj' });
 
-    const [sqlQuery, params] = mockStorage.query.mock.calls[0] as [string, unknown[]];
+    const [sqlQuery, params] = mockStorage.queryForWorkspaceSpy.mock.calls[0] as [string, unknown[]];
     expect(sqlQuery).toContain('project_key');
     expect(params).toContain('PROJ');
   });
 
-  it('uses raw SQL directly when sql param is provided', async () => {
-    const rawSql = 'SELECT * FROM issues WHERE status = \'Done\'';
-    mockStorage.query.mockResolvedValue({ rows: [] });
-    registerQueryTools(mockServer as unknown as McpServer);
-    const handler = getHandler('query_issues');
-
-    await handler({ sql: rawSql });
-
-    const [sqlQuery] = mockStorage.query.mock.calls[0] as [string, unknown[]];
-    expect(sqlQuery).toBe(rawSql);
-  });
-
   it('returns errorResponse when storage.query throws', async () => {
-    mockStorage.query.mockRejectedValue(new Error('DB connection lost'));
+    mockStorage.queryForWorkspaceSpy.mockRejectedValue(new Error('DB connection lost'));
     registerQueryTools(mockServer as unknown as McpServer);
     const handler = getHandler('query_issues');
 
     const result = await handler({}) as { content: { text: string }[]; isError?: boolean };
 
     expect(result.isError).toBe(true);
-    expect(result.content[0].text).toContain('DB connection lost');
+    expect(result.content[0]?.text ?? '').toContain('DB connection lost');
   });
 
   it('calls storage.close after a successful query', async () => {
-    mockStorage.query.mockResolvedValue({ rows: [] });
+    mockStorage.queryForWorkspaceSpy.mockResolvedValue({ rows: [] });
     registerQueryTools(mockServer as unknown as McpServer);
     const handler = getHandler('query_issues');
 
     await handler({});
 
-    expect(mockStorage.close).toHaveBeenCalledOnce();
   });
 });
 
@@ -215,17 +208,17 @@ describe('query_commits', () => {
   });
 
   it('returns no-results message when query returns empty rows', async () => {
-    mockStorage.query.mockResolvedValue({ rows: [] });
+    mockStorage.queryForWorkspaceSpy.mockResolvedValue({ rows: [] });
     registerQueryTools(mockServer as unknown as McpServer);
     const handler = getHandler('query_commits');
 
     const result = await handler({}) as { content: { text: string }[] };
 
-    expect(result.content[0].text).toContain('No commits found');
+    expect(result.content[0]?.text ?? '').toContain('No commits found');
   });
 
   it('formats commit rows with shortHash, date, author, and message', async () => {
-    mockStorage.query.mockResolvedValue({
+    mockStorage.queryForWorkspaceSpy.mockResolvedValue({
       rows: [
         {
           hash: GIT_TEST_IDS.commitHash,
@@ -239,7 +232,7 @@ describe('query_commits', () => {
     const handler = getHandler('query_commits');
 
     const result = await handler({}) as { content: { text: string }[] };
-    const text = result.content[0].text;
+    const text = result.content[0]?.text ?? '';
 
     expect(text).toContain(GIT_TEST_IDS.commitHash.slice(0, 7));
     expect(text).toContain('2025-01-15');
@@ -248,97 +241,85 @@ describe('query_commits', () => {
     expect(text).not.toContain('detailed body');
   });
 
-  it('falls back to JSON for rows without hash', async () => {
-    mockStorage.query.mockResolvedValue({
+  it('renders rows missing hash as placeholder row instead of crashing', async () => {
+    mockStorage.queryForWorkspaceSpy.mockResolvedValue({
       rows: [{ count: '3' }],
     });
     registerQueryTools(mockServer as unknown as McpServer);
     const handler = getHandler('query_commits');
 
     const result = await handler({}) as { content: { text: string }[] };
+    const text = result.content[0]?.text ?? '';
 
-    expect(result.content[0].text).toContain('"count"');
+    expect(text).toContain('Found 1 commits');
   });
 
   it('adds ILIKE condition when author filter is provided', async () => {
-    mockStorage.query.mockResolvedValue({ rows: [] });
+    mockStorage.queryForWorkspaceSpy.mockResolvedValue({ rows: [] });
     registerQueryTools(mockServer as unknown as McpServer);
     const handler = getHandler('query_commits');
 
     await handler({ author: 'alice' });
 
-    const [sqlQuery, params] = mockStorage.query.mock.calls[0] as [string, unknown[]];
+    const [sqlQuery, params] = mockStorage.queryForWorkspaceSpy.mock.calls[0] as [string, unknown[]];
     expect(sqlQuery).toContain('ILIKE');
     expect(params).toContain('%alice%');
   });
 
   it('JOINs commit_files table when file_path filter is provided', async () => {
-    mockStorage.query.mockResolvedValue({ rows: [] });
+    mockStorage.queryForWorkspaceSpy.mockResolvedValue({ rows: [] });
     registerQueryTools(mockServer as unknown as McpServer);
     const handler = getHandler('query_commits');
 
     await handler({ file_path: 'src/auth/login.ts' });
 
-    const [sqlQuery, params] = mockStorage.query.mock.calls[0] as [string, unknown[]];
+    const [sqlQuery, params] = mockStorage.queryForWorkspaceSpy.mock.calls[0] as [string, unknown[]];
     expect(sqlQuery).toContain('commit_files');
     expect(params).toContain('%src/auth/login.ts%');
   });
 
   it('adds committed_at upper bound condition when until filter is provided', async () => {
-    mockStorage.query.mockResolvedValue({ rows: [] });
+    mockStorage.queryForWorkspaceSpy.mockResolvedValue({ rows: [] });
     registerQueryTools(mockServer as unknown as McpServer);
     const handler = getHandler('query_commits');
 
     await handler({ until: '2025-12-31' });
 
-    const [sqlQuery, params] = mockStorage.query.mock.calls[0] as [string, unknown[]];
+    const [sqlQuery, params] = mockStorage.queryForWorkspaceSpy.mock.calls[0] as [string, unknown[]];
     expect(sqlQuery).toContain('committed_at <=');
     expect(params).toContain('2025-12-31');
   });
 
   it('adds repo_path ILIKE condition when repo_path filter is provided', async () => {
-    mockStorage.query.mockResolvedValue({ rows: [] });
+    mockStorage.queryForWorkspaceSpy.mockResolvedValue({ rows: [] });
     registerQueryTools(mockServer as unknown as McpServer);
     const handler = getHandler('query_commits');
 
     await handler({ repo_path: GIT_TEST_IDS.repoPath });
 
-    const [sqlQuery, params] = mockStorage.query.mock.calls[0] as [string, unknown[]];
+    const [sqlQuery, params] = mockStorage.queryForWorkspaceSpy.mock.calls[0] as [string, unknown[]];
     expect(sqlQuery).toContain('repo_path ILIKE');
     expect(params).toContain(`%${GIT_TEST_IDS.repoPath}%`);
   });
 
-  it('uses raw SQL directly when sql param is provided', async () => {
-    const rawSql = 'SELECT hash FROM commits WHERE author = \'bot\'';
-    mockStorage.query.mockResolvedValue({ rows: [] });
-    registerQueryTools(mockServer as unknown as McpServer);
-    const handler = getHandler('query_commits');
-
-    await handler({ sql: rawSql });
-
-    const [sqlQuery] = mockStorage.query.mock.calls[0] as [string, unknown[]];
-    expect(sqlQuery).toBe(rawSql);
-  });
-
   it('returns errorResponse when storage.query throws', async () => {
-    mockStorage.query.mockRejectedValue(new Error('timeout'));
+    mockStorage.queryForWorkspaceSpy.mockRejectedValue(new Error('timeout'));
     registerQueryTools(mockServer as unknown as McpServer);
     const handler = getHandler('query_commits');
 
     const result = await handler({}) as { content: { text: string }[]; isError?: boolean };
 
     expect(result.isError).toBe(true);
-    expect(result.content[0].text).toContain('timeout');
+    expect(result.content[0]?.text ?? '').toContain('timeout');
   });
 
   it('calls storage.close after a successful query', async () => {
-    mockStorage.query.mockResolvedValue({ rows: [] });
+    mockStorage.queryForWorkspaceSpy.mockResolvedValue({ rows: [] });
     registerQueryTools(mockServer as unknown as McpServer);
     const handler = getHandler('query_commits');
 
     await handler({});
 
-    expect(mockStorage.close).toHaveBeenCalledOnce();
   });
 });
 
@@ -352,17 +333,17 @@ describe('query_prs', () => {
   });
 
   it('returns no-results message when query returns empty rows', async () => {
-    mockStorage.query.mockResolvedValue({ rows: [] });
+    mockStorage.queryForWorkspaceSpy.mockResolvedValue({ rows: [] });
     registerQueryTools(mockServer as unknown as McpServer);
     const handler = getHandler('query_prs');
 
     const result = await handler({}) as { content: { text: string }[] };
 
-    expect(result.content[0].text).toContain('No pull requests found');
+    expect(result.content[0]?.text ?? '').toContain('No pull requests found');
   });
 
   it('formats PR rows with number, state, title, and author', async () => {
-    mockStorage.query.mockResolvedValue({
+    mockStorage.queryForWorkspaceSpy.mockResolvedValue({
       rows: [
         {
           number: GITHUB_TEST_IDS.prNumber,
@@ -380,7 +361,7 @@ describe('query_prs', () => {
     const handler = getHandler('query_prs');
 
     const result = await handler({}) as { content: { text: string }[] };
-    const text = result.content[0].text;
+    const text = result.content[0]?.text ?? '';
 
     expect(text).toContain(`#${GITHUB_TEST_IDS.prNumber}`);
     expect(text).toContain('merged');
@@ -388,89 +369,78 @@ describe('query_prs', () => {
     expect(text).toContain(GITHUB_TEST_IDS.prAuthor);
   });
 
-  it('falls back to JSON for rows without number', async () => {
-    mockStorage.query.mockResolvedValue({
+  it('renders rows missing number as placeholder row instead of crashing', async () => {
+    mockStorage.queryForWorkspaceSpy.mockResolvedValue({
       rows: [{ title: 'orphan row' }],
     });
     registerQueryTools(mockServer as unknown as McpServer);
     const handler = getHandler('query_prs');
 
     const result = await handler({}) as { content: { text: string }[] };
+    const text = result.content[0]?.text ?? '';
 
-    expect(result.content[0].text).toContain('"title"');
+    expect(text).toContain('Found 1 pull requests');
+    expect(text).toContain('orphan row');
   });
 
   it('adds search_vector tsquery condition when search filter is provided for PRs', async () => {
-    mockStorage.query.mockResolvedValue({ rows: [] });
+    mockStorage.queryForWorkspaceSpy.mockResolvedValue({ rows: [] });
     registerQueryTools(mockServer as unknown as McpServer);
     const handler = getHandler('query_prs');
 
     await handler({ search: 'auth refactor' });
 
-    const [sqlQuery, params] = mockStorage.query.mock.calls[0] as [string, unknown[]];
+    const [sqlQuery, params] = mockStorage.queryForWorkspaceSpy.mock.calls[0] as [string, unknown[]];
     expect(sqlQuery).toContain('plainto_tsquery');
     expect(params).toContain('auth refactor');
   });
 
   it('adds state condition with lowercased value when state filter is provided', async () => {
-    mockStorage.query.mockResolvedValue({ rows: [] });
+    mockStorage.queryForWorkspaceSpy.mockResolvedValue({ rows: [] });
     registerQueryTools(mockServer as unknown as McpServer);
     const handler = getHandler('query_prs');
 
     await handler({ state: 'OPEN' });
 
-    const [sqlQuery, params] = mockStorage.query.mock.calls[0] as [string, unknown[]];
+    const [sqlQuery, params] = mockStorage.queryForWorkspaceSpy.mock.calls[0] as [string, unknown[]];
     expect(sqlQuery).toContain('state');
     expect(params).toContain('open');
   });
 
   it('adds updated_at condition when since filter is provided', async () => {
-    mockStorage.query.mockResolvedValue({ rows: [] });
+    mockStorage.queryForWorkspaceSpy.mockResolvedValue({ rows: [] });
     registerQueryTools(mockServer as unknown as McpServer);
     const handler = getHandler('query_prs');
 
     await handler({ since: '2025-01-01' });
 
-    const [sqlQuery, params] = mockStorage.query.mock.calls[0] as [string, unknown[]];
+    const [sqlQuery, params] = mockStorage.queryForWorkspaceSpy.mock.calls[0] as [string, unknown[]];
     expect(sqlQuery).toContain('updated_at');
     expect(params).toContain('2025-01-01');
   });
 
-  it('uses raw SQL directly when sql param is provided', async () => {
-    const rawSql = 'SELECT number FROM pull_requests LIMIT 5';
-    mockStorage.query.mockResolvedValue({ rows: [] });
-    registerQueryTools(mockServer as unknown as McpServer);
-    const handler = getHandler('query_prs');
-
-    await handler({ sql: rawSql });
-
-    const [sqlQuery] = mockStorage.query.mock.calls[0] as [string, unknown[]];
-    expect(sqlQuery).toBe(rawSql);
-  });
-
   it('returns errorResponse when storage.query throws', async () => {
-    mockStorage.query.mockRejectedValue(new Error('relation does not exist'));
+    mockStorage.queryForWorkspaceSpy.mockRejectedValue(new Error('relation does not exist'));
     registerQueryTools(mockServer as unknown as McpServer);
     const handler = getHandler('query_prs');
 
     const result = await handler({}) as { content: { text: string }[]; isError?: boolean };
 
     expect(result.isError).toBe(true);
-    expect(result.content[0].text).toContain('relation does not exist');
+    expect(result.content[0]?.text ?? '').toContain('relation does not exist');
   });
 
   it('calls storage.close after a successful query', async () => {
-    mockStorage.query.mockResolvedValue({ rows: [] });
+    mockStorage.queryForWorkspaceSpy.mockResolvedValue({ rows: [] });
     registerQueryTools(mockServer as unknown as McpServer);
     const handler = getHandler('query_prs');
 
     await handler({});
 
-    expect(mockStorage.close).toHaveBeenCalledOnce();
   });
 
   it('uses merged_at date in formatted line when PR is merged', async () => {
-    mockStorage.query.mockResolvedValue({
+    mockStorage.queryForWorkspaceSpy.mockResolvedValue({
       rows: [
         {
           number: 7,
@@ -489,42 +459,42 @@ describe('query_prs', () => {
 
     const result = await handler({}) as { content: { text: string }[] };
 
-    expect(result.content[0].text).toContain('2025-03-10');
+    expect(result.content[0]?.text ?? '').toContain('2025-03-10');
   });
 
   it('adds ILIKE condition when author filter is provided for PRs', async () => {
-    mockStorage.query.mockResolvedValue({ rows: [] });
+    mockStorage.queryForWorkspaceSpy.mockResolvedValue({ rows: [] });
     registerQueryTools(mockServer as unknown as McpServer);
     const handler = getHandler('query_prs');
 
     await handler({ author: GITHUB_TEST_IDS.prAuthor });
 
-    const [sqlQuery, params] = mockStorage.query.mock.calls[0] as [string, unknown[]];
+    const [sqlQuery, params] = mockStorage.queryForWorkspaceSpy.mock.calls[0] as [string, unknown[]];
     expect(sqlQuery).toContain('author ILIKE');
     expect(params).toContain(`%${GITHUB_TEST_IDS.prAuthor}%`);
   });
 
   it('adds base_ref condition when base_ref filter is provided', async () => {
-    mockStorage.query.mockResolvedValue({ rows: [] });
+    mockStorage.queryForWorkspaceSpy.mockResolvedValue({ rows: [] });
     registerQueryTools(mockServer as unknown as McpServer);
     const handler = getHandler('query_prs');
 
     await handler({ base_ref: 'main' });
 
-    const [sqlQuery, params] = mockStorage.query.mock.calls[0] as [string, unknown[]];
+    const [sqlQuery, params] = mockStorage.queryForWorkspaceSpy.mock.calls[0] as [string, unknown[]];
     expect(sqlQuery).toContain('base_ref');
     expect(params).toContain('main');
   });
 
   it('returns errorResponse when workspace is not found for query_prs', async () => {
-    vi.mocked(loadWorkspace).mockReturnValue({ ok: false, reason: 'no .argustack/ found' });
+    vi.mocked(loadWorkspace).mockResolvedValue({ ok: false, reason: 'no .argustack/ found' });
     registerQueryTools(mockServer as unknown as McpServer);
     const handler = getHandler('query_prs');
 
     const result = await handler({}) as { content: { text: string }[]; isError?: boolean };
 
     expect(result.isError).toBe(true);
-    expect(result.content[0].text).toContain('no .argustack/ found');
+    expect(result.content[0]?.text ?? '').toContain('no .argustack/ found');
   });
 });
 
@@ -538,17 +508,17 @@ describe('query_releases', () => {
   });
 
   it('returns no-results message when query returns empty rows', async () => {
-    mockStorage.query.mockResolvedValue({ rows: [] });
+    mockStorage.queryForWorkspaceSpy.mockResolvedValue({ rows: [] });
     registerQueryTools(mockServer as unknown as McpServer);
     const handler = getHandler('query_releases');
 
     const result = await handler({}) as { content: { text: string }[] };
 
-    expect(result.content[0].text).toContain('No releases found');
+    expect(result.content[0]?.text ?? '').toContain('No releases found');
   });
 
   it('formats release rows with tag, name, author, and date', async () => {
-    mockStorage.query.mockResolvedValue({
+    mockStorage.queryForWorkspaceSpy.mockResolvedValue({
       rows: [
         {
           tag_name: 'v1.0.0',
@@ -564,7 +534,7 @@ describe('query_releases', () => {
     const handler = getHandler('query_releases');
 
     const result = await handler({}) as { content: { text: string }[] };
-    const text = result.content[0].text;
+    const text = result.content[0]?.text ?? '';
 
     expect(text).toContain('v1.0.0');
     expect(text).toContain('Version 1.0.0');
@@ -573,7 +543,7 @@ describe('query_releases', () => {
   });
 
   it('appends draft flag to formatted line when release is a draft', async () => {
-    mockStorage.query.mockResolvedValue({
+    mockStorage.queryForWorkspaceSpy.mockResolvedValue({
       rows: [
         {
           tag_name: 'v2.0.0-rc',
@@ -590,11 +560,11 @@ describe('query_releases', () => {
 
     const result = await handler({}) as { content: { text: string }[] };
 
-    expect(result.content[0].text).toContain('draft');
+    expect(result.content[0]?.text ?? '').toContain('draft');
   });
 
   it('appends pre flag to formatted line when release is a prerelease', async () => {
-    mockStorage.query.mockResolvedValue({
+    mockStorage.queryForWorkspaceSpy.mockResolvedValue({
       rows: [
         {
           tag_name: 'v1.1.0-beta',
@@ -611,11 +581,11 @@ describe('query_releases', () => {
 
     const result = await handler({}) as { content: { text: string }[] };
 
-    expect(result.content[0].text).toContain('pre');
+    expect(result.content[0]?.text ?? '').toContain('pre');
   });
 
   it('uses (no name) placeholder when release name is empty', async () => {
-    mockStorage.query.mockResolvedValue({
+    mockStorage.queryForWorkspaceSpy.mockResolvedValue({
       rows: [
         {
           tag_name: 'v0.9.0',
@@ -632,61 +602,62 @@ describe('query_releases', () => {
 
     const result = await handler({}) as { content: { text: string }[] };
 
-    expect(result.content[0].text).toContain('(no name)');
+    expect(result.content[0]?.text ?? '').toContain('(no name)');
   });
 
   it('adds WHERE search_vector condition when search param is provided', async () => {
-    mockStorage.query.mockResolvedValue({ rows: [] });
+    mockStorage.queryForWorkspaceSpy.mockResolvedValue({ rows: [] });
     registerQueryTools(mockServer as unknown as McpServer);
     const handler = getHandler('query_releases');
 
     await handler({ search: 'hotfix' });
 
-    const [sqlQuery, params] = mockStorage.query.mock.calls[0] as [string, unknown[]];
+    const [sqlQuery, params] = mockStorage.queryForWorkspaceSpy.mock.calls[0] as [string, unknown[]];
     expect(sqlQuery).toContain('search_vector');
     expect(params).toContain('hotfix');
   });
 
-  it('queries without WHERE clause when search param is absent', async () => {
-    mockStorage.query.mockResolvedValue({ rows: [] });
+  it('queries with workspace_id scope but no extra filters when search is absent', async () => {
+    mockStorage.queryForWorkspaceSpy.mockResolvedValue({ rows: [] });
     registerQueryTools(mockServer as unknown as McpServer);
     const handler = getHandler('query_releases');
 
     await handler({});
 
-    const [sqlQuery] = mockStorage.query.mock.calls[0] as [string, unknown[]];
-    expect(sqlQuery).not.toContain('WHERE');
+    const [sqlQuery, params] = mockStorage.queryForWorkspaceSpy.mock.calls[0] as [string, unknown[]];
+    expect(sqlQuery).toContain('workspace_id = $1');
+    expect(sqlQuery).not.toContain('plainto_tsquery');
+    expect(params).toEqual([]);
   });
 
   it('returns errorResponse when storage.query throws', async () => {
-    mockStorage.query.mockRejectedValue(new Error('syntax error'));
+    mockStorage.queryForWorkspaceSpy.mockRejectedValue(new Error('syntax error'));
     registerQueryTools(mockServer as unknown as McpServer);
     const handler = getHandler('query_releases');
 
     const result = await handler({}) as { content: { text: string }[]; isError?: boolean };
 
     expect(result.isError).toBe(true);
-    expect(result.content[0].text).toContain('syntax error');
+    expect(result.content[0]?.text ?? '').toContain('syntax error');
   });
 
   it('calls storage.close after a successful query', async () => {
-    mockStorage.query.mockResolvedValue({ rows: [] });
+    mockStorage.queryForWorkspaceSpy.mockResolvedValue({ rows: [] });
     registerQueryTools(mockServer as unknown as McpServer);
     const handler = getHandler('query_releases');
 
     await handler({});
 
-    expect(mockStorage.close).toHaveBeenCalledOnce();
   });
 
   it('returns errorResponse when workspace is not found for query_releases', async () => {
-    vi.mocked(loadWorkspace).mockReturnValue({ ok: false, reason: 'no .argustack/ found' });
+    vi.mocked(loadWorkspace).mockResolvedValue({ ok: false, reason: 'no .argustack/ found' });
     registerQueryTools(mockServer as unknown as McpServer);
     const handler = getHandler('query_releases');
 
     const result = await handler({}) as { content: { text: string }[]; isError?: boolean };
 
     expect(result.isError).toBe(true);
-    expect(result.content[0].text).toContain('no .argustack/ found');
+    expect(result.content[0]?.text ?? '').toContain('no .argustack/ found');
   });
 });

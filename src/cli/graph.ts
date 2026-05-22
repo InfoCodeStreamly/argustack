@@ -32,13 +32,13 @@ export function registerGraphCommand(program: Command): void {
       try {
         const workspaceId = await resolveWorkspaceFlag(store, options.workspace);
         const workspace = await store.getById(workspaceId);
-        const repoPaths = workspace?.settings?.gitRepoPaths ? [...workspace.settings.gitRepoPaths] : [];
+        const repoPaths = workspace?.settings?.gitRepoPaths != null ? [...workspace.settings.gitRepoPaths] : [];
 
         const spinner = ora('Building knowledge graph...').start();
         try {
           const useCase = new BuildGraphUseCase(storage);
           const stats = await useCase.execute(workspaceId, {
-            ...(options.since ? { since: options.since } : {}),
+            ...(options.since !== undefined && options.since !== '' ? { since: options.since } : {}),
             ...(repoPaths.length > 0 ? { repoPaths } : {}),
             onProgress: (msg) => { spinner.text = msg; },
           });
@@ -69,7 +69,7 @@ export function registerGraphCommand(program: Command): void {
         const stats = await storage.getGraphStats(workspaceId);
 
         if (stats.entityCount === 0) {
-          console.log(chalk.yellow('\n  No graph data. Run: argustack graph build --workspace ' + workspaceId));
+          console.log(chalk.yellow(`\n  No graph data. Run: argustack graph build --workspace ${  workspaceId}`));
           return;
         }
         console.log(`\n  Knowledge Graph: ${String(stats.entityCount)} entities, ${String(stats.relationshipCount)} relationships, ${String(stats.observationCount)} observations\n`);

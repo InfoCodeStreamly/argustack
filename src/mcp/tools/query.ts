@@ -6,8 +6,11 @@ import {
   createAdapters,
   textResponse,
   errorResponse,
+  workspaceNotFoundResponse,
   getErrorMessage,
   str,
+  strOr,
+  hasText,
   ANNOTATIONS,
 } from '../helpers.js';
 
@@ -32,7 +35,7 @@ export function registerQueryTools(server: McpServer): void {
     },
     async ({ workspace_id: workspaceIdInput, search, project, status, assignee, issue_type: issueType, limit }) => {
       const ws = await loadWorkspace(workspaceIdInput);
-      if (!ws.ok) { return errorResponse(ws.reason); }
+      if (!ws.ok) { return workspaceNotFoundResponse(ws.reason); }
       const { storage, workspaceId } = await createAdapters(ws.workspaceId);
 
       try {
@@ -41,27 +44,27 @@ export function registerQueryTools(server: McpServer): void {
         const params: unknown[] = [];
         let paramIdx = 2;
 
-        if (search) {
+        if (hasText(search)) {
           conditions.push(`search_vector @@ plainto_tsquery('english', $${String(paramIdx)})`);
           params.push(search);
           paramIdx++;
         }
-        if (project) {
+        if (hasText(project)) {
           conditions.push(`project_key = $${String(paramIdx)}`);
           params.push(project.toUpperCase());
           paramIdx++;
         }
-        if (status) {
+        if (hasText(status)) {
           conditions.push(`status ILIKE $${String(paramIdx)}`);
           params.push(status);
           paramIdx++;
         }
-        if (assignee) {
+        if (hasText(assignee)) {
           conditions.push(`assignee ILIKE $${String(paramIdx)}`);
           params.push(`%${assignee}%`);
           paramIdx++;
         }
-        if (issueType) {
+        if (hasText(issueType)) {
           conditions.push(`issue_type ILIKE $${String(paramIdx)}`);
           params.push(issueType);
           paramIdx++;
@@ -82,7 +85,7 @@ export function registerQueryTools(server: McpServer): void {
         }
         const lines = result.rows.map((row: Record<string, unknown>) => {
           const typed = row as unknown as IssueRow;
-          return `${typed.issue_key} [${str(typed.status) || '?'}] ${str(typed.summary)} (${str(typed.assignee) || 'unassigned'})`;
+          return `${str(typed.issue_key)} [${strOr(typed.status, '?')}] ${str(typed.summary)} (${strOr(typed.assignee, 'unassigned')})`;
         });
         return textResponse([`Found ${String(result.rows.length)} results:`, '', ...lines].join('\n'));
       } catch (err) {
@@ -110,7 +113,7 @@ export function registerQueryTools(server: McpServer): void {
     },
     async ({ workspace_id: workspaceIdInput, search, author, since, until, file_path: filePath, repo_path: repoPath, limit }) => {
       const ws = await loadWorkspace(workspaceIdInput);
-      if (!ws.ok) { return errorResponse(ws.reason); }
+      if (!ws.ok) { return workspaceNotFoundResponse(ws.reason); }
       const { storage, workspaceId } = await createAdapters(ws.workspaceId);
 
       try {
@@ -120,17 +123,17 @@ export function registerQueryTools(server: McpServer): void {
         let paramIdx = 2;
         let needJoin = false;
 
-        if (search) { conditions.push(`c.search_vector @@ plainto_tsquery('english', $${String(paramIdx)})`); params.push(search); paramIdx++; }
-        if (author) { conditions.push(`c.author ILIKE $${String(paramIdx)}`); params.push(`%${author}%`); paramIdx++; }
-        if (since) { conditions.push(`c.committed_at >= $${String(paramIdx)}`); params.push(since); paramIdx++; }
-        if (until) { conditions.push(`c.committed_at <= $${String(paramIdx)}`); params.push(until); paramIdx++; }
-        if (filePath) {
+        if (hasText(search)) { conditions.push(`c.search_vector @@ plainto_tsquery('english', $${String(paramIdx)})`); params.push(search); paramIdx++; }
+        if (hasText(author)) { conditions.push(`c.author ILIKE $${String(paramIdx)}`); params.push(`%${author}%`); paramIdx++; }
+        if (hasText(since)) { conditions.push(`c.committed_at >= $${String(paramIdx)}`); params.push(since); paramIdx++; }
+        if (hasText(until)) { conditions.push(`c.committed_at <= $${String(paramIdx)}`); params.push(until); paramIdx++; }
+        if (hasText(filePath)) {
           needJoin = true;
           conditions.push(`cf.file_path ILIKE $${String(paramIdx)}`);
           params.push(`%${filePath}%`);
           paramIdx++;
         }
-        if (repoPath) { conditions.push(`c.repo_path ILIKE $${String(paramIdx)}`); params.push(`%${repoPath}%`); paramIdx++; }
+        if (hasText(repoPath)) { conditions.push(`c.repo_path ILIKE $${String(paramIdx)}`); params.push(`%${repoPath}%`); paramIdx++; }
 
         const from = needJoin
           ? 'commits c JOIN commit_files cf ON cf.workspace_id = c.workspace_id AND cf.commit_hash = c.hash'
@@ -149,7 +152,7 @@ export function registerQueryTools(server: McpServer): void {
         const lines = result.rows.map((row: Record<string, unknown>) => {
           const typed = row as unknown as CommitRow;
           const shortHash = (typed.hash ?? '').substring(0, 7);
-          const date = typed.committed_at ? str(typed.committed_at).substring(0, 10) : '?';
+          const date = hasText(typed.committed_at) ? str(typed.committed_at).substring(0, 10) : '?';
           return `${shortHash} ${date} ${str(typed.author)}: ${str(typed.message).split('\n')[0]}`;
         });
         return textResponse([`Found ${String(result.rows.length)} commits:`, '', ...lines].join('\n'));
@@ -177,7 +180,7 @@ export function registerQueryTools(server: McpServer): void {
     },
     async ({ workspace_id: workspaceIdInput, search, state, author, base_ref: baseRef, since, limit }) => {
       const ws = await loadWorkspace(workspaceIdInput);
-      if (!ws.ok) { return errorResponse(ws.reason); }
+      if (!ws.ok) { return workspaceNotFoundResponse(ws.reason); }
       const { storage, workspaceId } = await createAdapters(ws.workspaceId);
 
       try {
@@ -186,11 +189,11 @@ export function registerQueryTools(server: McpServer): void {
         const params: unknown[] = [];
         let paramIdx = 2;
 
-        if (search) { conditions.push(`search_vector @@ plainto_tsquery('english', $${String(paramIdx)})`); params.push(search); paramIdx++; }
-        if (state) { conditions.push(`state = $${String(paramIdx)}`); params.push(state.toLowerCase()); paramIdx++; }
-        if (author) { conditions.push(`author ILIKE $${String(paramIdx)}`); params.push(`%${author}%`); paramIdx++; }
-        if (baseRef) { conditions.push(`base_ref = $${String(paramIdx)}`); params.push(baseRef); paramIdx++; }
-        if (since) { conditions.push(`updated_at >= $${String(paramIdx)}`); params.push(since); paramIdx++; }
+        if (hasText(search)) { conditions.push(`search_vector @@ plainto_tsquery('english', $${String(paramIdx)})`); params.push(search); paramIdx++; }
+        if (hasText(state)) { conditions.push(`state = $${String(paramIdx)}`); params.push(state.toLowerCase()); paramIdx++; }
+        if (hasText(author)) { conditions.push(`author ILIKE $${String(paramIdx)}`); params.push(`%${author}%`); paramIdx++; }
+        if (hasText(baseRef)) { conditions.push(`base_ref = $${String(paramIdx)}`); params.push(baseRef); paramIdx++; }
+        if (hasText(since)) { conditions.push(`updated_at >= $${String(paramIdx)}`); params.push(since); paramIdx++; }
 
         const sqlQuery = `
           SELECT number, title, state, author, created_at, updated_at, merged_at, base_ref, additions, deletions
@@ -204,7 +207,7 @@ export function registerQueryTools(server: McpServer): void {
         if (result.rows.length === 0) { return textResponse('No pull requests found.'); }
         const lines = result.rows.map((row: Record<string, unknown>) => {
           const typed = row as unknown as PrRow;
-          const date = typed.merged_at ? str(typed.merged_at).substring(0, 10) : str(typed.updated_at ?? '').substring(0, 10);
+          const date = hasText(typed.merged_at) ? str(typed.merged_at).substring(0, 10) : str(typed.updated_at ?? '').substring(0, 10);
           return `#${str(typed.number)} [${str(typed.state)}] ${str(typed.title)} by ${str(typed.author)} (${date}) +${str(typed.additions)}/-${str(typed.deletions)}`;
         });
         return textResponse([`Found ${String(result.rows.length)} pull requests:`, '', ...lines].join('\n'));
@@ -228,14 +231,14 @@ export function registerQueryTools(server: McpServer): void {
     },
     async ({ workspace_id: workspaceIdInput, search, limit }) => {
       const ws = await loadWorkspace(workspaceIdInput);
-      if (!ws.ok) { return errorResponse(ws.reason); }
+      if (!ws.ok) { return workspaceNotFoundResponse(ws.reason); }
       const { storage, workspaceId } = await createAdapters(ws.workspaceId);
 
       try {
         const maxResults = limit ?? 20;
         const conditions: string[] = ['workspace_id = $1'];
         const params: unknown[] = [];
-        if (search) {
+        if (hasText(search)) {
           conditions.push(`search_vector @@ plainto_tsquery('english', $2)`);
           params.push(search);
         }
@@ -251,9 +254,9 @@ export function registerQueryTools(server: McpServer): void {
         if (result.rows.length === 0) { return textResponse('No releases found.'); }
         const lines = result.rows.map((row: Record<string, unknown>) => {
           const r = row as { tag_name?: string; name?: string; author?: string; published_at?: string; draft?: boolean; prerelease?: boolean };
-          const flags = [r.draft ? 'draft' : '', r.prerelease ? 'pre' : ''].filter(Boolean).join(',');
+          const flags = [r.draft === true ? 'draft' : '', r.prerelease === true ? 'pre' : ''].filter((s) => s.length > 0).join(',');
           const date = str(r.published_at ?? '').substring(0, 10);
-          return `${str(r.tag_name)} — ${str(r.name) || '(no name)'} by ${str(r.author)} (${date})${flags ? ` [${flags}]` : ''}`;
+          return `${str(r.tag_name)} — ${strOr(r.name, '(no name)')} by ${str(r.author)} (${date})${flags.length > 0 ? ` [${flags}]` : ''}`;
         });
         return textResponse([`Found ${String(result.rows.length)} releases:`, '', ...lines].join('\n'));
       } catch (err) {

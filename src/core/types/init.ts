@@ -1,4 +1,5 @@
-import type { DockerVersion, PortStatus } from '../ports/index.js';
+import type { DockerVersion } from '../ports/docker-control.js';
+import type { PortStatus } from '../ports/platform-probe.js';
 
 /**
  * Aggregate result of pre-bootstrap checks (versions + docker + ports + hub state).

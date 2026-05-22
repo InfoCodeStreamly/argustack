@@ -184,7 +184,7 @@ function formatReport(violations: JunkCommentViolation[]): string {
       byCategory.set(v.category, []);
     }
     const items = byCategory.get(v.category);
-    if (items) { items.push(v); }
+    if (items !== undefined) { items.push(v); }
   }
 
   const lines: string[] = [

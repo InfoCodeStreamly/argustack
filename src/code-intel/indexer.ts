@@ -50,7 +50,7 @@ export class CodeIndexer {
   constructor(private readonly opts: IndexerOptions) {}
 
   async indexProject(options: IndexProjectOptions = {}): Promise<IndexStats> {
-    const jobType: IndexJobType = options.full ? 'full' : 'incremental';
+    const jobType: IndexJobType = options.full === true ? 'full' : 'incremental';
     const jobId = await this.opts.meta.startIndexJob(this.opts.project.id, jobType);
     const startedAt = Date.now();
     const t = (msg: string): void => {
@@ -61,12 +61,12 @@ export class CodeIndexer {
 
     try {
       t('fetching stored hashes...');
-      const stored = options.full
+      const stored = options.full === true
         ? new Map<string, string>()
         : await this.opts.meta.getFileHashes(this.opts.project.id);
       t(`got ${String(stored.size)} stored hashes`);
 
-      const discoveryOpts = this.opts.project.excludes
+      const discoveryOpts = this.opts.project.excludes !== undefined
         ? { extraExcludes: this.opts.project.excludes }
         : {};
       const discovered: { absPath: string; relPath: string; language: CodeFile['language'] }[] = [];
@@ -88,11 +88,11 @@ export class CodeIndexer {
       t('parsing files...');
       for (let i = 0; i < discovered.length; i++) {
         const file = discovered[i];
-        if (!file) {continue;}
+        if (file === undefined) {continue;}
         if (i % 50 === 0) {t(`parse progress ${String(i)}/${String(discovered.length)} — ${file.relPath}`);}
         const source = await readFile(file.absPath, 'utf8');
         const hash = hashFile(source);
-        if (!options.full && stored.get(file.relPath) === hash) {
+        if (options.full !== true && stored.get(file.relPath) === hash) {
           options.onProgress?.({ type: 'fileSkipped', relPath: file.relPath });
           continue;
         }
@@ -132,7 +132,7 @@ export class CodeIndexer {
 
       t('resolving calls...');
       const heuristic = new SymbolResolver(allSymbols);
-      const lspResolver = this.opts.lsp
+      const lspResolver = this.opts.lsp !== undefined
         ? new LspSymbolResolver(
             this.opts.lsp,
             this.opts.project.root,
@@ -148,7 +148,7 @@ export class CodeIndexer {
 
       let resolvedCount = 0;
       for (const [relPath, parsed] of rawParsedByFile) {
-        const edges = lspResolver
+        const edges = lspResolver !== null
           ? await lspResolver.resolveCalls(this.opts.project.id, parsed)
           : heuristic.resolveCalls(this.opts.project.id, parsed);
         allCalls.push(...edges);
@@ -222,7 +222,7 @@ export class CodeIndexer {
     const source = await readFile(absPath, 'utf8');
     const hash = hashFile(source);
     const language = guessLanguage(absPath);
-    if (!language) {return;}
+    if (language === null) {return;}
     const parsed = await this.opts.parser.parseFile(absPath, source, language);
     const layer = detectLayer(relPath, this.opts.project.layerConfig ?? {});
 

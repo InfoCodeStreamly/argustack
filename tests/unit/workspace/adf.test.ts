@@ -32,35 +32,35 @@ describe('markdownToAdf', () => {
   it('converts bold text', () => {
     const result = markdownToAdf('This is **bold** text');
     const paragraph = result.content[0];
-    const boldNode = paragraph?.content?.find((n) => n.marks?.some((m) => m.type === 'strong'));
+    const boldNode = paragraph?.content?.find((n) => n.marks?.some((m) => m.type === 'strong') === true);
     expect(boldNode?.text).toBe('bold');
   });
 
   it('converts italic text with asterisks', () => {
     const result = markdownToAdf('This is *italic* text');
     const paragraph = result.content[0];
-    const italicNode = paragraph?.content?.find((n) => n.marks?.some((m) => m.type === 'em'));
+    const italicNode = paragraph?.content?.find((n) => n.marks?.some((m) => m.type === 'em') === true);
     expect(italicNode?.text).toBe('italic');
   });
 
   it('converts italic text with underscores', () => {
     const result = markdownToAdf('This is _italic_ text');
     const paragraph = result.content[0];
-    const italicNode = paragraph?.content?.find((n) => n.marks?.some((m) => m.type === 'em'));
+    const italicNode = paragraph?.content?.find((n) => n.marks?.some((m) => m.type === 'em') === true);
     expect(italicNode?.text).toBe('italic');
   });
 
   it('converts inline code', () => {
     const result = markdownToAdf('Use `issuetype` field');
     const paragraph = result.content[0];
-    const codeNode = paragraph?.content?.find((n) => n.marks?.some((m) => m.type === 'code'));
+    const codeNode = paragraph?.content?.find((n) => n.marks?.some((m) => m.type === 'code') === true);
     expect(codeNode?.text).toBe('issuetype');
   });
 
   it('converts links', () => {
     const result = markdownToAdf('See [Jira docs](https://atlassian.com)');
     const paragraph = result.content[0];
-    const linkNode = paragraph?.content?.find((n) => n.marks?.some((m) => m.type === 'link'));
+    const linkNode = paragraph?.content?.find((n) => n.marks?.some((m) => m.type === 'link') === true);
     expect(linkNode?.text).toBe('Jira docs');
     expect(linkNode?.marks?.[0]?.attrs?.['href']).toBe('https://atlassian.com');
   });

@@ -48,7 +48,7 @@ export function registerDbCommand(group: Command): void {
         user: opts.user ?? '',
         password: opts.password ?? '',
         database: opts.database ?? '',
-        ...(opts.schema ? { schema: opts.schema } : {}),
+        ...(opts.schema !== undefined && opts.schema !== '' ? { schema: opts.schema } : {}),
       };
 
       const { store, close } = await openHubStore();

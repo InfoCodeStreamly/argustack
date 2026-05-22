@@ -50,7 +50,7 @@ export class PullUseCase {
     await this.storage.initialize();
 
     let projectKeys: string[];
-    if (options.projectKey) {
+    if (options.projectKey !== undefined && options.projectKey !== '') {
       projectKeys = [options.projectKey];
     } else {
       const projects = await this.source.getProjects();
@@ -59,10 +59,10 @@ export class PullUseCase {
 
     for (const projectKey of projectKeys) {
       const lastUpdated = options.since ?? (await this.storage.getLastUpdated(workspaceId, projectKey));
-      const since = lastUpdated && !options.since
+      const since = lastUpdated !== null && lastUpdated !== '' && (options.since === undefined || options.since === '')
         ? toJiraDateString(new Date(new Date(lastUpdated).getTime() - 60_000))
         : lastUpdated;
-      if (since) {
+      if (since !== null && since !== '') {
         log(`  Incremental pull: issues updated since ${since}`);
       }
 

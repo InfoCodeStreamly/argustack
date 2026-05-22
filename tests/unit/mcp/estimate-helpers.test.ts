@@ -22,7 +22,7 @@ function makeFamiliarityRow(component: string, resolvedCount: number): Familiari
   return { component, resolved_count: resolvedCount, avg_time_hours: 4, last_resolved: '2025-01-01' };
 }
 
-const mKey = (n: number) => `${ESTIMATE_TEST_IDS.metricKeyPrefix}-${n}`;
+const mKey = (n: number): string => `${ESTIMATE_TEST_IDS.metricKeyPrefix}-${n}`;
 
 function makeMetric(issueKey: string, hours: number, weight: number): SimilarTaskMetrics {
   return { issueKey, hours, weight };

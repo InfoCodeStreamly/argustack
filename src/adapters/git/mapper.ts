@@ -49,7 +49,7 @@ export function extractIssueRefs(commitHash: string, message: string): CommitIss
   let match: RegExpExecArray | null;
   while ((match = pattern.exec(message)) !== null) {
     const key = match[1];
-    if (key) {
+    if (key !== undefined && key !== '') {
       const [prefix, num] = key.toUpperCase().split('-');
       keys.add(`${prefix}-${String(Number(num))}`);
     }

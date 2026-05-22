@@ -22,7 +22,9 @@
     "noPropertyAccessFromIndexSignature": true, // force bracket notation for index sigs
     "allowUnusedLabels": false,             // ERROR on unused labels
     "allowUnreachableCode": false,          // ERROR on unreachable code
-    "verbatimModuleSyntax": false,          // keep false for ESM compat with CJS deps
+    "verbatimModuleSyntax": true,           // erase `import type`, preserve `import` — ESM-correct emit
+    "useUnknownInCatchVariables": true,     // catch (e) → e: unknown, not any
+    "noEmitOnError": true,                  // never emit partial dist/ on TS errors
     "isolatedModules": true,                // each file must be safely transpilable
 
     // ─── Module ─────────────────────────────────────────────────

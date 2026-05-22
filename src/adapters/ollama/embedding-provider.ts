@@ -60,7 +60,7 @@ export class OllamaCodeEmbeddingProvider implements ICodeEmbedding {
     return vectors[0] ?? [];
   }
 
-  rerank(_query: string, docs: RerankDoc[], topK: number): Promise<RerankResult[]> {
+  async rerank(_query: string, docs: RerankDoc[], topK: number): Promise<RerankResult[]> {
     if (docs.length === 0) {
       return Promise.resolve([]);
     }
@@ -68,7 +68,7 @@ export class OllamaCodeEmbeddingProvider implements ICodeEmbedding {
     const results: RerankResult[] = [];
     for (let i = 0; i < limit; i++) {
       const doc = docs[i];
-      if (!doc) { continue; }
+      if (doc === undefined) { continue; }
       results.push({ id: doc.id, score: 1 - i / Math.max(1, docs.length) });
     }
     return Promise.resolve(results);
@@ -140,6 +140,6 @@ function truncate(text: string): string {
   return text.length > MAX_CHARS_PER_INPUT ? text.slice(0, MAX_CHARS_PER_INPUT) : text;
 }
 
-function sleep(ms: number): Promise<void> {
+async function sleep(ms: number): Promise<void> {
   return new Promise((resolve) => setTimeout(resolve, ms));
 }

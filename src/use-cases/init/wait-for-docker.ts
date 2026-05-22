@@ -16,7 +16,7 @@ const DEFAULT_INTERVAL_MS = 5_000;
 export class WaitForDockerUseCase {
   constructor(private readonly docker: IDockerControl) {}
 
-  execute(options: WaitForDockerOptions = {}): Promise<boolean> {
+  async execute(options: WaitForDockerOptions = {}): Promise<boolean> {
     return this.docker.pollUntilRunning(
       options.timeoutMs ?? DEFAULT_TIMEOUT_MS,
       options.intervalMs ?? DEFAULT_INTERVAL_MS,

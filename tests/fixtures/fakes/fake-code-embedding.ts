@@ -17,17 +17,17 @@ export class FakeCodeEmbedding implements ICodeEmbedding {
     this.dimensions = dimensions;
   }
 
-  embedCode(chunks: EmbedChunkInput[]): Promise<number[][]> {
+  async embedCode(chunks: EmbedChunkInput[]): Promise<number[][]> {
     this.embedCalls.push({ kind: 'code', count: chunks.length });
     return Promise.resolve(chunks.map((c) => this.deterministicVector(c.content)));
   }
 
-  embedQuery(query: string): Promise<number[]> {
+  async embedQuery(query: string): Promise<number[]> {
     this.embedCalls.push({ kind: 'query', count: 1 });
     return Promise.resolve(this.deterministicVector(query));
   }
 
-  rerank(
+  async rerank(
     query: string,
     docs: RerankDoc[],
     topK: number,
